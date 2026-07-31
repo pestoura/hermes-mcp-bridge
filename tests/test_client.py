@@ -21,22 +21,42 @@ def settings() -> Settings:
 
 
 @pytest.mark.asyncio
-async def test_submit_prompt_waits_for_completion() -> None:
-    calls = 0
+async def test_submit_prompt_loads_session_history_and_waits_for_completion() -> None:
+    status_calls = 0
 
     def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal calls
+        nonlocal status_calls
         assert request.headers["authorization"] == "Bearer test-key"
+        if request.method == "GET" and request.url.path.endswith("/messages"):
+            return httpx.Response(
+                200,
+                json={
+                    "object": "list",
+                    "session_id": "session-1",
+                    "data": [
+                        {"role": "user", "content": "Earlier request", "timestamp": 1},
+                        {
+                            "role": "assistant",
+                            "content": "Earlier answer",
+                            "timestamp": 2,
+                        },
+                    ],
+                },
+            )
         if request.method == "POST" and request.url.path == "/v1/runs":
             body = json.loads(request.content)
             assert body["input"] == "Validate service Z"
             assert body["session_id"] == "session-1"
+            assert body["conversation_history"] == [
+                {"role": "user", "content": "Earlier request"},
+                {"role": "assistant", "content": "Earlier answer"},
+            ]
             assert "infra" in body["instructions"]
             assert "security" in body["instructions"]
             return httpx.Response(202, json={"run_id": "run-1", "status": "started"})
         if request.method == "GET" and request.url.path == "/v1/runs/run-1":
-            calls += 1
-            if calls == 1:
+            status_calls += 1
+            if status_calls == 1:
                 return httpx.Response(200, json={"run_id": "run-1", "status": "running"})
             return httpx.Response(
                 200,
@@ -67,10 +87,22 @@ async def test_submit_prompt_waits_for_completion() -> None:
 
 
 @pytest.mark.asyncio
-async def test_submit_prompt_can_return_immediately() -> None:
+async def test_submit_prompt_creates_native_session_when_missing() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/v1/runs"
-        return httpx.Response(202, json={"run_id": "run-2", "status": "started"})
+        if request.method == "POST" and request.url.path == "/api/sessions":
+            body = json.loads(request.content)
+            assert body["title"] == "Long task"
+            assert body["model"] == "hermes-agent"
+            return httpx.Response(
+                201,
+                json={"object": "hermes.session", "session": {"id": "session-new"}},
+            )
+        if request.method == "POST" and request.url.path == "/v1/runs":
+            body = json.loads(request.content)
+            assert body["session_id"] == "session-new"
+            assert "conversation_history" not in body
+            return httpx.Response(202, json={"run_id": "run-2", "status": "started"})
+        raise AssertionError(f"Unexpected request: {request.method} {request.url}")
 
     client = HermesClient(
         settings(), transport_factory=lambda: httpx.MockTransport(handler)
@@ -78,17 +110,83 @@ async def test_submit_prompt_can_return_immediately() -> None:
     result = await client.submit_prompt(prompt="Long task", wait_seconds=0)
 
     assert result.execution_id == "run-2"
+    assert result.session_id == "session-new"
     assert result.status == RunStatus.STARTED
 
 
 @pytest.mark.asyncio
-async def test_api_error_is_sanitized_to_bounded_body() -> None:
+async def test_compression_tip_session_id_is_used_for_new_run() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(401, text="denied")
+        if request.method == "GET" and request.url.path.endswith("/messages"):
+            return httpx.Response(
+                200,
+                json={"session_id": "tip-session", "data": []},
+            )
+        if request.method == "POST" and request.url.path == "/v1/runs":
+            body = json.loads(request.content)
+            assert body["session_id"] == "tip-session"
+            return httpx.Response(202, json={"run_id": "run-tip", "status": "started"})
+        raise AssertionError(f"Unexpected request: {request.method} {request.url}")
+
+    client = HermesClient(
+        settings(), transport_factory=lambda: httpx.MockTransport(handler)
+    )
+    result = await client.submit_prompt(
+        prompt="Continue",
+        session_id="source-session",
+        wait_seconds=0,
+    )
+
+    assert result.session_id == "tip-session"
+
+
+@pytest.mark.asyncio
+async def test_unknown_session_is_rejected() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"error": {"message": "not found"}})
+
+    client = HermesClient(
+        settings(), transport_factory=lambda: httpx.MockTransport(handler)
+    )
+
+    with pytest.raises(HermesAPIError, match="Hermes session not found"):
+        await client.submit_prompt(prompt="Continue", session_id="missing")
+
+
+@pytest.mark.asyncio
+async def test_empty_prompt_is_rejected_before_network_call() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError(f"Unexpected request: {request.method} {request.url}")
+
+    client = HermesClient(
+        settings(), transport_factory=lambda: httpx.MockTransport(handler)
+    )
+
+    with pytest.raises(HermesAPIError, match="must not be empty"):
+        await client.submit_prompt(prompt="  \n ")
+
+
+@pytest.mark.asyncio
+async def test_api_error_uses_bounded_structured_message() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"error": {"message": "denied"}})
 
     client = HermesClient(
         settings(), transport_factory=lambda: httpx.MockTransport(handler)
     )
 
     with pytest.raises(HermesAPIError, match="HTTP 401: denied"):
+        await client.health()
+
+
+@pytest.mark.asyncio
+async def test_network_failure_is_normalized() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused", request=request)
+
+    client = HermesClient(
+        settings(), transport_factory=lambda: httpx.MockTransport(handler)
+    )
+
+    with pytest.raises(HermesAPIError, match="Unable to reach"):
         await client.health()
