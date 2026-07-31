@@ -17,14 +17,15 @@ from .models import (
 )
 
 TransportFactory = Callable[[], httpx.AsyncBaseTransport]
+_HISTORY_ROLES = frozenset({"system", "user", "assistant"})
 
 
 class HermesAPIError(RuntimeError):
-    """Raised when the Hermes API returns an invalid or unsuccessful response."""
+    """Raised when the Hermes API is unavailable or returns an invalid response."""
 
 
 class HermesClient:
-    """Small adapter around Hermes' native runs API."""
+    """Small adapter around Hermes' native session and runs APIs."""
 
     def __init__(
         self,
@@ -77,20 +78,36 @@ class HermesClient:
         orchestration: OrchestrationMode = OrchestrationMode.AUTO,
         wait_seconds: float | None = None,
     ) -> HermesPromptResult:
-        """Submit a Hermes run and optionally wait for its terminal result."""
+        """Submit a Hermes run and optionally wait for its terminal result.
 
-        payload: dict[str, Any] = {
-            "input": prompt,
-            "model": self._settings.hermes_model,
-        }
-        if session_id:
-            payload["session_id"] = session_id
-        instructions = self._instructions(agent, subagents, orchestration)
-        if instructions:
-            payload["instructions"] = instructions
+        A missing ``session_id`` creates a native Hermes session. When a session
+        is supplied, its persisted message history is loaded and forwarded to
+        ``/v1/runs`` because that endpoint treats ``session_id`` as a run scope,
+        not as an instruction to load previous messages automatically.
+        """
 
-        async with self._client() as client:
-            response = await client.post("/v1/runs", json=payload)
+        normalized_prompt = prompt.strip()
+        if not normalized_prompt:
+            raise HermesAPIError("Prompt must not be empty")
+
+        async with self._client() as http_client:
+            active_session_id, conversation_history = await self._prepare_session(
+                http_client,
+                prompt=normalized_prompt,
+                session_id=session_id,
+            )
+            payload: dict[str, Any] = {
+                "input": normalized_prompt,
+                "model": self._settings.hermes_model,
+                "session_id": active_session_id,
+            }
+            if conversation_history:
+                payload["conversation_history"] = conversation_history
+            instructions = self._instructions(agent, subagents, orchestration)
+            if instructions:
+                payload["instructions"] = instructions
+
+            response = await self._send(http_client, "POST", "/v1/runs", json=payload)
             data = self._decode(response, expected={200, 201, 202})
 
         execution_id = str(data.get("run_id") or data.get("id") or "")
@@ -100,7 +117,7 @@ class HermesClient:
         initial = self._normalize(
             data,
             execution_id=execution_id,
-            fallback_session_id=session_id,
+            fallback_session_id=active_session_id,
             agent=agent,
             subagents=subagents,
         )
@@ -118,10 +135,72 @@ class HermesClient:
         return await self.wait_for_run(
             execution_id,
             max_wait_seconds=max_wait,
-            fallback_session_id=session_id,
+            fallback_session_id=active_session_id,
             agent=agent,
             subagents=subagents,
         )
+
+    async def _prepare_session(
+        self,
+        client: httpx.AsyncClient,
+        *,
+        prompt: str,
+        session_id: str | None,
+    ) -> tuple[str, list[dict[str, str]]]:
+        if session_id is None:
+            return await self._create_session(client, prompt=prompt), []
+        return await self._load_session_history(client, session_id=session_id)
+
+    async def _create_session(self, client: httpx.AsyncClient, *, prompt: str) -> str:
+        payload = {
+            "title": self._session_title(prompt),
+            "model": self._settings.hermes_model,
+        }
+        response = await self._send(client, "POST", "/api/sessions", json=payload)
+        data = self._decode(response, expected={201})
+        session = data.get("session")
+        session_id = session.get("id") if isinstance(session, dict) else None
+        if not isinstance(session_id, str) or not session_id.strip():
+            raise HermesAPIError("Hermes did not return a native session id")
+        return session_id
+
+    async def _load_session_history(
+        self,
+        client: httpx.AsyncClient,
+        *,
+        session_id: str,
+    ) -> tuple[str, list[dict[str, str]]]:
+        response = await self._send(
+            client,
+            "GET",
+            f"/api/sessions/{session_id}/messages",
+        )
+        if response.status_code == 404:
+            raise HermesAPIError(f"Hermes session not found: {session_id}")
+        data = self._decode(response, expected={200})
+
+        resolved_session_id = data.get("session_id") or session_id
+        if not isinstance(resolved_session_id, str) or not resolved_session_id.strip():
+            resolved_session_id = session_id
+
+        raw_messages = data.get("data")
+        if not isinstance(raw_messages, list):
+            raise HermesAPIError("Hermes session history returned an invalid data field")
+
+        history: list[dict[str, str]] = []
+        for message in raw_messages:
+            if not isinstance(message, dict):
+                continue
+            role = message.get("role")
+            content = message.get("content")
+            if role in _HISTORY_ROLES and isinstance(content, str):
+                history.append({"role": role, "content": content})
+        return resolved_session_id, history
+
+    @staticmethod
+    def _session_title(prompt: str) -> str:
+        first_line = prompt.splitlines()[0].strip()
+        return (first_line or "MCP delegated task")[:80]
 
     async def get_run(
         self,
@@ -134,7 +213,7 @@ class HermesClient:
         """Retrieve and normalize one run."""
 
         async with self._client() as client:
-            response = await client.get(f"/v1/runs/{execution_id}")
+            response = await self._send(client, "GET", f"/v1/runs/{execution_id}")
             data = self._decode(response, expected={200})
         return self._normalize(
             data,
@@ -163,8 +242,13 @@ class HermesClient:
             agent=agent,
             subagents=subagents,
         )
-        while latest.status not in TERMINAL_STATUSES and loop.time() < deadline:
-            await asyncio.sleep(self._settings.hermes_run_poll_interval_seconds)
+        while latest.status not in TERMINAL_STATUSES:
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                break
+            await asyncio.sleep(
+                min(self._settings.hermes_run_poll_interval_seconds, remaining)
+            )
             latest = await self.get_run(
                 execution_id,
                 fallback_session_id=fallback_session_id,
@@ -177,7 +261,11 @@ class HermesClient:
         """Ask Hermes to stop a run at its next safe interruption point."""
 
         async with self._client() as client:
-            response = await client.post(f"/v1/runs/{execution_id}/stop")
+            response = await self._send(
+                client,
+                "POST",
+                f"/v1/runs/{execution_id}/stop",
+            )
             data = self._decode(response, expected={200, 202})
         return self._normalize(data, execution_id=execution_id)
 
@@ -186,15 +274,29 @@ class HermesClient:
 
         path = "/health/detailed" if detailed else "/health"
         async with self._client() as client:
-            response = await client.get(path)
+            response = await self._send(client, "GET", path)
             return self._decode(response, expected={200})
+
+    @staticmethod
+    async def _send(
+        client: httpx.AsyncClient,
+        method: str,
+        path: str,
+        **kwargs: Any,
+    ) -> httpx.Response:
+        try:
+            return await client.request(method, path, **kwargs)
+        except httpx.TimeoutException as exc:
+            raise HermesAPIError("Hermes API request timed out") from exc
+        except httpx.RequestError as exc:
+            raise HermesAPIError("Unable to reach the Hermes API server") from exc
 
     @staticmethod
     def _decode(response: httpx.Response, *, expected: set[int]) -> dict[str, Any]:
         if response.status_code not in expected:
-            body = response.text[:2000]
+            detail = HermesClient._error_detail(response)
             raise HermesAPIError(
-                f"Hermes API returned HTTP {response.status_code}: {body or '<empty>'}"
+                f"Hermes API returned HTTP {response.status_code}: {detail}"
             )
         try:
             data = response.json()
@@ -203,6 +305,22 @@ class HermesClient:
         if not isinstance(data, dict):
             raise HermesAPIError("Hermes API returned a non-object JSON response")
         return data
+
+    @staticmethod
+    def _error_detail(response: httpx.Response) -> str:
+        try:
+            payload = response.json()
+        except ValueError:
+            return response.text.strip()[:500] or "empty response"
+        if isinstance(payload, dict):
+            error = payload.get("error")
+            if isinstance(error, dict):
+                message = error.get("message")
+                if isinstance(message, str) and message.strip():
+                    return message.strip()[:500]
+            if isinstance(error, str) and error.strip():
+                return error.strip()[:500]
+        return "unexpected error response"
 
     @staticmethod
     def _normalize_status(raw: Any) -> RunStatus:
@@ -234,11 +352,14 @@ class HermesClient:
         error = data.get("error")
         if isinstance(error, dict):
             error = error.get("message") or str(error)
+        output = data.get("output") or data.get("response")
+        if output is not None and not isinstance(output, str):
+            output = str(output)
         return HermesPromptResult(
             session_id=data.get("session_id") or fallback_session_id,
             execution_id=execution_id,
             status=cls._normalize_status(data.get("status")),
-            output=data.get("output") or data.get("response"),
+            output=output,
             error=str(error) if error else None,
             agent=data.get("agent") or agent,
             subagents=list(data.get("subagents") or subagents or []),
