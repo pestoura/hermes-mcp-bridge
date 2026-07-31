@@ -8,7 +8,7 @@ from mcp.server.fastmcp import FastMCP
 
 from .client import HermesAPIError, HermesClient
 from .config import get_settings
-from .models import HermesPromptResult, OrchestrationMode
+from .models import HermesPromptResult, OrchestrationMode, RunStatus
 
 settings = get_settings()
 client = HermesClient(settings)
@@ -19,7 +19,8 @@ mcp = FastMCP(
         "Delegate natural-language objectives to hermes-agent. Hermes owns execution, "
         "tools, skills, agents, subagents, network access, and Kanban operations. "
         "Use hermes_prompt for new work, hermes_status for long runs, and hermes_stop "
-        "only when the user requests cancellation."
+        "only when the user requests cancellation. Reuse the native Hermes session_id "
+        "returned by hermes_prompt when continuing the same task."
     ),
     host=settings.mcp_host,
     port=settings.mcp_port,
@@ -42,8 +43,9 @@ async def hermes_prompt(
 
     Hermes performs the actual planning and execution using its configured tools,
     skills, agents, subagents, credentials, servers, and Kanban integrations.
-    Set ``session_id`` to continue a prior Hermes session. ``agent`` and
-    ``subagents`` are optional routing hints; omit them to let Hermes decide.
+    Omit ``session_id`` to create a native Hermes session. Reuse the returned
+    ``session_id`` to continue that session with its persisted history. ``agent``
+    and ``subagents`` are optional routing hints; omit them to let Hermes decide.
     If the wait budget expires, this tool returns the current status and
     ``execution_id`` for a later ``hermes_status`` call.
     """
@@ -97,7 +99,7 @@ async def hermes_health(detailed: bool = False) -> dict[str, Any]:
 def _error_result(message: str, *, execution_id: str = "not-created") -> HermesPromptResult:
     return HermesPromptResult(
         execution_id=execution_id,
-        status="failed",
+        status=RunStatus.FAILED,
         error=message,
     )
 
