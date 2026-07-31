@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import math
+import re
 from collections.abc import Callable
 from typing import Any
 
@@ -18,6 +20,10 @@ from .models import (
 
 TransportFactory = Callable[[], httpx.AsyncBaseTransport]
 _HISTORY_ROLES = frozenset({"system", "user", "assistant"})
+_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+_MAX_PROMPT_CHARS = 200_000
+_MAX_AGENT_HINT_CHARS = 128
+_MAX_SUBAGENTS = 16
 
 
 class HermesAPIError(RuntimeError):
@@ -55,6 +61,14 @@ class HermesClient:
         subagents: list[str] | None,
         orchestration: OrchestrationMode,
     ) -> str | None:
+        if agent is not None and len(agent) > _MAX_AGENT_HINT_CHARS:
+            raise HermesAPIError("Agent hint is too long")
+        if subagents is not None:
+            if len(subagents) > _MAX_SUBAGENTS:
+                raise HermesAPIError("Too many subagent hints")
+            if any(len(name) > _MAX_AGENT_HINT_CHARS for name in subagents):
+                raise HermesAPIError("A subagent hint is too long")
+
         parts: list[str] = []
         if agent:
             parts.append(f"Use the Hermes agent/profile '{agent}' as the primary agent.")
@@ -89,6 +103,11 @@ class HermesClient:
         normalized_prompt = prompt.strip()
         if not normalized_prompt:
             raise HermesAPIError("Prompt must not be empty")
+        if len(normalized_prompt) > _MAX_PROMPT_CHARS:
+            raise HermesAPIError("Prompt exceeds the bridge size limit")
+
+        instructions = self._instructions(agent, subagents, orchestration)
+        max_wait = self._bounded_wait(wait_seconds)
 
         async with self._client() as http_client:
             active_session_id, conversation_history = await self._prepare_session(
@@ -103,7 +122,6 @@ class HermesClient:
             }
             if conversation_history:
                 payload["conversation_history"] = conversation_history
-            instructions = self._instructions(agent, subagents, orchestration)
             if instructions:
                 payload["instructions"] = instructions
 
@@ -111,8 +129,7 @@ class HermesClient:
             data = self._decode(response, expected={200, 201, 202})
 
         execution_id = str(data.get("run_id") or data.get("id") or "")
-        if not execution_id:
-            raise HermesAPIError("Hermes did not return run_id or id")
+        self._validate_identifier(execution_id, label="execution_id")
 
         initial = self._normalize(
             data,
@@ -121,15 +138,7 @@ class HermesClient:
             agent=agent,
             subagents=subagents,
         )
-        if initial.status in TERMINAL_STATUSES:
-            return initial
-
-        max_wait = (
-            self._settings.hermes_run_max_wait_seconds
-            if wait_seconds is None
-            else max(0.0, wait_seconds)
-        )
-        if max_wait == 0:
+        if initial.status in TERMINAL_STATUSES or max_wait == 0:
             return initial
 
         return await self.wait_for_run(
@@ -140,6 +149,14 @@ class HermesClient:
             subagents=subagents,
         )
 
+    def _bounded_wait(self, wait_seconds: float | None) -> float:
+        configured_max = self._settings.hermes_run_max_wait_seconds
+        if wait_seconds is None:
+            return configured_max
+        if not math.isfinite(wait_seconds):
+            raise HermesAPIError("wait_seconds must be a finite number")
+        return min(max(0.0, wait_seconds), configured_max)
+
     async def _prepare_session(
         self,
         client: httpx.AsyncClient,
@@ -149,6 +166,7 @@ class HermesClient:
     ) -> tuple[str, list[dict[str, str]]]:
         if session_id is None:
             return await self._create_session(client, prompt=prompt), []
+        self._validate_identifier(session_id, label="session_id")
         return await self._load_session_history(client, session_id=session_id)
 
     async def _create_session(self, client: httpx.AsyncClient, *, prompt: str) -> str:
@@ -160,8 +178,9 @@ class HermesClient:
         data = self._decode(response, expected={201})
         session = data.get("session")
         session_id = session.get("id") if isinstance(session, dict) else None
-        if not isinstance(session_id, str) or not session_id.strip():
+        if not isinstance(session_id, str):
             raise HermesAPIError("Hermes did not return a native session id")
+        self._validate_identifier(session_id, label="session_id")
         return session_id
 
     async def _load_session_history(
@@ -180,8 +199,9 @@ class HermesClient:
         data = self._decode(response, expected={200})
 
         resolved_session_id = data.get("session_id") or session_id
-        if not isinstance(resolved_session_id, str) or not resolved_session_id.strip():
+        if not isinstance(resolved_session_id, str):
             resolved_session_id = session_id
+        self._validate_identifier(resolved_session_id, label="session_id")
 
         raw_messages = data.get("data")
         if not isinstance(raw_messages, list):
@@ -202,6 +222,11 @@ class HermesClient:
         first_line = prompt.splitlines()[0].strip()
         return (first_line or "MCP delegated task")[:80]
 
+    @staticmethod
+    def _validate_identifier(value: str, *, label: str) -> None:
+        if not _IDENTIFIER_RE.fullmatch(value):
+            raise HermesAPIError(f"Invalid Hermes {label}")
+
     async def get_run(
         self,
         execution_id: str,
@@ -212,6 +237,7 @@ class HermesClient:
     ) -> HermesPromptResult:
         """Retrieve and normalize one run."""
 
+        self._validate_identifier(execution_id, label="execution_id")
         async with self._client() as client:
             response = await self._send(client, "GET", f"/v1/runs/{execution_id}")
             data = self._decode(response, expected={200})
@@ -260,6 +286,7 @@ class HermesClient:
     async def stop_run(self, execution_id: str) -> HermesPromptResult:
         """Ask Hermes to stop a run at its next safe interruption point."""
 
+        self._validate_identifier(execution_id, label="execution_id")
         async with self._client() as client:
             response = await self._send(
                 client,
@@ -311,7 +338,7 @@ class HermesClient:
         try:
             payload = response.json()
         except ValueError:
-            return response.text.strip()[:500] or "empty response"
+            return response.reason_phrase or "non-JSON error response"
         if isinstance(payload, dict):
             error = payload.get("error")
             if isinstance(error, dict):
