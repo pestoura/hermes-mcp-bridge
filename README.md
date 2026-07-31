@@ -29,6 +29,8 @@ The bridge does **not** execute shell commands or manage infrastructure itself. 
 
 Omit `session_id` on the first `hermes_prompt` call. The bridge creates a native Hermes session and returns its identifier. Reuse that returned identifier on later calls.
 
+Every new native session title combines a bounded prompt summary with a random MCP suffix. If Hermes still reports a duplicate-title collision, the bridge generates another title and retries up to three times.
+
 The bridge does not keep its own conversation database. Before each follow-up it loads the persisted messages from Hermes and passes them to the new run. If Hermes compacts or advances a session, the resolved native session identifier is returned to the MCP client.
 
 ## Requirements
