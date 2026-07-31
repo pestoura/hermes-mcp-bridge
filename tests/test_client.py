@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -88,11 +89,18 @@ async def test_submit_prompt_loads_session_history_and_waits_for_completion() ->
 
 
 @pytest.mark.asyncio
-async def test_submit_prompt_creates_native_session_when_missing() -> None:
+async def test_submit_prompt_creates_native_session_when_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "hermes_mcp_bridge.client.uuid.uuid4",
+        lambda: SimpleNamespace(hex="1234567890abcdef"),
+    )
+
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == "POST" and request.url.path == "/api/sessions":
             body = json.loads(request.content)
-            assert body["title"] == "Long task"
+            assert body["title"] == "Long task [mcp-1234567890ab]"
             assert body["model"] == "hermes-agent"
             return httpx.Response(
                 201,
@@ -113,6 +121,63 @@ async def test_submit_prompt_creates_native_session_when_missing() -> None:
     assert result.execution_id == "run-2"
     assert result.session_id == "session-new"
     assert result.status == RunStatus.STARTED
+
+
+@pytest.mark.asyncio
+async def test_duplicate_session_title_is_retried(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    identifiers = iter(("aaaaaaaaaaaa0000", "bbbbbbbbbbbb0000"))
+    monkeypatch.setattr(
+        "hermes_mcp_bridge.client.uuid.uuid4",
+        lambda: SimpleNamespace(hex=next(identifiers)),
+    )
+    titles: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST" and request.url.path == "/api/sessions":
+            body = json.loads(request.content)
+            titles.append(body["title"])
+            if len(titles) == 1:
+                return httpx.Response(
+                    400,
+                    json={
+                        "error": {
+                            "message": "Title already in use by session api_existing"
+                        }
+                    },
+                )
+            return httpx.Response(
+                201,
+                json={"object": "hermes.session", "session": {"id": "session-retry"}},
+            )
+        if request.method == "POST" and request.url.path == "/v1/runs":
+            return httpx.Response(202, json={"run_id": "run-retry", "status": "started"})
+        raise AssertionError(f"Unexpected request: {request.method} {request.url}")
+
+    client = HermesClient(
+        settings(), transport_factory=lambda: httpx.MockTransport(handler)
+    )
+    result = await client.submit_prompt(prompt="Repeated task", wait_seconds=0)
+
+    assert titles == [
+        "Repeated task [mcp-aaaaaaaaaaaa]",
+        "Repeated task [mcp-bbbbbbbbbbbb]",
+    ]
+    assert result.session_id == "session-retry"
+    assert result.execution_id == "run-retry"
+
+
+def test_session_title_is_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "hermes_mcp_bridge.client.uuid.uuid4",
+        lambda: SimpleNamespace(hex="1234567890abcdef"),
+    )
+
+    title = HermesClient._session_title("x" * 200)
+
+    assert len(title) == 80
+    assert title.endswith(" [mcp-1234567890ab]")
 
 
 @pytest.mark.asyncio
