@@ -1,0 +1,29 @@
+services:
+  hermes-mcp-bridge:
+    build: .
+    image: ghcr.io/pestoura/hermes-mcp-bridge:local
+    container_name: hermes-mcp-bridge
+    restart: unless-stopped
+    init: true
+    network_mode: host
+    env_file:
+      - .env
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import os,socket;
+          s=socket.create_connection(('127.0.0.1',int(os.environ.get('MCP_PORT','8765'))),3);
+          s.close()"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    stop_grace_period: 20s
