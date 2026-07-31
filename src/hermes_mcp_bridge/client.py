@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import math
 import re
+import uuid
 from collections.abc import Callable
 from typing import Any
 
@@ -24,6 +25,8 @@ _IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _MAX_PROMPT_CHARS = 200_000
 _MAX_AGENT_HINT_CHARS = 128
 _MAX_SUBAGENTS = 16
+_SESSION_TITLE_MAX_CHARS = 80
+_SESSION_CREATE_ATTEMPTS = 3
 
 
 class HermesAPIError(RuntimeError):
@@ -170,18 +173,30 @@ class HermesClient:
         return await self._load_session_history(client, session_id=session_id)
 
     async def _create_session(self, client: httpx.AsyncClient, *, prompt: str) -> str:
-        payload = {
-            "title": self._session_title(prompt),
-            "model": self._settings.hermes_model,
-        }
-        response = await self._send(client, "POST", "/api/sessions", json=payload)
-        data = self._decode(response, expected={201})
-        session = data.get("session")
-        session_id = session.get("id") if isinstance(session, dict) else None
-        if not isinstance(session_id, str):
-            raise HermesAPIError("Hermes did not return a native session id")
-        self._validate_identifier(session_id, label="session_id")
-        return session_id
+        last_response: httpx.Response | None = None
+        for _ in range(_SESSION_CREATE_ATTEMPTS):
+            payload = {
+                "title": self._session_title(prompt),
+                "model": self._settings.hermes_model,
+            }
+            response = await self._send(client, "POST", "/api/sessions", json=payload)
+            last_response = response
+            if response.status_code == 201:
+                data = self._decode(response, expected={201})
+                session = data.get("session")
+                session_id = session.get("id") if isinstance(session, dict) else None
+                if not isinstance(session_id, str):
+                    raise HermesAPIError("Hermes did not return a native session id")
+                self._validate_identifier(session_id, label="session_id")
+                return session_id
+            if not self._is_duplicate_session_title(response):
+                self._decode(response, expected={201})
+
+        if last_response is None:
+            raise HermesAPIError("Hermes session creation did not run")
+        raise HermesAPIError(
+            "Hermes rejected multiple unique session titles; session was not created"
+        )
 
     async def _load_session_history(
         self,
@@ -219,8 +234,16 @@ class HermesClient:
 
     @staticmethod
     def _session_title(prompt: str) -> str:
-        first_line = prompt.splitlines()[0].strip()
-        return (first_line or "MCP delegated task")[:80]
+        suffix = f" [mcp-{uuid.uuid4().hex[:12]}]"
+        first_line = prompt.splitlines()[0].strip() or "MCP delegated task"
+        available = _SESSION_TITLE_MAX_CHARS - len(suffix)
+        return f"{first_line[:available]}{suffix}"
+
+    @staticmethod
+    def _is_duplicate_session_title(response: httpx.Response) -> bool:
+        if response.status_code != 400:
+            return False
+        return "title already in use" in HermesClient._error_detail(response).lower()
 
     @staticmethod
     def _validate_identifier(value: str, *, label: str) -> None:
