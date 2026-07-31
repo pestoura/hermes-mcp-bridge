@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 
 import httpx
 import pytest
@@ -164,6 +165,56 @@ async def test_empty_prompt_is_rejected_before_network_call() -> None:
 
     with pytest.raises(HermesAPIError, match="must not be empty"):
         await client.submit_prompt(prompt="  \n ")
+
+
+@pytest.mark.asyncio
+async def test_invalid_session_identifier_is_rejected_before_network_call() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError(f"Unexpected request: {request.method} {request.url}")
+
+    client = HermesClient(
+        settings(), transport_factory=lambda: httpx.MockTransport(handler)
+    )
+
+    with pytest.raises(HermesAPIError, match="Invalid Hermes session_id"):
+        await client.submit_prompt(prompt="Continue", session_id="../other-session")
+
+
+@pytest.mark.asyncio
+async def test_invalid_execution_identifier_is_rejected_before_network_call() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError(f"Unexpected request: {request.method} {request.url}")
+
+    client = HermesClient(
+        settings(), transport_factory=lambda: httpx.MockTransport(handler)
+    )
+
+    with pytest.raises(HermesAPIError, match="Invalid Hermes execution_id"):
+        await client.get_run("../../run")
+    with pytest.raises(HermesAPIError, match="Invalid Hermes execution_id"):
+        await client.stop_run("run/other")
+
+
+@pytest.mark.asyncio
+async def test_non_finite_wait_is_rejected_before_network_call() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError(f"Unexpected request: {request.method} {request.url}")
+
+    client = HermesClient(
+        settings(), transport_factory=lambda: httpx.MockTransport(handler)
+    )
+
+    for value in (math.inf, -math.inf, math.nan):
+        with pytest.raises(HermesAPIError, match="finite number"):
+            await client.submit_prompt(prompt="Task", wait_seconds=value)
+
+
+def test_wait_budget_is_capped_by_configuration() -> None:
+    client = HermesClient(settings())
+
+    assert client._bounded_wait(None) == pytest.approx(0.1)
+    assert client._bounded_wait(0) == 0
+    assert client._bounded_wait(999) == pytest.approx(0.1)
 
 
 @pytest.mark.asyncio
