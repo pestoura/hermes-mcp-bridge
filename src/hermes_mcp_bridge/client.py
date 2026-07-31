@@ -62,7 +62,8 @@ class HermesClient:
             parts.append(f"Use these subagents when appropriate: {names}.")
         if orchestration == OrchestrationMode.EXPLICIT:
             parts.append(
-                "Follow the requested agent assignment explicitly and report which agents were used."
+                "Follow the requested agent assignment explicitly and report which "
+                "agents were used."
             )
         return " ".join(parts) or None
 
@@ -212,8 +213,9 @@ class HermesClient:
             "in_progress": RunStatus.RUNNING,
             "stopped": RunStatus.CANCELLED,
         }
-        if value in aliases:
-            return aliases[value]
+        alias = aliases.get(value)
+        if alias is not None:
+            return alias
         try:
             return RunStatus(value)
         except ValueError:
