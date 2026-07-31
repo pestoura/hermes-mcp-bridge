@@ -42,44 +42,46 @@ def _tool_result_payload(result: Any) -> Any:
 
 
 async def _run(url: str, prompt: str | None, wait_seconds: float) -> None:
-    async with streamable_http_client(url) as (read_stream, write_stream, _):
-        async with ClientSession(read_stream, write_stream) as session:
-            await session.initialize()
+    async with (
+        streamable_http_client(url) as (read_stream, write_stream, _),
+        ClientSession(read_stream, write_stream) as session,
+    ):
+        await session.initialize()
 
-            tool_list = await session.list_tools()
-            names = {tool.name for tool in tool_list.tools}
-            missing = sorted(EXPECTED_TOOLS - names)
-            print(json.dumps({"tools": sorted(names), "missing": missing}, indent=2))
-            if missing:
-                raise RuntimeError(f"Missing expected MCP tools: {', '.join(missing)}")
+        tool_list = await session.list_tools()
+        names = {tool.name for tool in tool_list.tools}
+        missing = sorted(EXPECTED_TOOLS - names)
+        print(json.dumps({"tools": sorted(names), "missing": missing}, indent=2))
+        if missing:
+            raise RuntimeError(f"Missing expected MCP tools: {', '.join(missing)}")
 
-            health = await session.call_tool(
-                "hermes_health",
-                arguments={"detailed": False},
+        health = await session.call_tool(
+            "hermes_health",
+            arguments={"detailed": False},
+        )
+        print(
+            json.dumps(
+                {"hermes_health": _tool_result_payload(health)},
+                indent=2,
+                default=str,
+            )
+        )
+
+        if prompt is not None:
+            result = await session.call_tool(
+                "hermes_prompt",
+                arguments={
+                    "prompt": prompt,
+                    "wait_seconds": wait_seconds,
+                },
             )
             print(
                 json.dumps(
-                    {"hermes_health": _tool_result_payload(health)},
+                    {"hermes_prompt": _tool_result_payload(result)},
                     indent=2,
                     default=str,
                 )
             )
-
-            if prompt is not None:
-                result = await session.call_tool(
-                    "hermes_prompt",
-                    arguments={
-                        "prompt": prompt,
-                        "wait_seconds": wait_seconds,
-                    },
-                )
-                print(
-                    json.dumps(
-                        {"hermes_prompt": _tool_result_payload(result)},
-                        indent=2,
-                        default=str,
-                    )
-                )
 
 
 def main() -> None:
