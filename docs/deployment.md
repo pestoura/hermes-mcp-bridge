@@ -40,10 +40,12 @@ Required local duration campaign:
 - Tunnel: dedicated `hermes-mcp` connector, isolated from other tunnels.
 - Bridge listener: `127.0.0.1:8765` only.
 - Hermes API listener: `127.0.0.1:8642` only.
-- No public inbound ports beyond Cloudflare Tunnel ingress.
+- No inbound ports are opened. cloudflared establishes outbound-only connections to Cloudflare.
 - No secrets in Git; service token material is stored outside the repository with restricted filesystem permissions.
-- Rotation and revocation are performed by replacing the service token and redeploying the connector reference.
-- Rollback: stop `cloudflared-hermes-mcp.service`, restore the previous token reference, and remove the Access policy change if required.
+- Cloudflare Access service token and Cloudflare Tunnel token are independent credentials with separate rotation paths.
+- Cloudflare Access service token rotation: generate a new Client Secret, distribute it to MCP clients, then revoke the previous secret; definitive revocation is performed by deleting the service token. This does not require changing the tunnel token or cloudflared configuration.
+- Cloudflare Tunnel token rotation: update the protected token file used by `cloudflared-hermes-mcp.service` and restart/control the service. This does not change the Cloudflare Access service token.
+- Rollback: stop and disable `cloudflared-hermes-mcp.service`; confirm the endpoint no longer routes traffic; keep Access protection while the route/DNS still exist; remove the route and DNS only in final deactivation; revoke the Access service token separately; do not remove the Access policy while the tunnel remains active.
 
 ### Validated operational evidence
 
