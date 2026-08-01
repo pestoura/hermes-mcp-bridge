@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import math
 import re
 import uuid
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
@@ -20,6 +22,7 @@ from .models import (
 )
 
 TransportFactory = Callable[[], httpx.AsyncBaseTransport]
+ProgressCallback = Callable[[dict[str, Any]], Awaitable[None]]
 _HISTORY_ROLES = frozenset({"system", "user", "assistant"})
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _MAX_PROMPT_CHARS = 200_000
@@ -27,6 +30,12 @@ _MAX_AGENT_HINT_CHARS = 128
 _MAX_SUBAGENTS = 16
 _SESSION_TITLE_MAX_CHARS = 80
 _SESSION_CREATE_ATTEMPTS = 3
+_TERMINAL_EVENT_TYPES = frozenset({"run.completed", "run.failed", "run.cancelled"})
+
+
+@dataclass(frozen=True)
+class _EventStreamEnd:
+    error: str | None = None
 
 
 class HermesAPIError(RuntimeError):
@@ -45,8 +54,17 @@ class HermesClient:
         self._settings = settings
         self._transport_factory = transport_factory
 
-    def _client(self) -> httpx.AsyncClient:
+    def _client(self, *, event_stream: bool = False) -> httpx.AsyncClient:
         transport = self._transport_factory() if self._transport_factory else None
+        if event_stream:
+            timeout = httpx.Timeout(
+                connect=self._settings.hermes_event_stream_connect_timeout_seconds,
+                read=None,
+                write=self._settings.hermes_request_timeout_seconds,
+                pool=self._settings.hermes_request_timeout_seconds,
+            )
+        else:
+            timeout = httpx.Timeout(self._settings.hermes_request_timeout_seconds)
         return httpx.AsyncClient(
             base_url=self._settings.hermes_api_base_url.rstrip("/"),
             headers={
@@ -54,7 +72,7 @@ class HermesClient:
                 "Accept": "application/json",
                 "Content-Type": "application/json",
             },
-            timeout=httpx.Timeout(self._settings.hermes_request_timeout_seconds),
+            timeout=timeout,
             transport=transport,
         )
 
@@ -94,14 +112,10 @@ class HermesClient:
         subagents: list[str] | None = None,
         orchestration: OrchestrationMode = OrchestrationMode.AUTO,
         wait_seconds: float | None = None,
+        progress_callback: ProgressCallback | None = None,
+        stop_on_cancel: bool = False,
     ) -> HermesPromptResult:
-        """Submit a Hermes run and optionally wait for its terminal result.
-
-        A missing ``session_id`` creates a native Hermes session. When a session
-        is supplied, its persisted message history is loaded and forwarded to
-        ``/v1/runs`` because that endpoint treats ``session_id`` as a run scope,
-        not as an instruction to load previous messages automatically.
-        """
+        """Submit a Hermes run and optionally keep the request connected."""
 
         normalized_prompt = prompt.strip()
         if not normalized_prompt:
@@ -141,16 +155,34 @@ class HermesClient:
             agent=agent,
             subagents=subagents,
         )
+        await self._notify_progress(
+            progress_callback,
+            {
+                "event": "bridge.run.accepted",
+                "run_id": execution_id,
+                "session_id": active_session_id,
+                "status": initial.status.value,
+            },
+        )
         if initial.status in TERMINAL_STATUSES or max_wait == 0:
             return initial
 
-        return await self.wait_for_run(
-            execution_id,
-            max_wait_seconds=max_wait,
-            fallback_session_id=active_session_id,
-            agent=agent,
-            subagents=subagents,
-        )
+        try:
+            return await self.wait_for_run(
+                execution_id,
+                max_wait_seconds=max_wait,
+                fallback_session_id=active_session_id,
+                agent=agent,
+                subagents=subagents,
+                progress_callback=progress_callback,
+            )
+        except asyncio.CancelledError:
+            if stop_on_cancel:
+                try:
+                    await asyncio.shield(self.stop_run(execution_id))
+                except HermesAPIError:
+                    pass
+            raise
 
     def _bounded_wait(self, wait_seconds: float | None) -> float:
         configured_max = self._settings.hermes_run_max_wait_seconds
@@ -280,11 +312,158 @@ class HermesClient:
         fallback_session_id: str | None = None,
         agent: str | None = None,
         subagents: list[str] | None = None,
+        progress_callback: ProgressCallback | None = None,
     ) -> HermesPromptResult:
-        """Poll until the run finishes or the MCP-side wait budget expires."""
+        """Wait for a run using Hermes SSE events with polling fallback."""
 
+        self._validate_identifier(execution_id, label="execution_id")
+        if max_wait_seconds <= 0:
+            return await self.get_run(
+                execution_id,
+                fallback_session_id=fallback_session_id,
+                agent=agent,
+                subagents=subagents,
+            )
+        if progress_callback is None:
+            return await self._wait_for_run_polling(
+                execution_id,
+                max_wait_seconds=max_wait_seconds,
+                fallback_session_id=fallback_session_id,
+                agent=agent,
+                subagents=subagents,
+            )
+        return await self._wait_for_run_connected(
+            execution_id,
+            max_wait_seconds=max_wait_seconds,
+            fallback_session_id=fallback_session_id,
+            agent=agent,
+            subagents=subagents,
+            progress_callback=progress_callback,
+        )
+
+    async def _wait_for_run_connected(
+        self,
+        execution_id: str,
+        *,
+        max_wait_seconds: float,
+        fallback_session_id: str | None,
+        agent: str | None,
+        subagents: list[str] | None,
+        progress_callback: ProgressCallback,
+    ) -> HermesPromptResult:
         loop = asyncio.get_running_loop()
+        started_at = loop.time()
+        deadline = started_at + max_wait_seconds
+        queue: asyncio.Queue[dict[str, Any] | _EventStreamEnd] = asyncio.Queue()
+        reader_task = asyncio.create_task(self._read_run_events(execution_id, queue))
+        terminal_event_seen = False
+        stream_error: str | None = None
+        next_heartbeat_at = started_at + self._settings.hermes_progress_interval_seconds
+
+        try:
+            while True:
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    break
+                timeout = min(self._settings.hermes_progress_interval_seconds, remaining)
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=timeout)
+                except asyncio.TimeoutError:
+                    latest = await self.get_run(
+                        execution_id,
+                        fallback_session_id=fallback_session_id,
+                        agent=agent,
+                        subagents=subagents,
+                    )
+                    await self._notify_progress(
+                        progress_callback,
+                        {
+                            "event": "bridge.heartbeat",
+                            "run_id": execution_id,
+                            "status": latest.status.value,
+                            "elapsed_seconds": round(loop.time() - started_at, 1),
+                        },
+                    )
+                    next_heartbeat_at = (
+                        loop.time() + self._settings.hermes_progress_interval_seconds
+                    )
+                    if latest.status in TERMINAL_STATUSES:
+                        return latest
+                    continue
+
+                if isinstance(item, _EventStreamEnd):
+                    stream_error = item.error
+                    break
+
+                await self._notify_progress(progress_callback, item)
+                event_type = str(item.get("event") or "")
+                if event_type in _TERMINAL_EVENT_TYPES:
+                    terminal_event_seen = True
+                    break
+                if loop.time() >= next_heartbeat_at:
+                    await self._notify_progress(
+                        progress_callback,
+                        {
+                            "event": "bridge.heartbeat",
+                            "run_id": execution_id,
+                            "status": "running",
+                            "elapsed_seconds": round(loop.time() - started_at, 1),
+                        },
+                    )
+                    next_heartbeat_at = (
+                        loop.time() + self._settings.hermes_progress_interval_seconds
+                    )
+        finally:
+            if not reader_task.done():
+                reader_task.cancel()
+            try:
+                await reader_task
+            except asyncio.CancelledError:
+                pass
+
+        if terminal_event_seen:
+            return await self.get_run(
+                execution_id,
+                fallback_session_id=fallback_session_id,
+                agent=agent,
+                subagents=subagents,
+            )
+
+        remaining = max(0.0, deadline - loop.time())
+        await self._notify_progress(
+            progress_callback,
+            {
+                "event": "bridge.event_stream_fallback",
+                "run_id": execution_id,
+                "error": stream_error,
+                "remaining_seconds": round(remaining, 1),
+            },
+        )
+        return await self._wait_for_run_polling(
+            execution_id,
+            max_wait_seconds=remaining,
+            fallback_session_id=fallback_session_id,
+            agent=agent,
+            subagents=subagents,
+            progress_callback=progress_callback,
+            started_at=started_at,
+        )
+
+    async def _wait_for_run_polling(
+        self,
+        execution_id: str,
+        *,
+        max_wait_seconds: float,
+        fallback_session_id: str | None = None,
+        agent: str | None = None,
+        subagents: list[str] | None = None,
+        progress_callback: ProgressCallback | None = None,
+        started_at: float | None = None,
+    ) -> HermesPromptResult:
+        loop = asyncio.get_running_loop()
+        started_at = loop.time() if started_at is None else started_at
         deadline = loop.time() + max_wait_seconds
+        next_progress_at = loop.time() + self._settings.hermes_progress_interval_seconds
         latest = await self.get_run(
             execution_id,
             fallback_session_id=fallback_session_id,
@@ -294,6 +473,15 @@ class HermesClient:
         while latest.status not in TERMINAL_STATUSES:
             remaining = deadline - loop.time()
             if remaining <= 0:
+                await self._notify_progress(
+                    progress_callback,
+                    {
+                        "event": "bridge.wait_expired",
+                        "run_id": execution_id,
+                        "status": latest.status.value,
+                        "elapsed_seconds": round(loop.time() - started_at, 1),
+                    },
+                )
                 break
             await asyncio.sleep(
                 min(self._settings.hermes_run_poll_interval_seconds, remaining)
@@ -304,7 +492,81 @@ class HermesClient:
                 agent=agent,
                 subagents=subagents,
             )
+            if loop.time() >= next_progress_at and latest.status not in TERMINAL_STATUSES:
+                await self._notify_progress(
+                    progress_callback,
+                    {
+                        "event": "bridge.heartbeat",
+                        "run_id": execution_id,
+                        "status": latest.status.value,
+                        "elapsed_seconds": round(loop.time() - started_at, 1),
+                    },
+                )
+                next_progress_at = (
+                    loop.time() + self._settings.hermes_progress_interval_seconds
+                )
         return latest
+
+    async def _read_run_events(
+        self,
+        execution_id: str,
+        queue: asyncio.Queue[dict[str, Any] | _EventStreamEnd],
+    ) -> None:
+        try:
+            async with self._client(event_stream=True) as client:
+                async with client.stream(
+                    "GET",
+                    f"/v1/runs/{execution_id}/events",
+                    headers={"Accept": "text/event-stream"},
+                ) as response:
+                    if response.status_code != 200:
+                        await response.aread()
+                        raise HermesAPIError(
+                            "Hermes event stream returned "
+                            f"HTTP {response.status_code}: {self._error_detail(response)}"
+                        )
+                    data_lines: list[str] = []
+                    async for line in response.aiter_lines():
+                        if not line:
+                            await self._queue_sse_event(data_lines, queue)
+                            data_lines.clear()
+                        elif line.startswith("data:"):
+                            data_lines.append(line[5:].lstrip())
+                    await self._queue_sse_event(data_lines, queue)
+            await queue.put(_EventStreamEnd())
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            await queue.put(_EventStreamEnd(error=str(exc)))
+
+    @staticmethod
+    async def _queue_sse_event(
+        data_lines: list[str],
+        queue: asyncio.Queue[dict[str, Any] | _EventStreamEnd],
+    ) -> None:
+        if not data_lines:
+            return
+        payload = "\n".join(data_lines)
+        try:
+            event = json.loads(payload)
+        except json.JSONDecodeError:
+            return
+        if isinstance(event, dict):
+            await queue.put(event)
+
+    @staticmethod
+    async def _notify_progress(
+        callback: ProgressCallback | None,
+        event: dict[str, Any],
+    ) -> None:
+        if callback is None:
+            return
+        try:
+            await callback(event)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            return
 
     async def stop_run(self, execution_id: str) -> HermesPromptResult:
         """Ask Hermes to stop a run at its next safe interruption point."""
