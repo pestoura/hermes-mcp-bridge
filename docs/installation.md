@@ -16,6 +16,7 @@ The Hermes API and MCP bridge remain loopback-only during local validation.
 ## Preconditions
 
 - hermes-agent gateway is managed by `systemctl --user`.
+- Hermes provides native sessions, runs, run events, status and stop endpoints.
 - Docker Engine and Docker Compose are available.
 - The operator can read and update `~/.hermes/.env`.
 - The private GitHub repository is accessible from the host.
@@ -84,7 +85,13 @@ curl -fsS \
   http://127.0.0.1:8642/v1/capabilities
 ```
 
-The capabilities response must advertise the session resources and runs operations used by the bridge.
+The capabilities response must advertise:
+
+- native session creation and message history;
+- run submission;
+- run status;
+- run events;
+- run stop.
 
 ### 4. Configure the bridge
 
@@ -100,9 +107,15 @@ Set the following values without logging the key:
 HERMES_API_BASE_URL=http://127.0.0.1:8642
 HERMES_API_KEY=<same dedicated value>
 HERMES_MODEL=hermes-agent
+HERMES_REQUEST_TIMEOUT_SECONDS=30
+HERMES_RUN_POLL_INTERVAL_SECONDS=1
+HERMES_RUN_MAX_WAIT_SECONDS=7200
+HERMES_PROGRESS_INTERVAL_SECONDS=15
+HERMES_EVENT_STREAM_CONNECT_TIMEOUT_SECONDS=30
 MCP_HOST=127.0.0.1
 MCP_PORT=8765
 MCP_PATH=/mcp
+LOG_LEVEL=INFO
 ```
 
 Unset the temporary shell variable after writing the protected files:
@@ -138,9 +151,9 @@ Expected properties:
 - no Docker socket or Hermes directory mounts;
 - API and bridge listeners restricted to loopback.
 
-### 6. Run the MCP smoke test
+### 6. Run static and unit validation
 
-Use a temporary development environment on the host, not inside the runtime container:
+Use a development environment on the host, not inside the runtime container:
 
 ```bash
 cd /opt/hermes-mcp-bridge
@@ -150,18 +163,51 @@ python -m pip install -e '.[dev]'
 python -m compileall src tests scripts
 python -m ruff check .
 python -m pytest -q
+```
+
+### 7. Run MCP discovery and health
+
+```bash
 python scripts/smoke_test.py --url http://127.0.0.1:8765/mcp
 ```
 
-Then execute an explicitly read-only end-to-end prompt:
+Confirm exactly:
+
+```text
+hermes_health
+hermes_prompt
+hermes_status
+hermes_stop
+```
+
+### 8. Validate connected execution
+
+Run an explicitly read-only prompt and display progress from the original MCP call:
 
 ```bash
 python scripts/smoke_test.py \
   --url http://127.0.0.1:8765/mcp \
-  --prompt "Indica a versão atual do Hermes e apresenta o estado geral, sem efetuar alterações."
+  --wait-seconds 1800 \
+  --prompt "Execute a read-only validation lasting several minutes and return one final summary."
 ```
 
-Do not create a public tunnel until tool discovery, health, prompt execution and session continuity pass locally.
+Confirm:
+
+- MCP response mode is SSE, not JSON-only;
+- progress callback receives run acceptance and lifecycle messages;
+- heartbeat is emitted at the configured interval when no significant event occurs;
+- the original `call_tool` remains open;
+- the final Hermes output returns through that same call;
+- no manual `hermes_status` call is needed during normal connected operation.
+
+Also validate:
+
+- `wait_seconds=0` returns immediately for detached operation;
+- a disconnected client leaves the Hermes run active by default;
+- `stop_on_disconnect=true` requests Hermes cancellation;
+- `hermes_status` and `hermes_stop` remain functional recovery tools.
+
+Do not create a remote tunnel until connected execution passes locally.
 
 ## Phase 2 — remote exposure
 
@@ -171,7 +217,16 @@ After local approval, point a dedicated Cloudflare Tunnel hostname only to:
 http://127.0.0.1:8765
 ```
 
-Do not expose `127.0.0.1:8642`. Validate the authentication flow supported by the intended MCP client before registering the remote endpoint.
+Do not expose `127.0.0.1:8642`.
+
+For the MCP route:
+
+- preserve streaming responses and MCP headers;
+- disable caching, transformation and response buffering;
+- configure an authentication flow supported by the intended MCP client;
+- test 5, 15, 30 and 60 minute connected runs through the real tunnel.
+
+A heartbeat prevents an idle connection, but does not prove that Cloudflare or the final client has no absolute duration limit.
 
 ## Upgrade
 
@@ -185,7 +240,7 @@ docker compose up -d
 docker compose ps
 ```
 
-Run the smoke test after every upgrade.
+Run discovery, health and a connected smoke test after every upgrade.
 
 ## Rollback
 
