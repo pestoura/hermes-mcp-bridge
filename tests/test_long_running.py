@@ -9,7 +9,7 @@ from pydantic import SecretStr
 
 from hermes_mcp_bridge.client import HermesClient
 from hermes_mcp_bridge.config import Settings
-from hermes_mcp_bridge.models import RunStatus
+from hermes_mcp_bridge.models import HermesPromptResult, RunStatus
 
 
 def settings(**overrides: object) -> Settings:
@@ -88,6 +88,43 @@ async def test_connected_stream_reports_events_and_returns_final_status() -> Non
 
 
 @pytest.mark.asyncio
+async def test_idle_connected_run_emits_heartbeat(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[dict[str, object]] = []
+    client = HermesClient(settings(hermes_progress_interval_seconds=0.001))
+
+    async def idle_reader(*args: object, **kwargs: object) -> None:
+        await asyncio.sleep(60)
+
+    async def completed_run(*args: object, **kwargs: object) -> HermesPromptResult:
+        return HermesPromptResult(
+            execution_id="run-heartbeat",
+            session_id="session-heartbeat",
+            status=RunStatus.COMPLETED,
+            output="done",
+        )
+
+    monkeypatch.setattr(client, "_read_run_events", idle_reader)
+    monkeypatch.setattr(client, "get_run", completed_run)
+
+    async def progress(event: dict[str, object]) -> None:
+        events.append(event)
+
+    result = await client._wait_for_run_connected(
+        "run-heartbeat",
+        max_wait_seconds=0.1,
+        fallback_session_id="session-heartbeat",
+        agent=None,
+        subagents=None,
+        progress_callback=progress,
+    )
+
+    assert result.status == RunStatus.COMPLETED
+    assert any(event["event"] == "bridge.heartbeat" for event in events)
+
+
+@pytest.mark.asyncio
 async def test_event_stream_failure_falls_back_to_polling() -> None:
     events: list[dict[str, object]] = []
     status_calls = 0
@@ -147,6 +184,43 @@ def test_default_wait_supports_two_hour_runs() -> None:
 
     assert client._bounded_wait(None) == 7200.0
     assert client._bounded_wait(99_999.0) == 7200.0
+
+
+@pytest.mark.asyncio
+async def test_cancellation_leaves_hermes_running_by_default() -> None:
+    stop_requested = False
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal stop_requested
+        if request.method == "POST" and request.url.path == "/api/sessions":
+            return httpx.Response(201, json={"session": {"id": "session-new"}})
+        if request.method == "POST" and request.url.path == "/v1/runs":
+            return httpx.Response(
+                202,
+                json={"run_id": "run-survives", "status": "started"},
+            )
+        if request.method == "POST" and request.url.path.endswith("/stop"):
+            stop_requested = True
+            return httpx.Response(
+                200,
+                json={"run_id": "run-survives", "status": "stopping"},
+            )
+        raise AssertionError(f"Unexpected request: {request.method} {request.url}")
+
+    client = HermesClient(
+        settings(),
+        transport_factory=lambda: httpx.MockTransport(handler),
+    )
+
+    async def cancelled_wait(*args: object, **kwargs: object) -> object:
+        raise asyncio.CancelledError
+
+    client.wait_for_run = cancelled_wait  # type: ignore[method-assign]
+
+    with pytest.raises(asyncio.CancelledError):
+        await client.submit_prompt(prompt="Long task")
+
+    assert stop_requested is False
 
 
 @pytest.mark.asyncio
