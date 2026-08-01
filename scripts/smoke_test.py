@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+from datetime import timedelta
 from typing import Any
 
 from mcp import ClientSession
@@ -68,12 +69,33 @@ async def _run(url: str, prompt: str | None, wait_seconds: float) -> None:
         )
 
         if prompt is not None:
+
+            async def progress(
+                current: float,
+                total: float | None,
+                message: str | None,
+            ) -> None:
+                print(
+                    json.dumps(
+                        {
+                            "progress": current,
+                            "total": total,
+                            "message": message,
+                        }
+                    ),
+                    flush=True,
+                )
+
             result = await session.call_tool(
                 "hermes_prompt",
                 arguments={
                     "prompt": prompt,
                     "wait_seconds": wait_seconds,
                 },
+                read_timeout_seconds=timedelta(
+                    seconds=max(120.0, wait_seconds + 60.0)
+                ),
+                progress_callback=progress,
             )
             print(
                 json.dumps(
@@ -99,7 +121,7 @@ def main() -> None:
         "--wait-seconds",
         type=float,
         default=180.0,
-        help="Maximum bridge-side wait for an optional prompt",
+        help="Maximum connected wait for an optional prompt",
     )
     args = parser.parse_args()
     asyncio.run(_run(args.url, args.prompt, max(0.0, args.wait_seconds)))
