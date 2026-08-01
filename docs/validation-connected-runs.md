@@ -10,7 +10,7 @@ python -m ruff check .
 python -m pytest -q
 ```
 
-Expected test count for this branch: 20 tests.
+Expected test count for this branch: 22 tests.
 
 ## Runtime baseline
 
