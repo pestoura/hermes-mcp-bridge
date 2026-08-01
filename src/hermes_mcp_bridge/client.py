@@ -8,6 +8,7 @@ import math
 import re
 import uuid
 from collections.abc import Awaitable, Callable
+from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
 
@@ -178,10 +179,8 @@ class HermesClient:
             )
         except asyncio.CancelledError:
             if stop_on_cancel:
-                try:
+                with suppress(HermesAPIError):
                     await asyncio.shield(self.stop_run(execution_id))
-                except HermesAPIError:
-                    pass
             raise
 
     def _bounded_wait(self, wait_seconds: float | None) -> float:
@@ -368,7 +367,7 @@ class HermesClient:
                 timeout = min(self._settings.hermes_progress_interval_seconds, remaining)
                 try:
                     item = await asyncio.wait_for(queue.get(), timeout=timeout)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     latest = await self.get_run(
                         execution_id,
                         fallback_session_id=fallback_session_id,
@@ -416,10 +415,8 @@ class HermesClient:
         finally:
             if not reader_task.done():
                 reader_task.cancel()
-            try:
+            with suppress(asyncio.CancelledError):
                 await reader_task
-            except asyncio.CancelledError:
-                pass
 
         if terminal_event_seen:
             return await self.get_run(
@@ -513,26 +510,28 @@ class HermesClient:
         queue: asyncio.Queue[dict[str, Any] | _EventStreamEnd],
     ) -> None:
         try:
-            async with self._client(event_stream=True) as client:
-                async with client.stream(
+            async with (
+                self._client(event_stream=True) as client,
+                client.stream(
                     "GET",
                     f"/v1/runs/{execution_id}/events",
                     headers={"Accept": "text/event-stream"},
-                ) as response:
-                    if response.status_code != 200:
-                        await response.aread()
-                        raise HermesAPIError(
-                            "Hermes event stream returned "
-                            f"HTTP {response.status_code}: {self._error_detail(response)}"
-                        )
-                    data_lines: list[str] = []
-                    async for line in response.aiter_lines():
-                        if not line:
-                            await self._queue_sse_event(data_lines, queue)
-                            data_lines.clear()
-                        elif line.startswith("data:"):
-                            data_lines.append(line[5:].lstrip())
-                    await self._queue_sse_event(data_lines, queue)
+                ) as response,
+            ):
+                if response.status_code != 200:
+                    await response.aread()
+                    raise HermesAPIError(
+                        "Hermes event stream returned "
+                        f"HTTP {response.status_code}: {self._error_detail(response)}"
+                    )
+                data_lines: list[str] = []
+                async for line in response.aiter_lines():
+                    if not line:
+                        await self._queue_sse_event(data_lines, queue)
+                        data_lines.clear()
+                    elif line.startswith("data:"):
+                        data_lines.append(line[5:].lstrip())
+                await self._queue_sse_event(data_lines, queue)
             await queue.put(_EventStreamEnd())
         except asyncio.CancelledError:
             raise
