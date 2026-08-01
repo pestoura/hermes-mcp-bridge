@@ -21,7 +21,9 @@ class Settings(BaseSettings):
     hermes_model: str = "hermes-agent"
     hermes_request_timeout_seconds: float = Field(default=30.0, gt=0)
     hermes_run_poll_interval_seconds: float = Field(default=1.0, gt=0)
-    hermes_run_max_wait_seconds: float = Field(default=900.0, gt=0)
+    hermes_run_max_wait_seconds: float = Field(default=7200.0, gt=0)
+    hermes_progress_interval_seconds: float = Field(default=15.0, gt=0)
+    hermes_event_stream_connect_timeout_seconds: float = Field(default=30.0, gt=0)
 
     mcp_host: str = "127.0.0.1"
     mcp_port: int = Field(default=8765, ge=1, le=65535)
