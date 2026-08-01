@@ -19,14 +19,44 @@ Required local duration campaign:
 
 ## Phase 2 — Cloudflare Tunnel
 
-1. Add `hermes-mcp.hex0r.xyz` to the existing Cloudflare Tunnel configuration.
-2. Point only to `http://127.0.0.1:8765`.
-3. Keep the Hermes API on `127.0.0.1:8642` with no public route.
-4. Protect the MCP endpoint with an authentication method supported by the intended ChatGPT custom-app flow.
-5. Preserve Streamable HTTP POST/GET/DELETE, MCP headers and SSE responses.
-6. Disable caching, transformation and response buffering for `/mcp`.
-7. Confirm that no inbound server port is opened.
-8. Validate durations through the tunnel at 5, 15, 30 and 60 minutes.
+1. Use a dedicated tunnel named `hermes-mcp` with ingress:
+   - hostname `hermes-mcp-origin.hex0r.xyz` -> `http://127.0.0.1:8765`
+   - HTTP Host Header override to `127.0.0.1:8765`
+   - final fallback `http_status:404`
+2. Keep the Hermes API on `127.0.0.1:8642` with no public route.
+3. Protect the public MCP origin with Cloudflare Access Service Auth bound to a dedicated service token.
+4. Preserve Streamable HTTP POST/GET/DELETE, MCP headers and SSE responses.
+5. Disable caching, transformation and response buffering for `/mcp`.
+6. Confirm that no inbound server port is opened.
+7. Validate remote connected execution, detached recovery, stop, and evidence-backed duration limits through the tunnel.
+
+### Deployed operational model
+
+- Public endpoint: `https://hermes-mcp-origin.hex0r.xyz/mcp`
+- Purpose: machine-to-machine operational access to the Hermes MCP bridge.
+- Client requirement: callers must provide valid Cloudflare Access Service Auth headers.
+- This endpoint is not the final ChatGPT custom-app endpoint.
+- Access: Cloudflare Access Service Auth with one dedicated service token.
+- Tunnel: dedicated `hermes-mcp` connector, isolated from other tunnels.
+- Bridge listener: `127.0.0.1:8765` only.
+- Hermes API listener: `127.0.0.1:8642` only.
+- No inbound ports are opened. cloudflared establishes outbound-only connections to Cloudflare.
+- No secrets in Git; service token material is stored outside the repository with restricted filesystem permissions.
+- Cloudflare Access service token and Cloudflare Tunnel token are independent credentials with separate rotation paths.
+- Cloudflare Access service token rotation: generate a new Client Secret, distribute it to MCP clients, then revoke the previous secret; definitive revocation is performed by deleting the service token. This does not require changing the tunnel token or cloudflared configuration.
+- Cloudflare Tunnel token rotation: update the protected token file used by `cloudflared-hermes-mcp.service` and restart/control the service. This does not change the Cloudflare Access service token.
+- Rollback: stop and disable `cloudflared-hermes-mcp.service`; confirm the endpoint no longer routes traffic; keep Access protection while the route/DNS still exist; remove the route and DNS only in final deactivation; revoke the Access service token separately; do not remove the Access policy while the tunnel remains active.
+
+### Validated operational evidence
+
+- Remote transport and authentication: `REMOTE_TRANSPORT_AND_AUTH_PASS`
+- Remote connected execution completed in the original call with final result delivery.
+- Observed remote session duration: `315.27s`
+- Observed heartbeats in the original call: `21`
+- Detached recovery validated with `wait_seconds=0`, `execution_id` returned, and recoverable completion.
+- Stop validated for a detached read-only execution with terminal cancellation state observed.
+- Formal campaign decision: `REMOTE_ORIGIN_SERVICE_TOKEN_PARTIAL`
+- Supervisory conclusion: `REMOTE_360_SECOND_WORKLOAD_NOT_PROVEN`
 
 A heartbeat reduces idle-timeout risk but does not override an absolute timeout imposed by Cloudflare or the MCP client. Remote duration claims require evidence from the real path.
 
