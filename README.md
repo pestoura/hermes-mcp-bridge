@@ -16,6 +16,10 @@ Hermes agents, subagents, skills, tools, Kanban and configured servers
 
 The bridge does **not** execute shell commands or manage infrastructure itself. Hermes remains the executor. The bridge translates MCP tool calls into Hermes' native session, run and event-stream APIs.
 
+## Version and contract
+
+Bridge contract version: **0.4.0**.
+
 ## MCP tools
 
 - `hermes_submit`: creates a Hermes run, returns `execution_id` and `session_id`, and optionally reuses an existing identical run by `client_request_id`.
@@ -23,14 +27,16 @@ The bridge does **not** execute shell commands or manage infrastructure itself. 
 - `hermes_wait`: attaches to an existing `execution_id` and returns completion or a wait-budget expiry.
 - `hermes_status`: retrieves a run after a detached or interrupted request.
 - `hermes_stop`: requests safe cancellation of a run.
-- `hermes_health`: checks Hermes liveness/readiness and bridge registry state.
+- `hermes_health`: checks Hermes liveness/readiness and bridge registry state, including manifest metadata.
 - `recent_runs`: lists recent registry entries by status or recency.
+- `hermes_capabilities`: returns the canonical capability manifest for this bridge.
+- `hermes_agent_card`: returns the versioned agent card for this bridge.
 
 `agent` and `subagents` are optional hints translated into Hermes instructions. Omitting them lets Hermes choose its own orchestration.
 
 ## Version and contract
 
-Bridge contract version: **0.3.0**.
+Bridge contract version: **0.4.0**.
 
 ## Connected long-running execution
 
