@@ -104,7 +104,7 @@ The bridge does not possess SSH credentials, cloud tokens, Kanban credentials or
 
 ## Tool inventory
 
-Bridge version 0.4.0 exposes **9** tools:
+Bridge version 0.5.0 exposes **14** tools:
 
 - `hermes_submit`
 - `hermes_prompt`
@@ -115,13 +115,21 @@ Bridge version 0.4.0 exposes **9** tools:
 - `hermes_capabilities`
 - `hermes_agent_card`
 - `recent_runs`
+- `hermes_policy_evaluate`
+- `hermes_approval_create`
+- `hermes_approval_respond`
+- `hermes_approval_status`
+- `hermes_result_manifest`
 
 ## Protocol Foundations
 
-Bridge version 0.4.0 adds a versioned execution envelope, typed event taxonomy, capability manifests, and agent cards while preserving the existing 7 tools.
+Bridge version 0.5.0 adds policy evaluation, persistent approvals, and sanitized result manifests while preserving the existing 9 tools.
 
 - Execution envelope: `schema_version`, `payload_version`, `origin_type`, `context_key`, `project_key`, `correlation_id`, `causation_id`, `principal`, `delegation_chain`.
 - Event types: `MessageType` and `EventType` enums with typed models (`ProgressEvent`, `ApprovalEvent`, `ToolEvent`, `LifecycleEvent`, `UnknownEvent`).
 - Capability negotiation: canonical `CapabilityManifest` with deterministic JSON and SHA-256 hash; `hermes_capabilities` tool; upstream `/v1/capabilities` used when available, otherwise `source=fallback`.
 - Agent cards: versioned `AgentCard` via `hermes_agent_card`.
 - Health extension: `manifest_version`, `manifest_hash`, `bridge_version`, `schema_version`.
+- Policy engine: deterministic ALLOW/DENY/REQUIRE_APPROVAL decisions; high-risk trust labels with mutation require approval by default.
+- Approvals: persistent, single-use, transactional registry with expiry, stale detection, and atomic consumption.
+- Provenance: optional HMAC-SHA256 signing; result manifests include sanitized metadata only.

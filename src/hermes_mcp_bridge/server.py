@@ -3,15 +3,25 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import importlib
+import json
 import os
+import uuid
 import weakref
 from contextlib import suppress
+from datetime import UTC, datetime
 from types import ModuleType
 from typing import Any
 
 from mcp.server.fastmcp import Context, FastMCP
 
+from .approvals import (
+    ApprovalExpiredError,
+    ApprovalNotFound,
+    ApprovalStatusError,
+    get_approval_registry,
+)
 from .client import HermesAPIError, HermesClient
 from .config import get_settings
 from .models import (
@@ -20,13 +30,21 @@ from .models import (
     OrchestrationMode,
     RunStatus,
 )
+from .policy import PolicyEvaluationInput, evaluate_policy
 from .protocol import (
     AgentCard,
+    ApprovalRecord,
+    ApprovalStatus,
     CapabilityManifest,
+    MutationClass,
+    OrchestrationPolicy,
+    ProvenanceClaimType,
     ToolManifest,
+    TrustLabel,
     load_agent_card_from_env,
     load_upstream_capabilities,
 )
+from .provenance import ProvenanceClaim, build_result_manifest
 from .registry import RegistryError, compute_fingerprint, get_registry
 
 settings = get_settings()
@@ -108,10 +126,88 @@ def _error_result(message: str, *, execution_id: str = "not-created") -> dict[st
     return result.model_dump(mode="json")
 
 
+def _structured_error(
+    payload: dict[str, Any],
+    *,
+    execution_id: str = "not-created",
+) -> dict[str, Any]:
+    result = HermesPromptResult(
+        execution_id=execution_id,
+        status=RunStatus.FAILED,
+        metadata={"policy": payload},
+    )
+    dumped = result.model_dump(mode="json")
+    dumped.update(payload)
+    return dumped
+
+
 def _validate_prompt(prompt: str) -> None:
     normalized = prompt.strip()
     if not normalized:
         raise HermesAPIError("Prompt must not be empty")
+
+
+def _policy_decision_from_inputs(
+    action: str,
+    *,
+    mutation_class: MutationClass | None = None,
+    trust_label: str | TrustLabel | None = None,
+    principal: str | None = None,
+    resource: str | None = None,
+) -> tuple[str, str | None]:
+    try:
+        trust_enum = (
+            trust_label
+            if isinstance(trust_label, TrustLabel)
+            else TrustLabel(trust_label)
+            if trust_label
+            else TrustLabel.UNKNOWN
+        )
+        mutation_enum = mutation_class or _mutation_from_action(action)
+        evaluation = PolicyEvaluationInput(
+            action=action,
+            trust_label=trust_enum,
+            mutation_class=mutation_enum,
+            principal=principal,
+        )
+        result = evaluate_policy(evaluation)
+    except Exception as exc:
+        return "error", str(exc)
+    return result.decision.value, result.reason
+
+
+def _enforce_policy(
+    action: str,
+    *,
+    mutation_class: MutationClass | None = None,
+    trust_label: str | TrustLabel | None = None,
+    principal: str | None = None,
+    resource: str | None = None,
+) -> dict[str, Any] | None:
+    decision, reason = _policy_decision_from_inputs(
+        action,
+        mutation_class=mutation_class,
+        trust_label=trust_label,
+        principal=principal,
+        resource=resource,
+    )
+    if decision == "DENY":
+        return _error_result(
+            f"policy denied: {reason or 'deny_actions'}",
+            execution_id="not-created",
+        )
+    if decision == "REQUIRE_APPROVAL":
+        return _structured_error(
+            {
+                "message": f"policy requires approval: {reason or 'mutation requires approval'}",
+                "approval_required": True,
+                "action": action,
+                "resource": resource,
+                "principal": principal,
+            },
+            execution_id="not-created",
+        )
+    return None
 
 
 async def _persist_mapping(
@@ -226,10 +322,21 @@ async def hermes_submit(
     agent: str | None = None,
     subagents: list[str] | None = None,
     orchestration: OrchestrationMode = OrchestrationMode.AUTO,
+    expected_actions: list[str] | None = None,
+    resource_scopes: list[str] | None = None,
+    trust_labels: list[str] | None = None,
 ) -> dict[str, Any]:
     """Create a Hermes run and return execution/session identifiers immediately."""
 
     _validate_prompt(prompt)
+
+    if trust_labels:
+        policy_block = _enforce_policy(
+            "hermes_submit",
+            trust_label=trust_labels[0] if trust_labels else None,
+        )
+        if policy_block is not None:
+            return policy_block
 
     fingerprint = compute_fingerprint(
         prompt=prompt,
@@ -288,10 +395,21 @@ async def hermes_prompt(
     orchestration: OrchestrationMode = OrchestrationMode.AUTO,
     wait_seconds: float | None = None,
     stop_on_disconnect: bool = False,
+    expected_actions: list[str] | None = None,
+    resource_scopes: list[str] | None = None,
+    trust_labels: list[str] | None = None,
 ) -> dict[str, Any]:
     """Delegate an objective to Hermes, keep the MCP request connected, and wait."""
 
     _validate_prompt(prompt)
+
+    if trust_labels:
+        policy_block = _enforce_policy(
+            "hermes_prompt",
+            trust_label=trust_labels[0] if trust_labels else None,
+        )
+        if policy_block is not None:
+            return policy_block
 
     fingerprint = compute_fingerprint(
         prompt=prompt,
@@ -521,10 +639,20 @@ async def hermes_health(detailed: bool = False) -> dict[str, Any]:
         upstream = {"status": "error", "error": str(exc)}
 
     registry_health = await asyncio.to_thread(registry.health)
+    approval_registry = get_approval_registry()
+    approval_registry_health = await asyncio.to_thread(approval_registry.health)
+    signing_configured = "yes" if os.environ.get("HERMES_BRIDGE_HMAC_SECRET") else "no"
     bridge: dict[str, Any] = {
         "default_wait_seconds": settings.hermes_run_default_wait_seconds,
         "max_wait_seconds": settings.hermes_run_max_wait_seconds,
         "state_registry": registry_health,
+        "approval_registry": approval_registry_health,
+        "bridge_version": settings.bridge_version,
+        "policy": {
+            "status": "loaded",
+            "default_policy_source": "env/file/empty",
+            "hmac_signing_configured": signing_configured,
+        },
     }
     upstream_payload = upstream if isinstance(upstream, dict) else {}
     manifest = await _build_capability_manifest()
@@ -546,19 +674,203 @@ async def hermes_health(detailed: bool = False) -> dict[str, Any]:
 @mcp.tool()
 async def hermes_capabilities() -> dict[str, Any]:
     """Return the canonical capability manifest for this bridge."""
+
     manifest = await _build_capability_manifest()
     payload = manifest.model_dump(mode="json")
     payload["capability_hash"] = manifest.manifest_hash
+    payload["upstream_support"] = {
+        "requested": ["auto", "explicit", "single", "parallel", "pipeline", "review"],
+        "effective": ["auto", "explicit"],
+        "unsupported": ["single", "parallel", "pipeline", "review"],
+    }
     return payload
 
 
 @mcp.tool()
 async def hermes_agent_card() -> dict[str, Any]:
     """Return the versioned agent card for this bridge."""
+
     card = load_agent_card_from_env()
     payload = card.to_canonical_dict()
     payload["card_hash"] = _card_hash(card)
+    requested_modes, effective_upstream, _ = _requested_effective_upstream(
+        ",".join(card.orchestration_modes)
+    )
+    payload["orchestration_contract_modes"] = requested_modes
+    payload["upstream_effective_modes"] = effective_upstream
     return payload
+
+
+@mcp.tool()
+async def hermes_policy_evaluate(
+    action: str,
+    resource: str | None = None,
+    trust_label: str | None = None,
+    mutation_class: str | None = None,
+    origin_type: str | None = None,
+    project_key: str | None = None,
+    principal: str | None = None,
+    delegation_chain: list[str] | None = None,
+) -> dict[str, Any]:
+    """Evaluate a policy decision for the given action and trust/mutation context."""
+
+    try:
+        trust_enum = TrustLabel(trust_label) if trust_label else TrustLabel.UNKNOWN
+    except ValueError:
+        trust_enum = TrustLabel.UNKNOWN
+    try:
+        mutation_enum = (
+            MutationClass(mutation_class)
+            if mutation_class
+            else _mutation_from_action(action)
+        )
+    except ValueError:
+        mutation_enum = _mutation_from_action(action)
+
+    evaluation = PolicyEvaluationInput(
+        action=action,
+        origin_type=origin_type,
+        project_key=project_key,
+        resource=resource,
+        trust_label=trust_enum,
+        mutation_class=mutation_enum,
+        principal=principal,
+        delegation_chain=list(delegation_chain or []),
+    )
+    result = evaluate_policy(evaluation)
+    return {
+        "decision": result.decision.value,
+        "reason": result.reason,
+        "approval_required": result.approval_required,
+        "effective_policy": result.effective_policy,
+    }
+
+
+@mcp.tool()
+async def hermes_approval_create(
+    action: str,
+    resource: str | None = None,
+    expires_in_seconds: int | None = None,
+    metadata_sanitized: dict[str, Any] | None = None,
+    principal: str | None = None,
+    delegation_chain: list[str] | None = None,
+    trust_label: str | None = None,
+    mutation_class: str | None = None,
+) -> dict[str, Any]:
+    """Create a new approval request for a mutation/policy action."""
+
+    approval_id = f"approval-{uuid.uuid4().hex}"
+    resource_fingerprint = None
+    if resource is not None:
+        payload = {"resource": resource, "metadata": metadata_sanitized or {}}
+        normalized = json.dumps(payload, separators=(",", ":"), ensure_ascii=False, sort_keys=True)
+        resource_fingerprint = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+    expires_at = None
+    if expires_in_seconds is not None and expires_in_seconds > 0:
+        expires_at = (datetime.now(UTC).timestamp() + expires_in_seconds)
+        expires_at = datetime.fromtimestamp(expires_at, tz=UTC).isoformat()
+    record = ApprovalRecord(
+        approval_id=approval_id,
+        action=action,
+        resource=resource,
+        resource_fingerprint=resource_fingerprint,
+        principal=principal,
+        delegation_chain_sanitized=list(delegation_chain or []),
+        decision=ApprovalStatus.REQUESTED,
+        expires_at=expires_at,
+        created_at=datetime.now(UTC).isoformat(),
+        metadata_sanitized=metadata_sanitized or {},
+    )
+    created = get_approval_registry().create(record)
+    return {
+        "approval_id": created.approval_id,
+        "action": created.action,
+        "resource": created.resource,
+        "decision": created.decision.value,
+        "expires_at": created.expires_at,
+        "created_at": created.created_at,
+        "approval_identity_assurance": created.approval_identity_assurance,
+    }
+
+
+@mcp.tool()
+async def hermes_approval_respond(
+    approval_id: str,
+    decision: str,
+    principal: str | None = None,
+) -> dict[str, Any]:
+    """Respond to an approval request with approved/rejected."""
+
+    try:
+        status = ApprovalStatus(decision)
+    except ValueError:
+        return {"approval_id": approval_id, "error": f"invalid decision: {decision}"}
+    try:
+        updated = get_approval_registry().respond(approval_id, status, principal=principal)
+    except ApprovalNotFound as exc:
+        return {"approval_id": approval_id, "error": str(exc)}
+    except ApprovalExpiredError as exc:
+        return {"approval_id": approval_id, "error": str(exc)}
+    except ApprovalStatusError as exc:
+        return {"approval_id": approval_id, "error": str(exc)}
+    return {
+        "approval_id": updated.approval_id,
+        "action": updated.action,
+        "decision": updated.decision.value,
+        "decided_at": updated.decided_at,
+        "approval_identity_assurance": updated.approval_identity_assurance,
+    }
+
+
+@mcp.tool()
+async def hermes_approval_status(approval_id: str) -> dict[str, Any]:
+    """Return the current status of an approval request."""
+
+    try:
+        record = get_approval_registry().get(approval_id)
+    except ApprovalNotFound as exc:
+        return {"approval_id": approval_id, "error": str(exc)}
+    return {
+        "approval_id": record.approval_id,
+        "action": record.action,
+        "resource": record.resource,
+        "resource_fingerprint": record.resource_fingerprint,
+        "decision": record.decision.value,
+        "expires_at": record.expires_at,
+        "created_at": record.created_at,
+        "decided_at": record.decided_at,
+        "consumed_at": record.consumed_at,
+        "approval_identity_assurance": record.approval_identity_assurance,
+    }
+
+
+@mcp.tool()
+async def hermes_result_manifest(execution_id: str) -> dict[str, Any]:
+    """Return a persisted/sanitized result manifest for an execution if available."""
+
+    manifest = build_result_manifest(
+        execution_id=execution_id,
+        session_id=None,
+        status="unknown",
+        claims=[
+            ProvenanceClaim(
+                subject=f"execution:{execution_id}",
+                claim_type=ProvenanceClaimType.UNVERIFIED,
+            )
+        ],
+    )
+    return manifest.model_dump(mode="json")
+
+
+def _requested_effective_upstream(
+    requested_mode: str,
+) -> tuple[list[str], list[str], dict[str, Any]]:
+    policy = OrchestrationPolicy()
+    requested_modes = sorted(set(requested_mode.split(","))) if requested_mode else []
+    effective_upstream = ["auto", "explicit"]
+    if set(requested_modes).issubset(set(effective_upstream)):
+        effective_upstream = requested_modes
+    return requested_modes, effective_upstream, policy.model_dump()
 
 
 async def _build_capability_manifest() -> CapabilityManifest:
@@ -636,11 +948,46 @@ async def _build_capability_manifest() -> CapabilityManifest:
             stability="experimental",
             read_only=True,
         ),
+        ToolManifest(
+            name="hermes_policy_evaluate",
+            description="Evaluate policy decision for an action.",
+            version_added="0.5.0",
+            stability="experimental",
+            read_only=True,
+        ),
+        ToolManifest(
+            name="hermes_approval_create",
+            description="Create an approval request.",
+            version_added="0.5.0",
+            stability="experimental",
+            read_only=False,
+        ),
+        ToolManifest(
+            name="hermes_approval_respond",
+            description="Respond to an approval request.",
+            version_added="0.5.0",
+            stability="experimental",
+            read_only=False,
+        ),
+        ToolManifest(
+            name="hermes_approval_status",
+            description="Return approval status.",
+            version_added="0.5.0",
+            stability="experimental",
+            read_only=True,
+        ),
+        ToolManifest(
+            name="hermes_result_manifest",
+            description="Return sanitized result manifest for an execution.",
+            version_added="0.5.0",
+            stability="experimental",
+            read_only=True,
+        ),
     ]
 
     return CapabilityManifest.build(
-        bridge_version="0.4.0",
-        manifest_version="0.4.0",
+        bridge_version="0.5.0",
+        manifest_version="0.5.0",
         tools=tools,
         orchestration_modes=["auto", "explicit"],
         limits={
@@ -656,6 +1003,13 @@ async def _build_capability_manifest() -> CapabilityManifest:
         },
         upstream_capabilities=upstream_payload,
     )
+
+
+def _mutation_from_action(action: str) -> MutationClass:
+    read_actions = {"status", "health", "list", "manifest", "read"}
+    if action in read_actions:
+        return MutationClass.NONE
+    return MutationClass.WRITE
 
 
 def _card_hash(card: AgentCard) -> str:

@@ -13,7 +13,7 @@ from hermes_mcp_bridge.protocol import (
 
 def test_execution_envelope_optional_fields_default_none() -> None:
     envelope = ExecutionEnvelope()
-    assert envelope.schema_version == "0.4.0"
+    assert envelope.schema_version == "0.5.0"
     assert envelope.payload_version is None
     assert envelope.principal is None
     assert envelope.delegation_chain == []
@@ -21,13 +21,13 @@ def test_execution_envelope_optional_fields_default_none() -> None:
 
 def test_execution_envelope_canonical_hash_is_deterministic() -> None:
     first = ExecutionEnvelope(
-        schema_version="0.4.0",
+        schema_version="0.5.0",
         payload_version="1",
         principal="agent",
         delegation_chain=["a", "b"],
     )
     second = ExecutionEnvelope(
-        schema_version="0.4.0",
+        schema_version="0.5.0",
         principal="agent",
         delegation_chain=["a", "b"],
         payload_version="1",
@@ -45,8 +45,8 @@ def test_parse_event_known_and_unknown() -> None:
 
 def test_capability_manifest_hashes_match() -> None:
     manifest = CapabilityManifest.build(
-        bridge_version="0.4.0",
-        manifest_version="0.4.0",
+        bridge_version="0.5.0",
+        manifest_version="0.5.0",
         tools=[
             ToolManifest(name="hermes_health", description="Health", read_only=True)
         ],
@@ -64,7 +64,7 @@ def test_agent_card_hash_is_stable() -> None:
         agent_id="bridge",
         name="Bridge",
         purpose="p",
-        version="0.4.0",
+        version="0.5.0",
     )
     payload = card.to_canonical_dict()
     assert "schema_version" in payload

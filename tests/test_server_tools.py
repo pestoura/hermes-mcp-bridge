@@ -28,6 +28,11 @@ EXPECTED_TOOLS = {
     "hermes_wait",
     "hermes_capabilities",
     "hermes_agent_card",
+    "hermes_policy_evaluate",
+    "hermes_approval_create",
+    "hermes_approval_respond",
+    "hermes_approval_status",
+    "hermes_result_manifest",
 }
 
 
@@ -172,6 +177,49 @@ async def test_same_key_same_fingerprint_concurrent_one_post(
     assert post_count == 1
     execution_ids = {result["execution_id"] for result in results}
     assert len(execution_ids) == 1
+    assert all(result["execution_id"] == next(iter(execution_ids)) for result in results)
+
+
+@pytest.mark.asyncio
+async def test_hermes_submit_blocks_denied_action(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    server = _make_server_module(monkeypatch, tmp_path)
+    db_path = str(tmp_path / "state.sqlite3")
+    registry = RunRegistry(db_path)
+    registry.initialize()
+    monkeypatch.setattr("hermes_mcp_bridge.server.registry", registry)
+
+    settings = Settings(
+        hermes_api_key=SecretStr("test-key"),
+        hermes_api_base_url="http://hermes.test",
+        bridge_state_db_path=db_path,
+    )
+    client = HermesClient(
+        settings,
+        transport_factory=lambda: httpx.MockTransport(
+            lambda req: (_ for _ in ()).throw(
+                AssertionError(f"Unexpected request: {req.method} {req.url}")
+            )
+        ),
+    )
+    monkeypatch.setattr("hermes_mcp_bridge.server.client", client)
+
+    result = await server.hermes_submit(
+        prompt="concurrent task",
+        ctx=_DummyContext(),
+        client_request_id="shared",
+        trust_labels=["untrusted_content"],
+    )
+    assert result["execution_id"] == "not-created"
+    error_text = result.get("error") or ""
+    policy_message = (result.get("metadata") or {}).get("policy", {}).get("message") or ""
+    assert (
+        "policy denied" in error_text
+        or "policy requires approval" in error_text
+        or "policy denied" in policy_message
+        or "policy requires approval" in policy_message
+    )
 
 
 @pytest.mark.asyncio

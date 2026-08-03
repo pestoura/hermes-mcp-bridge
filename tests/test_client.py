@@ -10,7 +10,8 @@ from pydantic import SecretStr
 
 from hermes_mcp_bridge.client import HermesAPIError, HermesClient
 from hermes_mcp_bridge.config import Settings
-from hermes_mcp_bridge.models import OrchestrationMode, RunStatus
+from hermes_mcp_bridge.models import RunStatus
+from hermes_mcp_bridge.protocol import OrchestrationMode
 
 
 def settings() -> Settings:

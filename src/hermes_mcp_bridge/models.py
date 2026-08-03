@@ -1,4 +1,4 @@
-"""Bridge request and response models."""
+from __future__ import annotations
 
 from enum import StrEnum
 from typing import Any
@@ -33,7 +33,7 @@ TERMINAL_STATUSES = {
 
 
 class HermesPromptResult(BaseModel):
-    """Normalized result returned to the MCP client."""
+    "Normalized result returned to the MCP client."
 
     session_id: str | None = None
     execution_id: str
@@ -44,3 +44,6 @@ class HermesPromptResult(BaseModel):
     subagents: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
     envelope: ExecutionEnvelope | None = None
+    policy_decision: str | None = None
+    approval_id: str | None = None
+    result_manifest: dict[str, Any] | None = None

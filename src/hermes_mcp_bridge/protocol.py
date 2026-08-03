@@ -13,12 +13,13 @@ from pydantic import BaseModel, Field
 
 class SchemaVersion(StrEnum):
     V0_4_0 = "0.4.0"
+    V0_5_0 = "0.5.0"
 
 
 class ExecutionEnvelope(BaseModel):
     """Versioned execution envelope attached to tool outputs."""
 
-    schema_version: str = Field(default=SchemaVersion.V0_4_0)
+    schema_version: str = Field(default=SchemaVersion.V0_5_0)
     payload_version: str | None = Field(default=None)
     origin_type: str | None = Field(default=None)
     context_key: str | None = Field(default=None)
@@ -116,10 +117,22 @@ class UnknownEvent(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
+class ToolManifest(BaseModel):
+    """Manifest entry for a single MCP tool."""
+
+    name: str
+    description: str
+    input_schema: dict[str, Any] = Field(default_factory=dict)
+    output_schema: dict[str, Any] = Field(default_factory=dict)
+    version_added: str | None = None
+    stability: str | None = None
+    read_only: bool = False
+
+
 class CapabilityManifest(BaseModel):
     """Canonical capability manifest for the bridge."""
 
-    schema_version: str = Field(default=SchemaVersion.V0_4_0)
+    schema_version: str = Field(default=SchemaVersion.V0_5_0)
     bridge_version: str
     manifest_version: str
     manifest_hash: str
@@ -145,8 +158,9 @@ class CapabilityManifest(BaseModel):
         provenance: dict[str, Any],
         upstream_capabilities: dict[str, Any] | None,
     ) -> CapabilityManifest:
+        schema_version = bridge_version
         canonical = {
-            "schema_version": SchemaVersion.V0_4_0,
+            "schema_version": schema_version,
             "bridge_version": bridge_version,
             "manifest_version": manifest_version,
             "tools": [tool.model_dump() for tool in tools],
@@ -171,7 +185,7 @@ class CapabilityManifest(BaseModel):
             except (TypeError, ValueError):
                 upstream_capabilities_hash = None
         return cls(
-            schema_version=SchemaVersion.V0_4_0,
+            schema_version=schema_version,
             bridge_version=bridge_version,
             manifest_version=manifest_version,
             manifest_hash=manifest_hash,
@@ -185,22 +199,10 @@ class CapabilityManifest(BaseModel):
         )
 
 
-class ToolManifest(BaseModel):
-    """Manifest entry for a single MCP tool."""
-
-    name: str
-    description: str
-    input_schema: dict[str, Any] = Field(default_factory=dict)
-    output_schema: dict[str, Any] = Field(default_factory=dict)
-    version_added: str | None = None
-    stability: str | None = None
-    read_only: bool = False
-
-
 class AgentCard(BaseModel):
     """Versioned agent card for the bridge identity."""
 
-    schema_version: str = Field(default=SchemaVersion.V0_4_0)
+    schema_version: str = Field(default=SchemaVersion.V0_5_0)
     agent_id: str
     name: str
     purpose: str
@@ -226,6 +228,171 @@ class AgentCard(BaseModel):
             "limits": dict(self.limits),
             "provenance": dict(self.provenance),
         }
+
+
+# === 0.5.0 governance additions ===
+
+
+class OrchestrationMode(StrEnum):
+    AUTO = "auto"
+    EXPLICIT = "explicit"
+    SINGLE = "single"
+    PARALLEL = "parallel"
+    PIPELINE = "pipeline"
+    REVIEW = "review"
+
+
+class TrustLabel(StrEnum):
+    TRUSTED_POLICY = "trusted_policy"
+    USER_INSTRUCTION = "user_instruction"
+    AGENT_PROPOSAL = "agent_proposal"
+    TOOL_RESULT = "tool_result"
+    UNTRUSTED_CONTENT = "untrusted_content"
+    UNKNOWN = "unknown"
+
+
+class RiskLevel(StrEnum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    UNKNOWN = "unknown"
+
+
+class ProvenanceClaimType(StrEnum):
+    OBSERVED = "OBSERVED"
+    DERIVED = "DERIVED"
+    INFERRED = "INFERRED"
+    UNVERIFIED = "UNVERIFIED"
+
+
+class DecisionType(StrEnum):
+    ALLOW = "ALLOW"
+    DENY = "DENY"
+    REQUIRE_APPROVAL = "REQUIRE_APPROVAL"
+
+
+class ApprovalStatus(StrEnum):
+    REQUESTED = "requested"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    EXPIRED = "expired"
+    CONSUMED = "consumed"
+    STALE = "stale"
+
+
+class MutationClass(StrEnum):
+    NONE = "none"
+    WRITE = "write"
+    DELETE = "delete"
+    ADMIN = "admin"
+
+
+class OrchestrationPolicy(BaseModel):
+    prefer_parallelism: bool | None = None
+    min_agents: int | None = Field(default=None, ge=1)
+    max_agents: int | None = Field(default=None, ge=1)
+    max_parallel_agents: int | None = Field(default=None, ge=1)
+    require_supervisor: bool | None = None
+    single_writer_per_resource: bool | None = None
+    require_independent_review: bool | None = None
+    max_round_trips: int | None = Field(default=None, ge=1)
+    max_replans: int | None = Field(default=None, ge=0)
+    max_delegation_depth: int | None = Field(default=None, ge=1)
+    stop_redundant_agents: bool | None = None
+    cancel_losing_hypotheses: bool | None = None
+
+    model_config = {"extra": "ignore"}
+
+    def to_canonical_dict(self) -> dict[str, Any]:
+        return {
+            "prefer_parallelism": self.prefer_parallelism,
+            "min_agents": self.min_agents,
+            "max_agents": self.max_agents,
+            "max_parallel_agents": self.max_parallel_agents,
+            "require_supervisor": self.require_supervisor,
+            "single_writer_per_resource": self.single_writer_per_resource,
+            "require_independent_review": self.require_independent_review,
+            "max_round_trips": self.max_round_trips,
+            "max_replans": self.max_replans,
+            "max_delegation_depth": self.max_delegation_depth,
+            "stop_redundant_agents": self.stop_redundant_agents,
+            "cancel_losing_hypotheses": self.cancel_losing_hypotheses,
+        }
+
+
+class PolicyEvaluationInput(BaseModel):
+    action: str
+    origin_type: str | None = None
+    project_key: str | None = None
+    resource: str | None = None
+    trust_label: TrustLabel = TrustLabel.UNKNOWN
+    mutation_class: MutationClass = MutationClass.NONE
+    principal: str | None = None
+    delegation_chain: list[str] = Field(default_factory=list)
+
+
+class PolicyEvaluationResult(BaseModel):
+    decision: DecisionType
+    reason: str | None = None
+    effective_policy: dict[str, Any] = Field(default_factory=dict)
+    approval_required: bool = False
+
+
+class ApprovalRecord(BaseModel):
+    approval_id: str
+    action: str
+    resource: str | None = None
+    resource_fingerprint: str | None = None
+    principal: str | None = None
+    delegation_chain_sanitized: list[str] = Field(default_factory=list)
+    decision: ApprovalStatus = ApprovalStatus.REQUESTED
+    expires_at: str | None = None
+    created_at: str
+    decided_at: str | None = None
+    consumed_at: str | None = None
+    metadata_sanitized: dict[str, Any] = Field(default_factory=dict)
+    approval_identity_assurance: str = "caller_asserted"
+
+    model_config = {"extra": "ignore"}
+
+
+class EvidenceRef(BaseModel):
+    source: str
+    digest: str | None = None
+    observed_at: str | None = None
+
+
+class ProvenanceClaim(BaseModel):
+    claim_type: ProvenanceClaimType = ProvenanceClaimType.UNVERIFIED
+    subject: str
+    evidence_refs: list[EvidenceRef] = Field(default_factory=list)
+    asserted_by: str | None = None
+    notes: str | None = None
+
+
+class ResultManifest(BaseModel):
+    execution_id: str
+    session_id: str | None = None
+    status: str
+    schema_versions: dict[str, str] = Field(default_factory=dict)
+    timestamps: dict[str, str] = Field(default_factory=dict)
+    tool_manifest_hashes: list[str] = Field(default_factory=list)
+    claims: list[ProvenanceClaim] = Field(default_factory=list)
+    artifact_refs: list[str] = Field(default_factory=list)
+    canonical_digest: str | None = None
+    signature_status: str = "unsigned"
+    signature: str | None = None
+
+    model_config = {"extra": "ignore"}
+
+
+class ExtendedToolManifest(ToolManifest):
+    trust_level: str | None = None
+    mutation_class: str | None = None
+    reversible: bool | None = None
+    idempotency_class: str | None = None
+    approval_requirement: str | None = None
+    attestation_status: str | None = None
 
 
 def _canonical_json_hash(payload: Any) -> str:
@@ -319,7 +486,7 @@ def load_agent_card_from_env() -> AgentCard:
             "HERMES_AGENT_CARD_PURPOSE",
             "Thin MCP bridge that delegates natural-language objectives to hermes-agent.",
         ),
-        version=os.getenv("HERMES_AGENT_CARD_VERSION", SchemaVersion.V0_4_0),
+        version=os.getenv("HERMES_AGENT_CARD_VERSION", SchemaVersion.V0_5_0),
         capabilities=[
             "delegate-objectives",
             "connected-wait",
@@ -442,7 +609,7 @@ def canonical_capability_fallback(bridge_version: str) -> CapabilityManifest:
     }
     return CapabilityManifest.build(
         bridge_version=bridge_version,
-        manifest_version="0.4.0",
+        manifest_version=bridge_version,
         tools=tools,
         orchestration_modes=orchestration_modes,
         limits=limits,

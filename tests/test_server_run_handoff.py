@@ -36,7 +36,7 @@ class _DummyContext:
 def test_exact_seven_tools_registered(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     server = _make_server_module(monkeypatch, tmp_path)
     tools = server.server_tool_names()
-    expected = [
+    expected = sorted([
         "hermes_agent_card",
         "hermes_capabilities",
         "hermes_health",
@@ -46,7 +46,12 @@ def test_exact_seven_tools_registered(monkeypatch: pytest.MonkeyPatch, tmp_path:
         "hermes_stop",
         "hermes_submit",
         "hermes_wait",
-    ]
+        "hermes_policy_evaluate",
+        "hermes_approval_create",
+        "hermes_approval_respond",
+        "hermes_approval_status",
+        "hermes_result_manifest",
+    ])
     assert tools == expected
 
 
