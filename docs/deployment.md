@@ -1,10 +1,10 @@
-# Deployment phases
+# Deployment
 
 ## Phase 1 — local loopback
 
 1. Enable the Hermes API server on `127.0.0.1:8642` with a dedicated key.
 2. Build and run the bridge on `127.0.0.1:8765`.
-3. Validate `hermes_health`, connected `hermes_prompt`, session continuity, status and cancellation.
+3. Validate `hermes_health`, connected `hermes_prompt`, session continuity, status, wait and cancellation.
 4. Confirm MCP progress notifications, Hermes SSE events, heartbeat and final output in the original tool call.
 5. Validate the automatic fallback from the Hermes event stream to run-status polling through unit tests.
 6. Keep all operational testing read-only until the contract is proven.
@@ -65,7 +65,7 @@ A heartbeat reduces idle-timeout risk but does not override an absolute timeout 
 1. Enable Developer Mode in an eligible ChatGPT workspace or account surface.
 2. Create a custom MCP app pointing to `https://hermes-mcp.hex0r.xyz/mcp`.
 3. Complete the configured authentication flow and scan tools.
-4. Confirm the four expected tools and the updated `hermes_prompt` schema.
+4. Confirm the seven expected tools and the updated schemas.
 5. Test read-only delegation first.
 6. Validate one connected request at increasing durations without asking the user to poll manually.
 7. Test recovery after a deliberately interrupted client connection.
@@ -75,7 +75,7 @@ A heartbeat reduces idle-timeout risk but does not override an absolute timeout 
 
 | Gate | Required decision |
 |---|---|
-| Local v0.2 connected execution | `CONNECTED_LONG_RUN_LOCAL_PASS` |
+| Local v0.3 connected execution | `CONNECTED_LONG_RUN_LOCAL_PASS` |
 | Cloudflare transport and authentication | `REMOTE_MCP_TRANSPORT_PASS` |
 | ChatGPT discovery and connected execution | `CHATGPT_MCP_E2E_PASS` |
 

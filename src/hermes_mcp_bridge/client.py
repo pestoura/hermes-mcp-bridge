@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import math
 import re
 import uuid
@@ -21,6 +22,8 @@ from .models import (
     OrchestrationMode,
     RunStatus,
 )
+
+logger = logging.getLogger(__name__)
 
 TransportFactory = Callable[[], httpx.AsyncBaseTransport]
 ProgressCallback = Callable[[dict[str, Any]], Awaitable[None]]
@@ -118,6 +121,53 @@ class HermesClient:
     ) -> HermesPromptResult:
         """Submit a Hermes run and optionally keep the request connected."""
 
+        max_wait = self._bounded_wait(wait_seconds)
+
+        result = await self.create_run(
+            prompt=prompt,
+            session_id=session_id,
+            agent=agent,
+            subagents=subagents,
+            orchestration=orchestration,
+        )
+        await self._notify_progress(
+            progress_callback,
+            {
+                "event": "bridge.run.accepted",
+                "run_id": result.execution_id,
+                "session_id": result.session_id,
+                "status": result.status.value,
+            },
+        )
+        if result.status in TERMINAL_STATUSES or max_wait == 0:
+            return result
+
+        try:
+            return await self.wait_for_run(
+                result.execution_id,
+                max_wait_seconds=max_wait,
+                fallback_session_id=result.session_id,
+                agent=agent,
+                subagents=subagents,
+                progress_callback=progress_callback,
+            )
+        except asyncio.CancelledError:
+            if stop_on_cancel:
+                with suppress(HermesAPIError):
+                    await asyncio.shield(self.stop_run(result.execution_id))
+            raise
+
+    async def create_run(
+        self,
+        *,
+        prompt: str,
+        session_id: str | None = None,
+        agent: str | None = None,
+        subagents: list[str] | None = None,
+        orchestration: OrchestrationMode = OrchestrationMode.AUTO,
+    ) -> HermesPromptResult:
+        """Validate the prompt, prepare a session, submit a run, and return immediately."""
+
         normalized_prompt = prompt.strip()
         if not normalized_prompt:
             raise HermesAPIError("Prompt must not be empty")
@@ -125,8 +175,6 @@ class HermesClient:
             raise HermesAPIError("Prompt exceeds the bridge size limit")
 
         instructions = self._instructions(agent, subagents, orchestration)
-        max_wait = self._bounded_wait(wait_seconds)
-
         async with self._client() as http_client:
             active_session_id, conversation_history = await self._prepare_session(
                 http_client,
@@ -148,45 +196,24 @@ class HermesClient:
 
         execution_id = str(data.get("run_id") or data.get("id") or "")
         self._validate_identifier(execution_id, label="execution_id")
-
-        initial = self._normalize(
+        return self._normalize(
             data,
             execution_id=execution_id,
             fallback_session_id=active_session_id,
             agent=agent,
             subagents=subagents,
         )
-        await self._notify_progress(
-            progress_callback,
-            {
-                "event": "bridge.run.accepted",
-                "run_id": execution_id,
-                "session_id": active_session_id,
-                "status": initial.status.value,
-            },
-        )
-        if initial.status in TERMINAL_STATUSES or max_wait == 0:
-            return initial
-
-        try:
-            return await self.wait_for_run(
-                execution_id,
-                max_wait_seconds=max_wait,
-                fallback_session_id=active_session_id,
-                agent=agent,
-                subagents=subagents,
-                progress_callback=progress_callback,
-            )
-        except asyncio.CancelledError:
-            if stop_on_cancel:
-                with suppress(HermesAPIError):
-                    await asyncio.shield(self.stop_run(execution_id))
-            raise
 
     def _bounded_wait(self, wait_seconds: float | None) -> float:
         configured_max = self._settings.hermes_run_max_wait_seconds
+        default_wait = getattr(
+            self._settings,
+            "hermes_run_default_wait_seconds",
+            configured_max,
+        )
+        bounded_default = min(default_wait, configured_max)
         if wait_seconds is None:
-            return configured_max
+            return bounded_default
         if not math.isfinite(wait_seconds):
             raise HermesAPIError("wait_seconds must be a finite number")
         return min(max(0.0, wait_seconds), configured_max)
@@ -564,8 +591,12 @@ class HermesClient:
             await callback(event)
         except asyncio.CancelledError:
             raise
-        except Exception:
-            return
+        except Exception as exc:
+            logger.warning(
+                "progress callback failed; event=%s exception=%s",
+                event.get("event"),
+                exc.__class__.__name__,
+            )
 
     async def stop_run(self, execution_id: str) -> HermesPromptResult:
         """Ask Hermes to stop a run at its next safe interruption point."""

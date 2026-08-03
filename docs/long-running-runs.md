@@ -23,7 +23,6 @@ final tool result
 ## Connected mode
 
 Connected mode is the default when `wait_seconds` is omitted or greater than zero.
-
 The bridge:
 
 1. creates or resumes a native Hermes session;
@@ -45,6 +44,15 @@ The bridge deliberately suppresses:
 
 This prevents progress messages from leaking reasoning, secrets or large intermediate payloads.
 
+## Recommended automation flow
+
+For long-running or automated work:
+
+1. call `hermes_submit` with a stable `client_request_id`;
+2. store the returned `execution_id` and `session_id`;
+3. recover later using `hermes_status`, `hermes_wait` or `recent_runs`;
+4. use connected `hermes_prompt` only when the caller can keep the tool call open.
+
 ## Fallback behavior
 
 Hermes exposes each run event stream as a single live queue. If the stream closes early or cannot be opened, the run itself continues and the bridge switches to `GET /v1/runs/{run_id}` polling for the remaining wait budget.
@@ -59,7 +67,7 @@ The default is:
 stop_on_disconnect=false
 ```
 
-If the MCP client disconnects or cancels the request, the Hermes run continues. This protects 10–60 minute operations from accidental browser, proxy or network interruption. The `execution_id` remains usable with `hermes_status` and `hermes_stop` while Hermes retains the run status.
+If the MCP client disconnects or cancels the request, the Hermes run continues. This protects 10–60 minute operations from accidental browser, proxy or network interruption. The `execution_id` remains usable with `hermes_status`, `hermes_wait` and `recent_runs` while Hermes retains the run status.
 
 For operations where client cancellation must also stop Hermes:
 
@@ -78,6 +86,7 @@ Default production values:
 
 ```text
 HERMES_RUN_MAX_WAIT_SECONDS=7200
+HERMES_RUN_DEFAULT_WAIT_SECONDS=45
 HERMES_PROGRESS_INTERVAL_SECONDS=15
 HERMES_EVENT_STREAM_CONNECT_TIMEOUT_SECONDS=30
 HERMES_RUN_POLL_INTERVAL_SECONDS=1
@@ -127,6 +136,8 @@ For a reverse proxy or tunnel:
 | Explicit stop-on-disconnect | Hermes stop endpoint called |
 | Detached mode | Immediate `execution_id` response |
 | Loopback | Ports 8642 and 8765 remain on `127.0.0.1` |
+| Submit reuse | Same `client_request_id` and fingerprint returns same execution |
+| Fingerprint conflict | Same key with different request is rejected |
 
 ## Known boundary
 

@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     hermes_model: str = "hermes-agent"
     hermes_request_timeout_seconds: float = Field(default=30.0, gt=0)
     hermes_run_poll_interval_seconds: float = Field(default=1.0, gt=0)
+    hermes_run_default_wait_seconds: float = Field(default=45.0, ge=0)
     hermes_run_max_wait_seconds: float = Field(default=7200.0, gt=0)
     hermes_progress_interval_seconds: float = Field(default=15.0, gt=0)
     hermes_event_stream_connect_timeout_seconds: float = Field(default=30.0, gt=0)
@@ -29,6 +30,7 @@ class Settings(BaseSettings):
     mcp_port: int = Field(default=8765, ge=1, le=65535)
     mcp_path: str = "/mcp"
     log_level: str = "INFO"
+    bridge_state_db_path: str = "/var/lib/hermes-mcp-bridge/state.sqlite3"
 
 
 @lru_cache(maxsize=1)

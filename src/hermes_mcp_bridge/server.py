@@ -2,16 +2,29 @@
 
 from __future__ import annotations
 
+import asyncio
+import importlib
+import weakref
+from contextlib import suppress
+from types import ModuleType
 from typing import Any
 
 from mcp.server.fastmcp import Context, FastMCP
 
 from .client import HermesAPIError, HermesClient
 from .config import get_settings
-from .models import HermesPromptResult, OrchestrationMode, RunStatus
+from .models import (
+    TERMINAL_STATUSES,
+    HermesPromptResult,
+    OrchestrationMode,
+    RunStatus,
+)
+from .registry import RegistryError, compute_fingerprint, get_registry
 
 settings = get_settings()
 client = HermesClient(settings)
+registry = get_registry()
+registry.initialize()
 
 mcp = FastMCP(
     "Hermes MCP Bridge",
@@ -30,83 +43,9 @@ mcp = FastMCP(
     json_response=False,
 )
 
-
-@mcp.tool()
-async def hermes_prompt(
-    prompt: str,
-    ctx: Context,
-    session_id: str | None = None,
-    agent: str | None = None,
-    subagents: list[str] | None = None,
-    orchestration: OrchestrationMode = OrchestrationMode.AUTO,
-    wait_seconds: float | None = None,
-    stop_on_disconnect: bool = False,
-) -> dict[str, Any]:
-    """Delegate an objective to Hermes and keep the MCP request connected.
-
-    By default this tool waits up to the configured maximum, consumes Hermes run
-    events, emits MCP progress notifications and returns the final output in the
-    original tool call. Set ``wait_seconds=0`` only when detached execution is
-    explicitly required. A lost client connection does not stop Hermes unless
-    ``stop_on_disconnect`` is true; the run remains recoverable by execution ID.
-    """
-
-    progress = 0.0
-
-    async def report(event: dict[str, Any]) -> None:
-        nonlocal progress
-        message = _progress_message(event)
-        if message is None:
-            return
-        progress += 1.0
-        await ctx.report_progress(progress=progress, message=message)
-
-    try:
-        result = await client.submit_prompt(
-            prompt=prompt,
-            session_id=session_id,
-            agent=agent,
-            subagents=subagents,
-            orchestration=orchestration,
-            wait_seconds=wait_seconds,
-            progress_callback=report,
-            stop_on_cancel=stop_on_disconnect,
-        )
-        return result.model_dump(mode="json")
-    except HermesAPIError as exc:
-        return _error_result(str(exc)).model_dump(mode="json")
-
-
-@mcp.tool()
-async def hermes_status(execution_id: str) -> dict[str, Any]:
-    """Retrieve the current status and output of a Hermes execution."""
-
-    try:
-        result = await client.get_run(execution_id)
-        return result.model_dump(mode="json")
-    except HermesAPIError as exc:
-        return _error_result(str(exc), execution_id=execution_id).model_dump(mode="json")
-
-
-@mcp.tool()
-async def hermes_stop(execution_id: str) -> dict[str, Any]:
-    """Request cancellation of a Hermes execution at the next safe interruption point."""
-
-    try:
-        result = await client.stop_run(execution_id)
-        return result.model_dump(mode="json")
-    except HermesAPIError as exc:
-        return _error_result(str(exc), execution_id=execution_id).model_dump(mode="json")
-
-
-@mcp.tool()
-async def hermes_health(detailed: bool = False) -> dict[str, Any]:
-    """Check the Hermes API server liveness or authenticated readiness."""
-
-    try:
-        return await client.health(detailed=detailed)
-    except HermesAPIError as exc:
-        return {"status": "error", "error": str(exc)}
+_KEY_LOCKS: weakref.WeakValueDictionary[str, asyncio.Lock] = (
+    weakref.WeakValueDictionary()
+)
 
 
 def _progress_message(event: dict[str, Any]) -> str | None:
@@ -152,18 +91,450 @@ def _safe_label(value: Any) -> str:
     return text[:120]
 
 
-def _error_result(message: str, *, execution_id: str = "not-created") -> HermesPromptResult:
-    return HermesPromptResult(
+def _error_result(message: str, *, execution_id: str = "not-created") -> dict[str, Any]:
+    result = HermesPromptResult(
         execution_id=execution_id,
         status=RunStatus.FAILED,
         error=message,
     )
+    return result.model_dump(mode="json")
+
+
+def _validate_prompt(prompt: str) -> None:
+    normalized = prompt.strip()
+    if not normalized:
+        raise HermesAPIError("Prompt must not be empty")
+
+
+async def _persist_mapping(
+    *,
+    client_request_id: str,
+    fingerprint: str,
+    execution_id: str,
+    session_id: str | None,
+    last_status: str,
+) -> dict[str, object]:
+    try:
+        mapping = await asyncio.to_thread(
+            registry.record,
+            client_request_id=client_request_id,
+            fingerprint=fingerprint,
+            execution_id=execution_id,
+            session_id=session_id,
+            last_status=last_status,
+        )
+        return mapping
+    except RegistryError:
+        raise
+    except Exception:
+        warning = "registry record failed after run creation"
+        return {
+            "client_request_id": client_request_id,
+            "execution_id": execution_id,
+            "session_id": session_id,
+            "last_status": last_status,
+            "warning": warning,
+        }
+
+
+def _session_value(value: object | None) -> str | None:
+    if value is None:
+        return None
+    return str(value)
+
+
+def _registry_result(
+    mapping: dict[str, object],
+    *,
+    execution_id_override: str | None = None,
+) -> dict[str, Any]:
+    return HermesPromptResult(
+        session_id=_session_value(mapping.get("session_id")),
+        execution_id=execution_id_override or str(mapping.get("execution_id", "not-created")),
+        status=RunStatus(str(mapping.get("last_status", "unknown"))),
+        metadata={"bridge_recovery_source": "registry"},
+    ).model_dump(mode="json")
+
+
+def _key_lock(client_request_id: str) -> asyncio.Lock:
+    lock = _KEY_LOCKS.get(client_request_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _KEY_LOCKS[client_request_id] = lock
+    return lock
+
+
+async def _submit_and_record(
+    *,
+    server: ModuleType,
+    client_request_id: str | None,
+    fingerprint: str,
+    prompt: str,
+    agent: str | None,
+    subagents: list[str] | None,
+    orchestration: OrchestrationMode,
+    ctx: Context,
+) -> dict[str, Any]:
+    try:
+        result = await client.submit_prompt(
+            prompt=prompt,
+            agent=agent,
+            subagents=subagents,
+            orchestration=orchestration,
+            wait_seconds=0,
+        )
+    except HermesAPIError as exc:
+        return _error_result(str(exc))
+
+    if client_request_id is None:
+        return result.model_dump(mode="json")
+
+    async def _persist() -> dict[str, object]:
+        return await _persist_mapping(
+            client_request_id=client_request_id,
+            fingerprint=fingerprint,
+            execution_id=result.execution_id,
+            session_id=result.session_id,
+            last_status=result.status.value,
+        )
+
+    try:
+        persisted = await asyncio.shield(_persist())
+    except asyncio.CancelledError:
+        persisted = await _persist()
+        raise
+    warning = persisted.get("warning") if isinstance(persisted, dict) else None
+    if warning is None:
+        return result.model_dump(mode="json")
+    result.metadata = {**result.metadata, "warning": str(warning)}
+    return result.model_dump(mode="json")
+
+
+@mcp.tool()
+async def hermes_submit(
+    prompt: str,
+    ctx: Context,
+    client_request_id: str | None = None,
+    agent: str | None = None,
+    subagents: list[str] | None = None,
+    orchestration: OrchestrationMode = OrchestrationMode.AUTO,
+) -> dict[str, Any]:
+    """Create a Hermes run and return execution/session identifiers immediately."""
+
+    _validate_prompt(prompt)
+
+    fingerprint = compute_fingerprint(
+        prompt=prompt,
+        session_id=None,
+        agent=agent,
+        subagents=subagents,
+        orchestration=orchestration.value,
+    )
+
+    if client_request_id is not None:
+        async with _key_lock(client_request_id):
+            try:
+                existing = await asyncio.to_thread(registry.get, client_request_id)
+            except RegistryError as exc:
+                return _error_result(str(exc), execution_id="not-created")
+
+            if existing is not None:
+                stored_fingerprint = str(existing.get("fingerprint", ""))
+                if stored_fingerprint != fingerprint:
+                    return _error_result(
+                        "existing mapping has a different fingerprint",
+                        execution_id="not-created",
+                    )
+                return _registry_result(existing)
+            return await _submit_and_record(
+                server=importlib.import_module("hermes_mcp_bridge.server"),
+                client_request_id=client_request_id,
+                fingerprint=fingerprint,
+                prompt=prompt,
+                agent=agent,
+                subagents=subagents,
+                orchestration=orchestration,
+                ctx=ctx,
+            )
+
+    return await _submit_and_record(
+        server=importlib.import_module("hermes_mcp_bridge.server"),
+        client_request_id=client_request_id,
+        fingerprint=fingerprint,
+        prompt=prompt,
+        agent=agent,
+        subagents=subagents,
+        orchestration=orchestration,
+        ctx=ctx,
+    )
+
+
+@mcp.tool()
+async def hermes_prompt(
+    prompt: str,
+    ctx: Context,
+    client_request_id: str | None = None,
+    session_id: str | None = None,
+    agent: str | None = None,
+    subagents: list[str] | None = None,
+    orchestration: OrchestrationMode = OrchestrationMode.AUTO,
+    wait_seconds: float | None = None,
+    stop_on_disconnect: bool = False,
+) -> dict[str, Any]:
+    """Delegate an objective to Hermes, keep the MCP request connected, and wait."""
+
+    _validate_prompt(prompt)
+
+    fingerprint = compute_fingerprint(
+        prompt=prompt,
+        session_id=session_id,
+        agent=agent,
+        subagents=subagents,
+        orchestration=orchestration.value,
+    )
+
+    if client_request_id is not None:
+        async with _key_lock(client_request_id):
+            try:
+                existing = await asyncio.to_thread(registry.get, client_request_id)
+            except RegistryError as exc:
+                return _error_result(str(exc), execution_id="not-created")
+
+            if existing is not None:
+                stored_fingerprint = str(existing.get("fingerprint", ""))
+                if stored_fingerprint != fingerprint:
+                    return _error_result(
+                        "existing mapping has a different fingerprint",
+                        execution_id="not-created",
+                    )
+                execution_id = str(existing.get("execution_id", ""))
+                try:
+                    result = await client.get_run(
+                        execution_id,
+                        fallback_session_id=_session_value(existing.get("session_id")),
+                        agent=agent,
+                        subagents=subagents,
+                    )
+                except HermesAPIError:
+                    result = HermesPromptResult(
+                        session_id=_session_value(existing.get("session_id")),
+                        execution_id=execution_id,
+                        status=RunStatus(str(existing.get("last_status", "unknown"))),
+                        metadata={"bridge_recovery_source": "registry"},
+                    )
+                if result.status in TERMINAL_STATUSES:
+                    return result.model_dump(mode="json")
+                return await client.wait_for_run(
+                    execution_id,
+                    max_wait_seconds=(
+                        settings.hermes_run_default_wait_seconds
+                        if wait_seconds is None
+                        else client._bounded_wait(wait_seconds)
+                    ),
+                    fallback_session_id=result.session_id,
+                    agent=agent,
+                    subagents=subagents,
+                    progress_callback=None,
+                )
+
+            try:
+                result = await client.submit_prompt(
+                    prompt=prompt,
+                    session_id=session_id,
+                    agent=agent,
+                    subagents=subagents,
+                    orchestration=orchestration,
+                    wait_seconds=wait_seconds,
+                    stop_on_cancel=stop_on_disconnect,
+                )
+            except HermesAPIError as exc:
+                return _error_result(str(exc))
+
+            persisted = await _persist_mapping(
+                client_request_id=client_request_id,
+                fingerprint=fingerprint,
+                execution_id=result.execution_id,
+                session_id=result.session_id,
+                last_status=result.status.value,
+            )
+            warning = persisted.get("warning") if isinstance(persisted, dict) else None
+            if warning is None:
+                return result.model_dump(mode="json")
+            result.metadata = {**result.metadata, "warning": str(warning)}
+            return result.model_dump(mode="json")
+
+    try:
+        result = await client.submit_prompt(
+            prompt=prompt,
+            session_id=session_id,
+            agent=agent,
+            subagents=subagents,
+            orchestration=orchestration,
+            wait_seconds=wait_seconds,
+            stop_on_cancel=stop_on_disconnect,
+        )
+    except HermesAPIError as exc:
+        return _error_result(str(exc))
+    return result.model_dump(mode="json")
+
+
+@mcp.tool()
+async def hermes_wait(
+    execution_id: str,
+    ctx: Context,
+    wait_seconds: float | None = None,
+) -> dict[str, Any]:
+    """Wait for an existing Hermes run and return when it completes or the budget expires."""
+
+    if not execution_id.strip():
+        return _error_result("execution_id must not be empty")
+
+    max_wait = (
+        settings.hermes_run_default_wait_seconds
+        if wait_seconds is None
+        else client._bounded_wait(wait_seconds)
+    )
+
+    progress_event_count = 0
+
+    async def progress(event: dict[str, Any]) -> None:
+        nonlocal progress_event_count
+        message = _progress_message(event)
+        if message is None:
+            return
+        progress_event_count += 1
+        await ctx.report_progress(
+            progress=float(progress_event_count),
+            message=message,
+        )
+
+    try:
+        result = await client.wait_for_run(
+            execution_id,
+            max_wait_seconds=max_wait,
+            progress_callback=progress,
+        )
+        return result.model_dump(mode="json")
+    except HermesAPIError as exc:
+        return _error_result(str(exc), execution_id=execution_id)
+
+
+@mcp.tool()
+async def hermes_status(execution_id: str) -> dict[str, Any]:
+    """Retrieve the current status and output of a Hermes execution."""
+
+    if not execution_id.strip():
+        return _error_result("execution_id must not be empty")
+
+    try:
+        result = await client.get_run(execution_id)
+        return result.model_dump(mode="json")
+    except HermesAPIError:
+        try:
+            mapping = await asyncio.to_thread(registry.get, execution_id)
+            if mapping is not None:
+                return _registry_result(mapping, execution_id_override=execution_id)
+        except RegistryError:
+            pass
+        return _error_result(
+            str(HermesAPIError("unavailable")),
+            execution_id=execution_id,
+        )
+
+
+@mcp.tool()
+async def hermes_stop(execution_id: str) -> dict[str, Any]:
+    """Request cancellation of a Hermes execution at the next safe interruption point."""
+
+    if not execution_id.strip():
+        return _error_result("execution_id must not be empty")
+
+    try:
+        result = await client.stop_run(execution_id)
+        await asyncio.to_thread(
+            registry.update_status,
+            client_request_id=execution_id,
+            last_status=result.status.value,
+            execution_id=result.execution_id,
+        )
+        return result.model_dump(mode="json")
+    except HermesAPIError as exc:
+        with suppress(RegistryError):
+            await asyncio.to_thread(
+                registry.update_status,
+                client_request_id=execution_id,
+                last_status="stopping",
+            )
+        return _error_result(str(exc), execution_id=execution_id)
+
+
+@mcp.tool()
+async def hermes_recent_runs(
+    limit: int = 50,
+    status: str | None = None,
+) -> dict[str, Any]:
+    """List recent Hermes runs visible to this bridge."""
+
+    try:
+        limit = max(1, min(100, int(limit)))
+    except (TypeError, ValueError):
+        limit = 50
+
+    try:
+        items = await asyncio.to_thread(
+            registry.list_recent,
+            limit=limit,
+            status=status,
+        )
+    except RegistryError as exc:
+        return {"object": "list", "data": [], "warning": str(exc)}
+
+    sanitized = [
+        {
+            "client_request_id": item.get("client_request_id"),
+            "execution_id": item.get("execution_id"),
+            "session_id": item.get("session_id"),
+            "last_status": item.get("last_status"),
+            "created_at": item.get("created_at"),
+            "updated_at": item.get("updated_at"),
+        }
+        for item in items
+    ]
+    return {"object": "list", "data": sanitized}
+
+
+@mcp.tool()
+async def hermes_health(detailed: bool = False) -> dict[str, Any]:
+    """Check the Hermes API server liveness or authenticated readiness."""
+
+    try:
+        upstream = await client.health(detailed=detailed)
+    except HermesAPIError as exc:
+        upstream = {"status": "error", "error": str(exc)}
+
+    registry_health = await asyncio.to_thread(registry.health)
+    bridge: dict[str, Any] = {
+        "default_wait_seconds": settings.hermes_run_default_wait_seconds,
+        "max_wait_seconds": settings.hermes_run_max_wait_seconds,
+        "state_registry": registry_health,
+    }
+    return {"upstream": upstream, "bridge": bridge}
 
 
 def main() -> None:
     """Run the bridge using MCP Streamable HTTP transport."""
 
     mcp.run(transport="streamable-http")
+
+
+def _load_server_module() -> ModuleType:
+    return importlib.import_module("hermes_mcp_bridge.server")
+
+
+def server_tool_names() -> list[str]:
+    server = _load_server_module()
+    tools = server.mcp._tool_manager.list_tools()
+    return sorted(tool.name for tool in tools)
 
 
 if __name__ == "__main__":
