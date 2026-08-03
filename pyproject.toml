@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hermes-mcp-bridge"
-version = "0.5.0"
+version = "0.6.0"
 description = "A minimal Streamable HTTP MCP bridge for delegating prompts to hermes-agent."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -37,6 +37,7 @@ where = ["src"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+pythonpath = ["src"]
 
 [tool.ruff]
 line-length = 100

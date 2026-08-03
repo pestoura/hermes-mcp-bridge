@@ -22,13 +22,25 @@ from .approvals import (
     ApprovalStatusError,
     get_approval_registry,
 )
+from .checkpoints import CheckpointRegistry
 from .client import HermesAPIError, HermesClient
 from .config import get_settings
+from .locks import LockError, LockRegistry, LockType, ResourceLock
 from .models import (
     TERMINAL_STATUSES,
+    Checkpoint,
+    Continuation,
     HermesPromptResult,
     OrchestrationMode,
+    Plan,
+    PlanApprovalPoint,
+    PlanDependency,
+    PlanStatus,
+    PlanStep,
     RunStatus,
+    Saga,
+    SagaStatus,
+    SagaStep,
 )
 from .policy import PolicyEvaluationInput, evaluate_policy
 from .protocol import (
@@ -45,12 +57,18 @@ from .protocol import (
     load_upstream_capabilities,
 )
 from .provenance import ProvenanceClaim, build_result_manifest
+from .quotas import get_quota_registry
 from .registry import RegistryError, compute_fingerprint, get_registry
+from .sagas import SagaRegistry
+from .tracing import build_trace_metadata
 
 settings = get_settings()
 client = HermesClient(settings)
 registry = get_registry()
 registry.initialize()
+checkpoint_registry = CheckpointRegistry(settings.bridge_state_db_path)
+lock_registry = LockRegistry(settings.bridge_state_db_path)
+saga_registry = SagaRegistry(settings.bridge_state_db_path)
 
 mcp = FastMCP(
     "Hermes MCP Bridge",
@@ -660,6 +678,9 @@ async def hermes_health(detailed: bool = False) -> dict[str, Any]:
     bridge["manifest_hash"] = manifest.manifest_hash
     bridge["bridge_version"] = manifest.bridge_version
     bridge["schema_version"] = manifest.schema_version
+    bridge["effective_tools"] = manifest.effective_tools
+    bridge["advisory_tools"] = manifest.advisory_tools
+    bridge["unsupported_tools"] = manifest.unsupported_tools
     upstream_manifest_hash = (
         upstream_payload.get("capability_manifest_hash")
         or upstream_payload.get("manifest_hash")
@@ -679,9 +700,9 @@ async def hermes_capabilities() -> dict[str, Any]:
     payload = manifest.model_dump(mode="json")
     payload["capability_hash"] = manifest.manifest_hash
     payload["upstream_support"] = {
-        "requested": ["auto", "explicit", "single", "parallel", "pipeline", "review"],
+        "requested": ["auto", "explicit"],
         "effective": ["auto", "explicit"],
-        "unsupported": ["single", "parallel", "pipeline", "review"],
+        "unsupported": [],
     }
     return payload
 
@@ -862,6 +883,380 @@ async def hermes_result_manifest(execution_id: str) -> dict[str, Any]:
     return manifest.model_dump(mode="json")
 
 
+@mcp.tool()
+async def hermes_plan(
+    title: str,
+    description: str = "",
+    steps: list[dict[str, Any]] | None = None,
+    dependencies: list[dict[str, Any]] | None = None,
+    approval_points: list[dict[str, Any]] | None = None,
+    principal: str | None = None,
+    trust_label: str | None = None,
+) -> dict[str, Any]:
+    """Create an executable plan/DAG without executing mutations."""
+
+    plan_id = f"plan-{uuid.uuid4().hex}"
+    plan_steps = [PlanStep(**step) for step in (steps or [])]
+    deps = [PlanDependency(**dep) for dep in (dependencies or [])]
+    approval_point_models = [PlanApprovalPoint(**ap) for ap in (approval_points or [])]
+    plan = Plan(
+        plan_id=plan_id,
+        title=title,
+        description=description,
+        steps=plan_steps,
+        dependencies=deps,
+        approval_points=approval_point_models,
+    )
+    from .plans import validate_plan_structure
+    errors = validate_plan_structure(plan)
+    if errors:
+        return {"plan_id": plan_id, "error": "; ".join(errors)}
+    from .plans import PlanStore
+    store = PlanStore(settings.bridge_state_db_path)
+    store.initialize()
+    plan, _plan_hash = store.create(plan)
+    return {
+        "plan_id": plan.plan_id,
+        "plan_hash": plan.plan_hash,
+        "status": plan.status.value,
+        "step_count": len(plan.steps),
+        "approval_points": [ap.model_dump(mode="json") for ap in plan.approval_points],
+    }
+
+
+@mcp.tool()
+async def hermes_execute_approved_plan(
+    plan_id: str,
+    approval_id: str,
+    principal: str | None = None,
+    trust_label: str | None = None,
+) -> dict[str, Any]:
+    """Execute a previously approved plan with policy gating."""
+
+    policy_block = _enforce_policy(
+        "hermes_execute_approved_plan",
+        trust_label=trust_label,
+        principal=principal,
+    )
+    if policy_block is not None:
+        return policy_block
+
+    from .plans import PlanStore, validate_approval
+    store = PlanStore(settings.bridge_state_db_path)
+    store.initialize()
+    plan = store.get(plan_id)
+    if plan is None:
+        return {"plan_id": plan_id, "error": "plan not found"}
+    if plan.status not in {PlanStatus.APPROVED, PlanStatus.PENDING_APPROVAL}:
+        return {"plan_id": plan_id, "status": plan.status.value, "error": "plan not approved"}
+    approval_registry = get_approval_registry()
+    try:
+        approval = approval_registry.get(approval_id)
+    except ApprovalNotFound as exc:
+        return {"approval_id": approval_id, "error": str(exc)}
+    errors = validate_approval(approval, plan)
+    if errors:
+        return {"approval_id": approval_id, "plan_id": plan_id, "error": "; ".join(errors)}
+    if approval.status != ApprovalStatus.APPROVED:
+        return {
+            "approval_id": approval_id,
+            "plan_id": plan_id,
+            "error": f"approval status is {approval.status.value}",
+        }
+    return {
+        "plan_id": plan_id,
+        "approval_id": approval_id,
+        "status": "execution_delegated",
+    }
+
+
+@mcp.tool()
+async def hermes_checkpoint_create(
+    execution_id: str,
+    phase: str = "unknown",
+    plan_id: str | None = None,
+    step_index: int = 0,
+    state_ref: str | None = None,
+    evidence_refs: list[str] | None = None,
+    principal: str | None = None,
+    trust_label: str | None = None,
+) -> dict[str, Any]:
+    """Create a bridge-side checkpoint without storing blobs."""
+
+    policy_block = _enforce_policy(
+        "hermes_checkpoint_create",
+        trust_label=trust_label,
+        principal=principal,
+    )
+    if policy_block is not None:
+        return policy_block
+
+    checkpoint = Checkpoint(
+        checkpoint_id=f"ckpt-{uuid.uuid4().hex}",
+        execution_id=execution_id,
+        plan_id=plan_id,
+        phase=phase,
+        step_index=step_index,
+        state_ref=state_ref,
+        evidence_refs=evidence_refs or [],
+    )
+    checkpoint_registry.initialize()
+    created = checkpoint_registry.create(checkpoint)
+    trace_metadata = build_trace_metadata(
+        None, upstream_supported=False
+    )
+    return {**created.model_dump(mode="json"), "tracing": trace_metadata}
+
+
+@mcp.tool()
+async def hermes_checkpoint_status(
+    execution_id: str | None = None,
+    checkpoint_id: str | None = None,
+) -> dict[str, Any]:
+    """Query checkpoint state for a run or plan."""
+
+    checkpoint_registry.initialize()
+    items = checkpoint_registry.status(execution_id=execution_id, checkpoint_id=checkpoint_id)
+    return {"checkpoints": items}
+
+
+@mcp.tool()
+async def hermes_continue(
+    execution_id: str | None = None,
+    checkpoint_id: str | None = None,
+    mode: str = "advisory_only",
+    principal: str | None = None,
+    trust_label: str | None = None,
+) -> dict[str, Any]:
+    """Resume a previous execution or checkpoint idempotently."""
+
+    policy_block = _enforce_policy(
+        "hermes_continue",
+        trust_label=trust_label,
+        principal=principal,
+    )
+    if policy_block is not None:
+        return policy_block
+
+    checkpoint_registry.initialize()
+    continuation = Continuation(
+        continuation_id=f"cont-{uuid.uuid4().hex}",
+        execution_id=execution_id,
+        checkpoint_id=checkpoint_id,
+        mode=mode,
+        resume_supported=True,
+    )
+    created = checkpoint_registry.create_continuation(continuation)
+    return created.model_dump(mode="json")
+
+
+@mcp.tool()
+async def hermes_saga_start(
+    execution_id: str,
+    steps: list[dict[str, Any]] | None = None,
+    principal: str | None = None,
+    trust_label: str | None = None,
+) -> dict[str, Any]:
+    """Start a saga and register compensation contracts."""
+
+    policy_block = _enforce_policy(
+        "hermes_saga_start",
+        trust_label=trust_label,
+        principal=principal,
+    )
+    if policy_block is not None:
+        return policy_block
+
+    saga_steps = [SagaStep(**step) for step in (steps or [])]
+    saga = Saga(
+        saga_id=f"saga-{uuid.uuid4().hex}",
+        execution_id=execution_id,
+        steps=saga_steps,
+    )
+    saga_registry.initialize()
+    created = saga_registry.create(saga)
+    return {
+        "saga_id": created.saga_id,
+        "execution_id": created.execution_id,
+        "status": created.status.value,
+        "current_step": created.current_step,
+    }
+
+
+@mcp.tool()
+async def hermes_saga_status(
+    saga_id: str,
+    principal: str | None = None,
+    trust_label: str | None = None,
+) -> dict[str, Any]:
+    """Read saga state and compensation evidence."""
+
+    policy_block = _enforce_policy(
+        "hermes_saga_status",
+        trust_label=trust_label,
+        principal=principal,
+    )
+    if policy_block is not None:
+        return policy_block
+
+    saga_registry.initialize()
+    saga = saga_registry.get(saga_id)
+    if saga is None:
+        return {"saga_id": saga_id, "error": "saga not found"}
+    return {
+        "saga_id": saga.saga_id,
+        "execution_id": saga.execution_id,
+        "status": saga.status.value,
+        "current_step": saga.current_step,
+        "steps": [step.model_dump(mode="json") for step in saga.steps],
+        "upstream_confirmed": (
+            all(step.upstream_confirmed for step in saga.steps) if saga.steps else False
+        ),
+    }
+
+
+@mcp.tool()
+async def hermes_saga_compensate(
+    saga_id: str,
+    step_id: str,
+    evidence_ref: str | None = None,
+    principal: str | None = None,
+    trust_label: str | None = None,
+) -> dict[str, Any]:
+    """Record or inspect a compensation event for a saga."""
+
+    policy_block = _enforce_policy(
+        "hermes_saga_compensate",
+        trust_label=trust_label,
+        principal=principal,
+    )
+    if policy_block is not None:
+        return policy_block
+
+    saga_registry.initialize()
+    saga = saga_registry.get(saga_id)
+    if saga is None:
+        return {"saga_id": saga_id, "error": "saga not found"}
+    step = next((step for step in saga.steps if step.step_id == step_id), None)
+    if step is None:
+        return {"saga_id": saga_id, "step_id": step_id, "error": "step not found"}
+    updated_status = SagaStatus.COMPENSATED
+    if any(s.status != SagaStatus.COMPLETED.value for s in saga.steps):
+        updated_status = SagaStatus.COMPENSATING
+    updated = saga_registry.update_status(saga_id, updated_status, current_step=step_id)
+    return {
+        "saga_id": saga_id,
+        "step_id": step_id,
+        "upstream_confirmed": False,
+        "status": updated.status.value if updated else saga.status.value,
+    }
+
+
+@mcp.tool()
+async def hermes_lock_acquire(
+    lock_key: str,
+    lock_type: str,
+    owner: str,
+    ttl_seconds: int = 0,
+    context: str | None = None,
+    execution_id: str | None = None,
+    principal: str | None = None,
+    trust_label: str | None = None,
+) -> dict[str, Any]:
+    """Acquire a typed resource lock with TTL."""
+
+    policy_block = _enforce_policy(
+        "hermes_lock_acquire",
+        trust_label=trust_label,
+        principal=principal,
+        resource=lock_key,
+    )
+    if policy_block is not None:
+        return policy_block
+
+    try:
+        lock_type_enum = LockType(lock_type)
+    except ValueError:
+        return {"lock_key": lock_key, "error": f"invalid lock_type: {lock_type}"}
+    lock_request = ResourceLock(
+        lock_key=lock_key,
+        lock_type=lock_type_enum,
+        owner=owner,
+        execution_id=execution_id,
+        context=context,
+        ttl_seconds=ttl_seconds,
+    )
+    lock_registry.initialize()
+    try:
+        lock = lock_registry.acquire(lock_request)
+    except LockError as exc:
+        return {"lock_key": lock_key, "error": str(exc)}
+    return lock.model_dump(mode="json")
+
+
+@mcp.tool()
+async def hermes_lock_status(
+    lock_key: str | None = None,
+    principal: str | None = None,
+    trust_label: str | None = None,
+) -> dict[str, Any]:
+    """Inspect active locks and expiry state."""
+
+    policy_block = _enforce_policy(
+        "hermes_lock_status",
+        trust_label=trust_label,
+        principal=principal,
+    )
+    if policy_block is not None:
+        return policy_block
+
+    lock_registry.initialize()
+    items = lock_registry.list_status(lock_key=lock_key)
+    return {"locks": items}
+
+
+@mcp.tool()
+async def hermes_lock_release(
+    lock_key: str,
+    owner: str,
+    principal: str | None = None,
+    trust_label: str | None = None,
+) -> dict[str, Any]:
+    """Release a held lock idempotently."""
+
+    policy_block = _enforce_policy(
+        "hermes_lock_release",
+        trust_label=trust_label,
+        principal=principal,
+        resource=lock_key,
+    )
+    if policy_block is not None:
+        return policy_block
+
+    lock_registry.initialize()
+    lock = lock_registry.release(lock_key, owner)
+    if lock is None:
+        return {"lock_key": lock_key, "owner": owner, "status": "released", "released_at": None}
+    return lock.model_dump(mode="json")
+
+
+@mcp.tool()
+async def hermes_quota_status(
+    principal: str | None = None,
+    resource: str | None = None,
+    mutation: bool = False,
+) -> dict[str, Any]:
+    """Return current quota and budget evaluation."""
+
+    quota = get_quota_registry()
+    quota.initialize()
+    evaluation = quota.evaluate(principal=principal, resource=resource, mutation=mutation)
+    return {
+        "quota": evaluation,
+        "status": quota.status(),
+    }
+
+
 def _requested_effective_upstream(
     requested_mode: str,
 ) -> tuple[list[str], list[str], dict[str, Any]]:
@@ -983,11 +1378,103 @@ async def _build_capability_manifest() -> CapabilityManifest:
             stability="experimental",
             read_only=True,
         ),
+        ToolManifest(
+            name="hermes_plan",
+            description="Create an executable plan/DAG without executing mutations.",
+            version_added="0.6.0",
+            stability="experimental",
+            read_only=True,
+            effective_mode="advisory",
+            depends_on_upstream=True,
+        ),
+        ToolManifest(
+            name="hermes_execute_approved_plan",
+            description="Execute a previously approved plan with policy gating.",
+            version_added="0.6.0",
+            stability="experimental",
+            read_only=False,
+            effective_mode="advisory",
+            depends_on_upstream=True,
+        ),
+        ToolManifest(
+            name="hermes_checkpoint_create",
+            description="Create a bridge-side checkpoint without storing blobs.",
+            version_added="0.6.0",
+            stability="experimental",
+            read_only=False,
+        ),
+        ToolManifest(
+            name="hermes_checkpoint_status",
+            description="Query checkpoint state for a run or plan.",
+            version_added="0.6.0",
+            stability="experimental",
+            read_only=True,
+        ),
+        ToolManifest(
+            name="hermes_continue",
+            description="Resume a previous execution or checkpoint idempotently.",
+            version_added="0.6.0",
+            stability="experimental",
+            read_only=False,
+            effective_mode="advisory",
+            depends_on_upstream=True,
+        ),
+        ToolManifest(
+            name="hermes_saga_start",
+            description="Start a saga and register compensation contracts.",
+            version_added="0.6.0",
+            stability="experimental",
+            read_only=False,
+        ),
+        ToolManifest(
+            name="hermes_saga_status",
+            description="Read saga state and compensation evidence.",
+            version_added="0.6.0",
+            stability="experimental",
+            read_only=True,
+        ),
+        ToolManifest(
+            name="hermes_saga_compensate",
+            description="Record or inspect a compensation event for a saga.",
+            version_added="0.6.0",
+            stability="experimental",
+            read_only=False,
+            effective_mode="advisory",
+            depends_on_upstream=True,
+        ),
+        ToolManifest(
+            name="hermes_lock_acquire",
+            description="Acquire a typed resource lock with TTL.",
+            version_added="0.6.0",
+            stability="experimental",
+            read_only=False,
+        ),
+        ToolManifest(
+            name="hermes_lock_status",
+            description="Inspect active locks and expiry state.",
+            version_added="0.6.0",
+            stability="experimental",
+            read_only=True,
+        ),
+        ToolManifest(
+            name="hermes_lock_release",
+            description="Release a held lock idempotently.",
+            version_added="0.6.0",
+            stability="experimental",
+            read_only=False,
+        ),
+        ToolManifest(
+            name="hermes_quota_status",
+            description="Return current quota and budget evaluation.",
+            version_added="0.6.0",
+            stability="experimental",
+            read_only=True,
+        ),
     ]
 
     return CapabilityManifest.build(
-        bridge_version="0.5.0",
-        manifest_version="0.5.0",
+        bridge_version="0.6.0",
+        manifest_version="0.6.0",
         tools=tools,
         orchestration_modes=["auto", "explicit"],
         limits={
@@ -1006,7 +1493,18 @@ async def _build_capability_manifest() -> CapabilityManifest:
 
 
 def _mutation_from_action(action: str) -> MutationClass:
-    read_actions = {"status", "health", "list", "manifest", "read"}
+    read_actions = {
+        "status",
+        "health",
+        "list",
+        "manifest",
+        "read",
+        "hermes_checkpoint_status",
+        "hermes_saga_status",
+        "hermes_lock_status",
+        "hermes_quota_status",
+        "hermes_plan",
+    }
     if action in read_actions:
         return MutationClass.NONE
     return MutationClass.WRITE

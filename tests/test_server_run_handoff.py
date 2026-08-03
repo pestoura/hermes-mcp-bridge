@@ -51,6 +51,18 @@ def test_exact_seven_tools_registered(monkeypatch: pytest.MonkeyPatch, tmp_path:
         "hermes_approval_respond",
         "hermes_approval_status",
         "hermes_result_manifest",
+        "hermes_plan",
+        "hermes_execute_approved_plan",
+        "hermes_checkpoint_create",
+        "hermes_checkpoint_status",
+        "hermes_continue",
+        "hermes_saga_start",
+        "hermes_saga_status",
+        "hermes_saga_compensate",
+        "hermes_lock_acquire",
+        "hermes_lock_status",
+        "hermes_lock_release",
+        "hermes_quota_status",
     ])
     assert tools == expected
 

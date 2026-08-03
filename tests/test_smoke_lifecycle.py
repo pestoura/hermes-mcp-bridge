@@ -65,6 +65,18 @@ class _FakeSession:
             "hermes_approval_respond",
             "hermes_approval_status",
             "hermes_result_manifest",
+            "hermes_plan",
+            "hermes_execute_approved_plan",
+            "hermes_checkpoint_create",
+            "hermes_checkpoint_status",
+            "hermes_continue",
+            "hermes_saga_start",
+            "hermes_saga_status",
+            "hermes_saga_compensate",
+            "hermes_lock_acquire",
+            "hermes_lock_status",
+            "hermes_lock_release",
+            "hermes_quota_status",
         }
         return type("Result", (), {"tools": [_Tool(name) for name in names]})()
 
@@ -74,21 +86,21 @@ class _FakeSession:
                 '{"upstream":{"status":"healthy"},'
                 '"bridge":{'
                 '"state_registry":{"status":"up"},'
-                '"schema_version":"0.5.0",'
+                '"schema_version":"0.6.0",'
                 '"manifest_version":"1","manifest_hash":"abc"}'
                 '}'
             )
         elif name == "hermes_capabilities":
             payload = (
-                '{"bridge_version":"0.5.0",'
-                '"schema_version":"0.5.0",'
+                '{"bridge_version":"0.6.0",'
+                '"schema_version":"0.6.0",'
                 '"manifest_hash":"abc",'
                 '"upstream_capabilities_source":"upstream"}'
             )
         elif name == "hermes_agent_card":
             payload = (
-                '{"schema_version":"0.5.0",'
-                '"version":"0.5.0",'
+                '{"schema_version":"0.6.0",'
+                '"version":"0.6.0",'
                 '"card_hash":"abc"}'
             )
         else:

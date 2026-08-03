@@ -13,7 +13,7 @@ from hermes_mcp_bridge.protocol import (
 
 def test_execution_envelope_optional_fields_default_none() -> None:
     envelope = ExecutionEnvelope()
-    assert envelope.schema_version == "0.5.0"
+    assert envelope.schema_version == "0.6.0"
     assert envelope.payload_version is None
     assert envelope.principal is None
     assert envelope.delegation_chain == []

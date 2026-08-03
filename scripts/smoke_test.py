@@ -28,6 +28,18 @@ EXPECTED_TOOLS = {
     "hermes_approval_respond",
     "hermes_approval_status",
     "hermes_result_manifest",
+    "hermes_plan",
+    "hermes_execute_approved_plan",
+    "hermes_checkpoint_create",
+    "hermes_checkpoint_status",
+    "hermes_continue",
+    "hermes_saga_start",
+    "hermes_saga_status",
+    "hermes_saga_compensate",
+    "hermes_lock_acquire",
+    "hermes_lock_status",
+    "hermes_lock_release",
+    "hermes_quota_status",
 }
 
 
@@ -90,8 +102,8 @@ async def _run(url: str, prompt: str | None, wait_seconds: float) -> None:
                 bridge = health_payload.get("bridge") or {}
                 if str(bridge.get("state_registry", {}).get("status", "up")) != "up":
                     raise RuntimeError("bridge state_registry health is not up")
-                if bridge.get("schema_version") != "0.5.0":
-                    raise RuntimeError("bridge schema_version is not 0.5.0")
+                if bridge.get("schema_version") != "0.6.0":
+                    raise RuntimeError("bridge schema_version is not 0.6.0")
                 if not bridge.get("manifest_version"):
                     raise RuntimeError("bridge manifest_version is missing")
                 if not bridge.get("manifest_hash"):
@@ -111,10 +123,10 @@ async def _run(url: str, prompt: str | None, wait_seconds: float) -> None:
                 )
                 if not isinstance(capabilities_payload, dict):
                     raise RuntimeError("hermes_capabilities did not return a payload")
-                if capabilities_payload.get("bridge_version") != "0.5.0":
-                    raise RuntimeError("capability bridge_version is not 0.5.0")
-                if capabilities_payload.get("schema_version") != "0.5.0":
-                    raise RuntimeError("capability schema_version is not 0.5.0")
+                if capabilities_payload.get("bridge_version") != "0.6.0":
+                    raise RuntimeError("capability bridge_version is not 0.6.0")
+                if capabilities_payload.get("schema_version") != "0.6.0":
+                    raise RuntimeError("capability schema_version is not 0.6.0")
                 if not capabilities_payload.get("manifest_hash"):
                     raise RuntimeError("capability manifest_hash is missing")
                 if capabilities_payload.get("upstream_capabilities_source") not in (
@@ -138,10 +150,10 @@ async def _run(url: str, prompt: str | None, wait_seconds: float) -> None:
                 )
                 if not isinstance(agent_card_payload, dict):
                     raise RuntimeError("hermes_agent_card did not return a payload")
-                if agent_card_payload.get("schema_version") != "0.5.0":
-                    raise RuntimeError("agent card schema_version is not 0.5.0")
-                if agent_card_payload.get("version") != "0.5.0":
-                    raise RuntimeError("agent card version is not 0.5.0")
+                if agent_card_payload.get("schema_version") != "0.6.0":
+                    raise RuntimeError("agent card schema_version is not 0.6.0")
+                if agent_card_payload.get("version") != "0.6.0":
+                    raise RuntimeError("agent card version is not 0.6.0")
                 if not agent_card_payload.get("card_hash"):
                     raise RuntimeError("agent card card_hash is missing")
 

@@ -14,12 +14,13 @@ from pydantic import BaseModel, Field
 class SchemaVersion(StrEnum):
     V0_4_0 = "0.4.0"
     V0_5_0 = "0.5.0"
+    V0_6_0 = "0.6.0"
 
 
 class ExecutionEnvelope(BaseModel):
     """Versioned execution envelope attached to tool outputs."""
 
-    schema_version: str = Field(default=SchemaVersion.V0_5_0)
+    schema_version: str = Field(default=SchemaVersion.V0_6_0)
     payload_version: str | None = Field(default=None)
     origin_type: str | None = Field(default=None)
     context_key: str | None = Field(default=None)
@@ -127,12 +128,14 @@ class ToolManifest(BaseModel):
     version_added: str | None = None
     stability: str | None = None
     read_only: bool = False
+    effective_mode: str | None = None
+    depends_on_upstream: bool = False
 
 
 class CapabilityManifest(BaseModel):
     """Canonical capability manifest for the bridge."""
 
-    schema_version: str = Field(default=SchemaVersion.V0_5_0)
+    schema_version: str = Field(default=SchemaVersion.V0_6_0)
     bridge_version: str
     manifest_version: str
     manifest_hash: str
@@ -143,6 +146,9 @@ class CapabilityManifest(BaseModel):
     upstream_capabilities_source: str | None = None
     upstream_capabilities_status: str | None = None
     upstream_capabilities_hash: str | None = None
+    effective_tools: list[str] = Field(default_factory=list)
+    advisory_tools: list[str] = Field(default_factory=list)
+    unsupported_tools: list[str] = Field(default_factory=list)
 
     model_config = {"extra": "ignore"}
 
@@ -158,7 +164,7 @@ class CapabilityManifest(BaseModel):
         provenance: dict[str, Any],
         upstream_capabilities: dict[str, Any] | None,
     ) -> CapabilityManifest:
-        schema_version = bridge_version
+        schema_version = SchemaVersion.V0_6_0
         canonical = {
             "schema_version": schema_version,
             "bridge_version": bridge_version,
@@ -169,6 +175,15 @@ class CapabilityManifest(BaseModel):
             "provenance": provenance,
         }
         manifest_hash = _canonical_json_hash(canonical)
+        effective_tools = sorted(
+            tool.name for tool in tools if tool.effective_mode != "unsupported"
+        )
+        advisory_tools = sorted(
+            tool.name for tool in tools if tool.effective_mode == "advisory"
+        )
+        unsupported_tools = sorted(
+            tool.name for tool in tools if tool.effective_mode == "unsupported"
+        )
         upstream_capabilities_source = "fallback"
         upstream_capabilities_status = "unavailable"
         upstream_capabilities_hash = None
@@ -196,13 +211,16 @@ class CapabilityManifest(BaseModel):
             upstream_capabilities_source=upstream_capabilities_source,
             upstream_capabilities_status=upstream_capabilities_status,
             upstream_capabilities_hash=upstream_capabilities_hash,
+            effective_tools=effective_tools,
+            advisory_tools=advisory_tools,
+            unsupported_tools=unsupported_tools,
         )
 
 
 class AgentCard(BaseModel):
     """Versioned agent card for the bridge identity."""
 
-    schema_version: str = Field(default=SchemaVersion.V0_5_0)
+    schema_version: str = Field(default=SchemaVersion.V0_6_0)
     agent_id: str
     name: str
     purpose: str
@@ -486,13 +504,19 @@ def load_agent_card_from_env() -> AgentCard:
             "HERMES_AGENT_CARD_PURPOSE",
             "Thin MCP bridge that delegates natural-language objectives to hermes-agent.",
         ),
-        version=os.getenv("HERMES_AGENT_CARD_VERSION", SchemaVersion.V0_5_0),
+        version=os.getenv("HERMES_AGENT_CARD_VERSION", SchemaVersion.V0_6_0),
         capabilities=[
             "delegate-objectives",
             "connected-wait",
             "progress-notifications",
             "session-reuse",
             "registry-recovery",
+            "plan-governance",
+            "checkpoint-continuation",
+            "saga-compensation",
+            "resource-locking",
+            "quota-backpressure",
+            "trace-context",
         ],
         orchestration_modes=["auto", "explicit"],
         limits={
@@ -609,7 +633,7 @@ def canonical_capability_fallback(bridge_version: str) -> CapabilityManifest:
     }
     return CapabilityManifest.build(
         bridge_version=bridge_version,
-        manifest_version=bridge_version,
+        manifest_version="0.6.0",
         tools=tools,
         orchestration_modes=orchestration_modes,
         limits=limits,
@@ -628,6 +652,23 @@ _MANIFEST_TOOL_NAMES = {
     "recent_runs",
     "hermes_capabilities",
     "hermes_agent_card",
+    "hermes_policy_evaluate",
+    "hermes_approval_create",
+    "hermes_approval_respond",
+    "hermes_approval_status",
+    "hermes_result_manifest",
+    "hermes_plan",
+    "hermes_execute_approved_plan",
+    "hermes_checkpoint_create",
+    "hermes_checkpoint_status",
+    "hermes_continue",
+    "hermes_saga_start",
+    "hermes_saga_status",
+    "hermes_saga_compensate",
+    "hermes_lock_acquire",
+    "hermes_lock_status",
+    "hermes_lock_release",
+    "hermes_quota_status",
 }
 
 
