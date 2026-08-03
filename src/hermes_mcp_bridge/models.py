@@ -5,6 +5,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from .protocol import ExecutionEnvelope
+
 
 class OrchestrationMode(StrEnum):
     AUTO = "auto"
@@ -41,3 +43,4 @@ class HermesPromptResult(BaseModel):
     agent: str | None = None
     subagents: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    envelope: ExecutionEnvelope | None = None
