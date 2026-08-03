@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import os
 import weakref
 from contextlib import suppress
 from types import ModuleType
@@ -18,6 +19,13 @@ from .models import (
     HermesPromptResult,
     OrchestrationMode,
     RunStatus,
+)
+from .protocol import (
+    AgentCard,
+    CapabilityManifest,
+    ToolManifest,
+    load_agent_card_from_env,
+    load_upstream_capabilities,
 )
 from .registry import RegistryError, compute_fingerprint, get_registry
 
@@ -518,13 +526,147 @@ async def hermes_health(detailed: bool = False) -> dict[str, Any]:
         "max_wait_seconds": settings.hermes_run_max_wait_seconds,
         "state_registry": registry_health,
     }
+    upstream_payload = upstream if isinstance(upstream, dict) else {}
+    manifest = await _build_capability_manifest()
+    bridge["manifest_version"] = manifest.manifest_version
+    bridge["manifest_hash"] = manifest.manifest_hash
+    bridge["bridge_version"] = manifest.bridge_version
+    bridge["schema_version"] = manifest.schema_version
+    upstream_manifest_hash = (
+        upstream_payload.get("capability_manifest_hash")
+        or upstream_payload.get("manifest_hash")
+    )
+    if upstream_manifest_hash and upstream_manifest_hash != manifest.manifest_hash:
+        bridge["manifest_hash_divergence"] = True
+    elif upstream_manifest_hash:
+        bridge["manifest_hash_divergence"] = False
     return {"upstream": upstream, "bridge": bridge}
 
 
-def main() -> None:
-    """Run the bridge using MCP Streamable HTTP transport."""
+@mcp.tool()
+async def hermes_capabilities() -> dict[str, Any]:
+    """Return the canonical capability manifest for this bridge."""
+    manifest = await _build_capability_manifest()
+    payload = manifest.model_dump(mode="json")
+    payload["capability_hash"] = manifest.manifest_hash
+    return payload
 
-    mcp.run(transport="streamable-http")
+
+@mcp.tool()
+async def hermes_agent_card() -> dict[str, Any]:
+    """Return the versioned agent card for this bridge."""
+    card = load_agent_card_from_env()
+    payload = card.to_canonical_dict()
+    payload["card_hash"] = _card_hash(card)
+    return payload
+
+
+async def _build_capability_manifest() -> CapabilityManifest:
+    upstream_payload = None
+    try:
+        upstream_payload = await load_upstream_capabilities(
+            base_url=settings.hermes_api_base_url,
+            api_key=settings.hermes_api_key.get_secret_value(),
+            timeout=5.0,
+        )
+    except Exception:
+        upstream_payload = None
+
+    tools = [
+        ToolManifest(
+            name="hermes_submit",
+            description="Create a Hermes run and return execution/session identifiers.",
+            version_added="0.1.0",
+            stability="stable",
+            read_only=False,
+        ),
+        ToolManifest(
+            name="hermes_prompt",
+            description="Delegate an objective to Hermes and wait.",
+            version_added="0.1.0",
+            stability="stable",
+            read_only=False,
+        ),
+        ToolManifest(
+            name="hermes_wait",
+            description="Wait for an existing Hermes run.",
+            version_added="0.1.0",
+            stability="stable",
+            read_only=False,
+        ),
+        ToolManifest(
+            name="hermes_status",
+            description="Retrieve the current status of a Hermes execution.",
+            version_added="0.1.0",
+            stability="stable",
+            read_only=True,
+        ),
+        ToolManifest(
+            name="hermes_stop",
+            description="Request cancellation of a Hermes execution.",
+            version_added="0.1.0",
+            stability="stable",
+            read_only=False,
+        ),
+        ToolManifest(
+            name="hermes_health",
+            description="Check Hermes liveness/readiness and bridge registry state.",
+            version_added="0.1.0",
+            stability="stable",
+            read_only=True,
+        ),
+        ToolManifest(
+            name="recent_runs",
+            description="List recent registry entries by status or recency.",
+            version_added="0.1.0",
+            stability="stable",
+            read_only=True,
+        ),
+        ToolManifest(
+            name="hermes_capabilities",
+            description="Return the canonical capability manifest for this bridge.",
+            version_added="0.4.0",
+            stability="experimental",
+            read_only=True,
+        ),
+        ToolManifest(
+            name="hermes_agent_card",
+            description="Return the versioned agent card for this bridge.",
+            version_added="0.4.0",
+            stability="experimental",
+            read_only=True,
+        ),
+    ]
+
+    return CapabilityManifest.build(
+        bridge_version="0.4.0",
+        manifest_version="0.4.0",
+        tools=tools,
+        orchestration_modes=["auto", "explicit"],
+        limits={
+            "max_wait_seconds": settings.hermes_run_max_wait_seconds,
+            "default_wait_seconds": settings.hermes_run_default_wait_seconds,
+            "max_prompt_chars": 200000,
+            "max_subagents": 16,
+        },
+        provenance={
+            "source": "bridge",
+            "package": "hermes-mcp-bridge",
+            "commit": os.environ.get("HERMES_BRIDGE_COMMIT", "unknown"),
+        },
+        upstream_capabilities=upstream_payload,
+    )
+
+
+def _card_hash(card: AgentCard) -> str:
+    return _canonical_json_hash(card.to_canonical_dict())
+
+
+@staticmethod
+def _canonical_json_hash(payload: Any) -> str:
+    from .protocol import _canonical_json_hash as _hash
+
+    return _hash(payload)
 
 
 def _load_server_module() -> ModuleType:
@@ -535,6 +677,12 @@ def server_tool_names() -> list[str]:
     server = _load_server_module()
     tools = server.mcp._tool_manager.list_tools()
     return sorted(tool.name for tool in tools)
+
+
+def main() -> None:
+    """Run the bridge using MCP Streamable HTTP transport."""
+
+    mcp.run(transport="streamable-http")
 
 
 if __name__ == "__main__":

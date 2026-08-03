@@ -104,7 +104,7 @@ The bridge does not possess SSH credentials, cloud tokens, Kanban credentials or
 
 ## Tool inventory
 
-Bridge version 0.3.0 exposes **7** tools:
+Bridge version 0.4.0 exposes **9** tools:
 
 - `hermes_submit`
 - `hermes_prompt`
@@ -112,4 +112,16 @@ Bridge version 0.3.0 exposes **7** tools:
 - `hermes_status`
 - `hermes_stop`
 - `hermes_health`
+- `hermes_capabilities`
+- `hermes_agent_card`
 - `recent_runs`
+
+## Protocol Foundations
+
+Bridge version 0.4.0 adds a versioned execution envelope, typed event taxonomy, capability manifests, and agent cards while preserving the existing 7 tools.
+
+- Execution envelope: `schema_version`, `payload_version`, `origin_type`, `context_key`, `project_key`, `correlation_id`, `causation_id`, `principal`, `delegation_chain`.
+- Event types: `MessageType` and `EventType` enums with typed models (`ProgressEvent`, `ApprovalEvent`, `ToolEvent`, `LifecycleEvent`, `UnknownEvent`).
+- Capability negotiation: canonical `CapabilityManifest` with deterministic JSON and SHA-256 hash; `hermes_capabilities` tool; upstream `/v1/capabilities` used when available, otherwise `source=fallback`.
+- Agent cards: versioned `AgentCard` via `hermes_agent_card`.
+- Health extension: `manifest_version`, `manifest_hash`, `bridge_version`, `schema_version`.

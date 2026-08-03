@@ -37,6 +37,8 @@ def test_exact_seven_tools_registered(monkeypatch: pytest.MonkeyPatch, tmp_path:
     server = _make_server_module(monkeypatch, tmp_path)
     tools = server.server_tool_names()
     expected = [
+        "hermes_agent_card",
+        "hermes_capabilities",
         "hermes_health",
         "hermes_prompt",
         "hermes_recent_runs",
