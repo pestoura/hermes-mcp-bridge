@@ -26,6 +26,8 @@ EXPECTED_TOOLS = {
     "hermes_stop",
     "hermes_submit",
     "hermes_wait",
+    "hermes_capabilities",
+    "hermes_agent_card",
 }
 
 
