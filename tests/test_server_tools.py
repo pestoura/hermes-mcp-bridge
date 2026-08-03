@@ -195,11 +195,12 @@ async def test_hermes_submit_blocks_denied_action(
         hermes_api_base_url="http://hermes.test",
         bridge_state_db_path=db_path,
     )
+    message = "Unexpected request: {} {}".format
     client = HermesClient(
         settings,
         transport_factory=lambda: httpx.MockTransport(
             lambda req: (_ for _ in ()).throw(
-                AssertionError(f"Unexpected request: {req.method} {req.url}")
+                AssertionError(message(req.method, req.url))
             )
         ),
     )
