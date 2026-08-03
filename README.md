@@ -18,7 +18,7 @@ The bridge does **not** execute shell commands or manage infrastructure itself. 
 
 ## Version and contract
 
-Bridge contract version: **0.4.0**.
+Bridge contract version: **0.5.0**.
 
 ## MCP tools
 
@@ -31,12 +31,13 @@ Bridge contract version: **0.4.0**.
 - `recent_runs`: lists recent registry entries by status or recency.
 - `hermes_capabilities`: returns the canonical capability manifest for this bridge.
 - `hermes_agent_card`: returns the versioned agent card for this bridge.
+- `hermes_policy_evaluate`: evaluates an allow/deny/require-approval policy decision for an action and trust/mutation context.
+- `hermes_approval_create`: creates a persistent approval request for high-risk mutations.
+- `hermes_approval_respond`: responds to an approval request with approved/rejected.
+- `hermes_approval_status`: returns the current status of an approval request.
+- `hermes_result_manifest`: returns a sanitized result manifest for an execution.
 
 `agent` and `subagents` are optional hints translated into Hermes instructions. Omitting them lets Hermes choose its own orchestration.
-
-## Version and contract
-
-Bridge contract version: **0.4.0**.
 
 ## Connected long-running execution
 

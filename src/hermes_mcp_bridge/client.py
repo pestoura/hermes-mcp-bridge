@@ -19,9 +19,9 @@ from .config import Settings
 from .models import (
     TERMINAL_STATUSES,
     HermesPromptResult,
-    OrchestrationMode,
     RunStatus,
 )
+from .protocol import OrchestrationMode
 
 logger = logging.getLogger(__name__)
 
