@@ -6,6 +6,9 @@ services:
     restart: unless-stopped
     init: true
     network_mode: host
+    user: "${BRIDGE_UID:-1000}:${BRIDGE_GID:-1000}"
+    volumes:
+      - "${BRIDGE_STATE_DIR:-./data}:/var/lib/hermes-mcp-bridge"
     env_file:
       - .env
     read_only: true
@@ -19,9 +22,7 @@ services:
       test:
         - CMD-SHELL
         - >-
-          python -c "import os,socket;
-          s=socket.create_connection(('127.0.0.1',int(os.environ.get('MCP_PORT','8765'))),3);
-          s.close()"
+          python -m hermes_mcp_bridge.healthcheck
       interval: 30s
       timeout: 5s
       retries: 3

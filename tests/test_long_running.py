@@ -180,7 +180,12 @@ async def test_event_stream_failure_falls_back_to_polling() -> None:
 
 
 def test_default_wait_supports_two_hour_runs() -> None:
-    client = HermesClient(settings(hermes_run_max_wait_seconds=7200.0))
+    client = HermesClient(
+        settings(
+            hermes_run_default_wait_seconds=7200.0,
+            hermes_run_max_wait_seconds=7200.0,
+        )
+    )
 
     assert client._bounded_wait(None) == 7200.0
     assert client._bounded_wait(99_999.0) == 7200.0

@@ -18,30 +18,44 @@ The bridge does **not** execute shell commands or manage infrastructure itself. 
 
 ## MCP tools
 
+- `hermes_submit`: creates a Hermes run, returns `execution_id` and `session_id`, and optionally reuses an existing identical run by `client_request_id`.
 - `hermes_prompt`: delegates work and remains connected until completion by default.
+- `hermes_wait`: attaches to an existing `execution_id` and returns completion or a wait-budget expiry.
 - `hermes_status`: retrieves a run after a detached or interrupted request.
 - `hermes_stop`: requests safe cancellation of a run.
-- `hermes_health`: checks Hermes liveness/readiness.
+- `hermes_health`: checks Hermes liveness/readiness and bridge registry state.
+- `recent_runs`: lists recent registry entries by status or recency.
 
 `agent` and `subagents` are optional hints translated into Hermes instructions. Omitting them lets Hermes choose its own orchestration.
 
+## Version and contract
+
+Bridge contract version: **0.3.0**.
+
 ## Connected long-running execution
 
-Version 0.2 keeps `hermes_prompt` connected for operations that take minutes or hours:
+`hermes_prompt` keeps the MCP request connected for operations that take minutes or hours:
 
 1. The bridge creates a native Hermes run.
 2. It subscribes to `GET /v1/runs/{run_id}/events`.
 3. Significant Hermes lifecycle events become MCP progress notifications.
-4. A heartbeat is emitted every 15 seconds.
+4. A heartbeat is emitted at the configured interval.
 5. If the Hermes event stream ends unexpectedly, the bridge falls back to status polling.
 6. The final Hermes output is returned by the original MCP tool call.
 
-The default connected budget is two hours:
+### Recommended long-run/automation flow
 
-```text
-HERMES_RUN_MAX_WAIT_SECONDS=7200
-HERMES_PROGRESS_INTERVAL_SECONDS=15
-```
+1. Submit with a stable `client_request_id`.
+2. Store the returned `execution_id` and `session_id`.
+3. Recover later with `hermes_status`, `hermes_wait`, or `recent_runs`.
+4. Use connected `hermes_prompt` only when the caller can keep the tool call open; otherwise use `wait_seconds=0`.
+
+### Wait and timeout contract
+
+- `hermes_wait` and `hermes_prompt` use an explicit `wait_seconds` value when provided; when omitted, the effective default in this bridge is **45 seconds**.
+- Explicit wait values are capped at **7200 seconds**.
+- `wait_seconds=0` is the explicit detached mode: the tool returns immediately with the execution identifiers.
+- Wait-budget expiry returns control to the caller with the current run state; it does **not** cancel the Hermes run.
 
 The explicit detached mode remains available:
 
@@ -52,9 +66,11 @@ The explicit detached mode remains available:
 }
 ```
 
-A disconnected client does not stop Hermes by default. The run remains recoverable through `hermes_status`. Set `stop_on_disconnect=true` only when a disconnected or cancelled MCP request must also stop the Hermes run.
+A disconnected client does not stop Hermes by default. The run remains recoverable through `hermes_status` or `hermes_wait`. Set `stop_on_disconnect=true` only when a disconnected or cancelled MCP request must also stop the Hermes run.
 
 The MCP server uses SSE response mode rather than JSON-only responses. This allows progress notifications and transport keepalives to flow while the tool call remains open.
+
+This path was observed to encounter an external tool-call timeout of **60000 ms** in this MCP stack; it is documented as an observed path-specific limit, not as a universal OpenAI policy.
 
 ## Session continuity
 
@@ -63,6 +79,48 @@ Omit `session_id` on the first `hermes_prompt` call. The bridge creates a native
 Every new native session title combines a bounded prompt summary with a random MCP suffix. If Hermes still reports a duplicate-title collision, the bridge generates another title and retries up to three times.
 
 The bridge does not keep its own conversation database. Before each follow-up it loads the persisted messages from Hermes and passes them to the new run. If Hermes compacts or advances a session, the resolved native session identifier is returned to the MCP client.
+
+## Idempotency and key reuse
+
+The bridge supports idempotent reuse by canonical request fingerprint:
+
+- identical `client_request_id` with the same prompt, session, agent, subagents and orchestration reuses the existing mapping;
+- identical key with a different request is rejected;
+- locking is per key within a single bridge instance/process.
+
+This is **not** distributed multi-instance coordination. Do not assume two bridge instances will deduplicate the same key.
+
+Persisted state is protected against request cancellation: Hermes submission, registry record and status recovery use shielded or post-cancel persistence paths so the mapping is not silently lost.
+
+## Registry
+
+The registry stores lightweight mappings in SQLite. The default container path is:
+
+```text
+/var/lib/hermes-mcp-bridge/state.sqlite3
+```
+
+The host path is bound through `${BRIDGE_STATE_DIR:-./data}`.
+
+The bridge stores only operational mapping fields required for recovery:
+
+- `client_request_id`
+- `fingerprint`
+- `execution_id`
+- `session_id`
+- `last_status`
+- `created_at`
+- `updated_at`
+
+The registry never stores prompt text, output, error payloads, tokens, or secrets.
+
+`recent_runs` exposes client request identifiers, execution identifiers, session identifiers, status and timestamps; it does not expose fingerprints.
+
+Host preparation required before compose up:
+
+1. Create the state directory.
+2. Set mode `700`.
+3. Set ownership to `BRIDGE_UID:BRIDGE_GID`.
 
 ## Requirements
 
@@ -86,7 +144,7 @@ Restart the Hermes gateway and verify locally:
 ```bash
 curl -fsS http://127.0.0.1:8642/health
 curl -fsS \
-  -H "Authorization: Bearer $API_SERVER_KEY" \
+  -H "Authorization: Bearer ***" \
   http://127.0.0.1:8642/v1/capabilities
 ```
 

@@ -93,7 +93,17 @@ The capabilities response must advertise:
 - run events;
 - run stop.
 
-### 4. Configure the bridge
+### 4. Prepare the bridge state directory
+
+Create the bridge state directory with restrictive permissions and ownership:
+
+```bash
+sudo install -d -o "$BRIDGE_UID" -g "$BRIDGE_GID" -m 700 "$BRIDGE_STATE_DIR"
+```
+
+This directory is bound into the container as `${BRIDGE_STATE_DIR:-./data}` and hosts the SQLite registry. Prepare it before `compose up`.
+
+### 5. Configure the bridge
 
 ```bash
 cd /opt/hermes-mcp-bridge
@@ -112,10 +122,14 @@ HERMES_RUN_POLL_INTERVAL_SECONDS=1
 HERMES_RUN_MAX_WAIT_SECONDS=7200
 HERMES_PROGRESS_INTERVAL_SECONDS=15
 HERMES_EVENT_STREAM_CONNECT_TIMEOUT_SECONDS=30
+HERMES_RUN_DEFAULT_WAIT_SECONDS=45
 MCP_HOST=127.0.0.1
 MCP_PORT=8765
 MCP_PATH=/mcp
 LOG_LEVEL=INFO
+BRIDGE_STATE_DIR=/opt/hermes-mcp-bridge/data
+BRIDGE_UID=<numeric host UID for the container user>
+BRIDGE_GID=<numeric host GID for the container user>
 ```
 
 Unset the temporary shell variable after writing the protected files:
@@ -124,7 +138,7 @@ Unset the temporary shell variable after writing the protected files:
 unset API_SERVER_KEY_VALUE
 ```
 
-### 5. Validate and start the container
+### 6. Validate and start the container
 
 ```bash
 cd /opt/hermes-mcp-bridge
@@ -148,10 +162,11 @@ Expected properties:
 - read-only root filesystem;
 - all Linux capabilities dropped;
 - `no-new-privileges` enabled;
+- tmpfs `/tmp`;
 - no Docker socket or Hermes directory mounts;
 - API and bridge listeners restricted to loopback.
 
-### 6. Run static and unit validation
+### 7. Run static and unit validation
 
 Use a development environment on the host, not inside the runtime container:
 
@@ -165,22 +180,25 @@ python -m ruff check .
 python -m pytest -q
 ```
 
-### 7. Run MCP discovery and health
+### 8. Run MCP discovery and health
 
 ```bash
 python scripts/smoke_test.py --url http://127.0.0.1:8765/mcp
 ```
 
-Confirm exactly:
+Confirm the seven tools:
 
 ```text
-hermes_health
+hermes_submit
 hermes_prompt
+hermes_wait
 hermes_status
 hermes_stop
+hermes_health
+recent_runs
 ```
 
-### 8. Validate connected execution
+### 9. Validate connected execution
 
 Run an explicitly read-only prompt and display progress from the original MCP call:
 
@@ -205,7 +223,7 @@ Also validate:
 - `wait_seconds=0` returns immediately for detached operation;
 - a disconnected client leaves the Hermes run active by default;
 - `stop_on_disconnect=true` requests Hermes cancellation;
-- `hermes_status` and `hermes_stop` remain functional recovery tools.
+- `hermes_status`, `hermes_wait` and `hermes_stop` remain functional recovery tools.
 
 Do not create a remote tunnel until connected execution passes locally.
 
@@ -265,5 +283,7 @@ systemctl --user is-active hermes-gateway.service
 ss -lntp | grep -E ':(8642|8765)\b' || true
 docker ps -a --filter name=hermes-mcp-bridge
 ```
+
+When rolling back from 0.3 to 0.2, preserve the state database directory. The older version ignores the registry and does not delete state data; leave the directory intact for future upgrades.
 
 Repository removal is a separate, explicit action and is not required for rollback.

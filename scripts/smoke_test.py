@@ -14,9 +14,12 @@ from mcp.client.streamable_http import streamable_http_client
 
 EXPECTED_TOOLS = {
     "hermes_prompt",
+    "hermes_submit",
+    "hermes_wait",
     "hermes_status",
     "hermes_stop",
     "hermes_health",
+    "hermes_recent_runs",
 }
 
 
@@ -60,13 +63,21 @@ async def _run(url: str, prompt: str | None, wait_seconds: float) -> None:
             "hermes_health",
             arguments={"detailed": False},
         )
+        health_payload = _tool_result_payload(health)
         print(
             json.dumps(
-                {"hermes_health": _tool_result_payload(health)},
+                {"hermes_health": health_payload},
                 indent=2,
                 default=str,
             )
         )
+        if not isinstance(health_payload, dict):
+            raise RuntimeError("hermes_health did not return a payload")
+        if health_payload.get("upstream", {}).get("status") not in ("healthy", "ok"):
+            raise RuntimeError("Hermes upstream health is not healthy")
+        bridge = health_payload.get("bridge") or {}
+        if str(bridge.get("state_registry", {}).get("status", "up")) != "up":
+            raise RuntimeError("bridge state_registry health is not up")
 
         if prompt is not None:
 
