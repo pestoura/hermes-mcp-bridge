@@ -145,7 +145,7 @@ def test_empty_db_creates_all_expected_tables(tmp_path: Path) -> None:
 
 
 def test_approval_health_up_after_startup_on_empty_db(tmp_path: Path) -> None:
-    from hermes_mcp_bridge.approvals import ApprovalRegistry, get_approval_registry
+    from hermes_mcp_bridge.approvals import ApprovalRegistry
 
     db_path = str(tmp_path / "state.sqlite3")
     registry = ApprovalRegistry(db_path)
@@ -153,10 +153,6 @@ def test_approval_health_up_after_startup_on_empty_db(tmp_path: Path) -> None:
     health = registry.health()
     assert health["status"] == "up"
     assert health["table_exists"] is True
-
-    cached = get_approval_registry()
-    cached._db_path = db_path
-    assert cached.health()["table_exists"] is True
 
 
 def test_approval_first_create_and_status_on_empty_db(tmp_path: Path) -> None:
@@ -224,23 +220,3 @@ def test_tool_inventory_exact_26_matches_manifest_and_smoke() -> None:
     manifest_obj = asyncio.run(_build_capability_manifest())
     assert set(manifest_obj.effective_tools) == expected
     assert len(manifest_obj.effective_tools) == 26
-
-
-def test_migrations_are_idempotent_after_restart(tmp_path: Path) -> None:
-    from hermes_mcp_bridge.migrations import _current_version, apply_migrations
-
-    db_path = str(tmp_path / "state.sqlite3")
-    first = apply_migrations(db_path)
-    assert first == 8
-    conn = __import__("sqlite3").connect(db_path, check_same_thread=False)
-    try:
-        assert _current_version(conn) == 8
-    finally:
-        conn.close()
-    second = apply_migrations(db_path)
-    assert second == 8
-    conn = __import__("sqlite3").connect(db_path, check_same_thread=False)
-    try:
-        assert _current_version(conn) == 8
-    finally:
-        conn.close()

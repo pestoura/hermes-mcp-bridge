@@ -119,7 +119,7 @@ HERMES_API_KEY=<same dedicated value>
 HERMES_MODEL=hermes-agent
 HERMES_REQUEST_TIMEOUT_SECONDS=30
 HERMES_RUN_POLL_INTERVAL_SECONDS=1
-HERMES_RUN_MAX_WAIT_SECONDS=7200
+HERMES_RUN_MAX_WAIT_SECONDS=900
 HERMES_PROGRESS_INTERVAL_SECONDS=15
 HERMES_EVENT_STREAM_CONNECT_TIMEOUT_SECONDS=30
 HERMES_RUN_DEFAULT_WAIT_SECONDS=45
@@ -186,17 +186,7 @@ python -m pytest -q
 python scripts/smoke_test.py --url http://127.0.0.1:8765/mcp
 ```
 
-Confirm the seven tools:
-
-```text
-hermes_submit
-hermes_prompt
-hermes_wait
-hermes_status
-hermes_stop
-hermes_health
-recent_runs
-```
+Confirm the 26 expected tools and the updated schemas.
 
 ### 9. Validate connected execution
 

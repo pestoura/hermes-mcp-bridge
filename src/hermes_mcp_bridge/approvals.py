@@ -78,40 +78,12 @@ class ApprovalRegistry:
 
     def initialize(self) -> None:
         with self._lock:
-            connection = _open_connection(self._db_path)
-            try:
-                connection.execute("BEGIN IMMEDIATE")
-                connection.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS approvals (
-                        approval_id TEXT PRIMARY KEY,
-                        action TEXT NOT NULL,
-                        resource TEXT,
-                        resource_fingerprint TEXT,
-                        principal TEXT,
-                        delegation_chain_sanitized TEXT NOT NULL DEFAULT '[]',
-                        decision TEXT NOT NULL DEFAULT 'requested',
-                        expires_at TEXT,
-                        created_at TEXT NOT NULL,
-                        decided_at TEXT,
-                        consumed_at TEXT,
-                        metadata_sanitized TEXT NOT NULL DEFAULT '{}',
-                        approval_identity_assurance TEXT NOT NULL DEFAULT 'caller_asserted'
-                    )
-                    """
-                )
-                connection.execute(
-                    """
-                    CREATE INDEX IF NOT EXISTS idx_approvals_decision_created_at
-                    ON approvals (decision, created_at)
-                    """
-                )
-                connection.execute("COMMIT")
-            except Exception:
-                connection.execute("ROLLBACK")
-                raise
-            finally:
-                connection.close()
+            if getattr(self, "_initialized", False):
+                return
+            from .migrations import apply_migrations
+
+            apply_migrations(self._db_path)
+            self._initialized = True
 
     def health(self) -> dict[str, object]:
         try:

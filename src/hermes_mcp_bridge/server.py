@@ -26,6 +26,7 @@ from .checkpoints import CheckpointRegistry
 from .client import HermesAPIError, HermesClient
 from .config import get_settings
 from .locks import LockError, LockRegistry, LockType, ResourceLock
+from .migrations import apply_migrations
 from .models import (
     TERMINAL_STATUSES,
     Checkpoint,
@@ -63,6 +64,7 @@ from .sagas import SagaRegistry
 from .tracing import build_trace_metadata
 
 settings = get_settings()
+apply_migrations(settings.bridge_state_db_path)
 client = HermesClient(settings)
 registry = get_registry()
 registry.initialize()
