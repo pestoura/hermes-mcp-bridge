@@ -65,7 +65,11 @@ jobs:
           format: cyclonedx
           output: sbom-cyclonedx.json
 
+      # Non-blocking: artifact upload can fail on an account-level storage
+      # quota that has nothing to do with this repository's correctness. The
+      # SBOM is still generated and scanned in the previous steps.
       - name: Upload SBOM
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: sbom-cyclonedx
