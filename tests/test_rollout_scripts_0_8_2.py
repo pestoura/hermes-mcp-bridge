@@ -1,7 +1,7 @@
-"""Static and behavioural tests for the 0.8.1 rollout shell scripts.
+"""Static and behavioural tests for the 0.8.2 rollout shell scripts.
 
-ShellCheck is not installed in this environment (and installing it is out of
-scope for this release), so these tests provide equivalent guarantees:
+ShellCheck is resolved from PATH or from the interpreter directory
+(``shellcheck-py``) so the gate never silently skips. These tests also provide:
 
 * every Docker Compose invocation pins ``-p hermes-mcp-bridge``;
 * scripts are fail-fast (``set -Eeuo pipefail``);
@@ -21,9 +21,43 @@ from pathlib import Path
 
 import pytest
 
-DEPLOY_DIR = Path("deploy/0.8.1")
+DEPLOY_DIR = Path("deploy/0.8.2")
 SCRIPTS = sorted(DEPLOY_DIR.glob("*.sh"))
 COMPOSE_PROJECT = "hermes-mcp-bridge"
+
+#: Rollout knobs that must never leak from the ambient shell into a test run.
+#: A host that exported e.g. ROLLBACK_IMAGE_ID from a previous rollout would
+#: otherwise make these tests fail (or, worse, pass) for the wrong reason.
+_AMBIENT_ROLLOUT_VARS = (
+    "EXECUTE_DEPLOYMENT",
+    "EXPECTED_SHA",
+    "REQUIRED_SHA",
+    "CANDIDATE_IMAGE",
+    "ROLLBACK_IMAGE",
+    "ROLLBACK_IMAGE_ID",
+    "ROLLBACK_BRIDGE_VERSION",
+    "ROLLBACK_TOOL_COUNT",
+    "EXPECTED_SHA_0_8_1",
+    "EXPECTED_SHA_0_8_2",
+    "COMPOSE_FILE",
+    "BACKUP_DIR",
+    "STATE_DB",
+    "MCP_PORT",
+    "MCP_URL",
+    "HEALTH_SETTLE_SECONDS",
+    "EXPECT_BRIDGE_VERSION",
+    "EXPECT_TOOL_COUNT",
+    "EXPECT_SCHEMA_VERSION",
+)
+
+
+def _clean_env() -> dict[str, str]:
+    """A copy of os.environ with every ambient rollout override removed."""
+
+    env = dict(os.environ)
+    for name in _AMBIENT_ROLLOUT_VARS:
+        env.pop(name, None)
+    return env
 
 
 def _read(path: Path) -> str:
@@ -135,7 +169,7 @@ def test_validate_checks_contract_count_and_required_tool() -> None:
 
 def test_lib_declares_27_tools_and_schema_0_6_1() -> None:
     text = _read(DEPLOY_DIR / "lib.sh")
-    assert 'export BRIDGE_VERSION="0.8.1"' in text
+    assert 'export BRIDGE_VERSION="0.8.2"' in text
     assert 'export SCHEMA_VERSION="0.6.1"' in text
     assert 'export EXPECTED_TOOL_COUNT="27"' in text
 
@@ -165,7 +199,18 @@ def test_variable_expansions_are_quoted(script: Path) -> None:
                 continue
             if re.match(r'^[A-Za-z_][A-Za-z_0-9]*=', stripped):
                 continue
-            if match.group(1) in {"i", "avail_kb", "f"}:
+            if match.group(1) in {
+                "i",
+                "avail_kb",
+                "f",
+                "waited",
+                "budget",
+                "poll",
+                "value",
+                "rt",
+                "converted",
+                "HEALTH_SETTLE_MARGIN_SECONDS",
+            }:
                 continue
             unquoted.append(f"{script}:{lineno}: {stripped}")
     assert not unquoted, "expansoes nao citadas:\n" + "\n".join(unquoted)
@@ -225,7 +270,7 @@ def test_dry_run_deploy_makes_no_mutating_call(tmp_path: Path) -> None:
     state_dir = tmp_path / "state"
     state_dir.mkdir()
 
-    env = dict(os.environ)
+    env = _clean_env()
     env["PATH"] = f"{bin_dir}:{env['PATH']}"
     env["BRIDGE_ENV_FILE"] = str(env_file)
     env["BRIDGE_STATE_DIR"] = str(state_dir)
@@ -262,7 +307,7 @@ def test_dry_run_rollback_makes_no_mutating_call(tmp_path: Path) -> None:
     )
     (bin_dir / "docker").chmod(0o755)
 
-    env = dict(os.environ)
+    env = _clean_env()
     env["PATH"] = f"{bin_dir}:{env['PATH']}"
     env.pop("EXECUTE_DEPLOYMENT", None)
     env.pop("EXPECTED_SHA", None)
@@ -294,7 +339,7 @@ def test_execute_mode_requires_matching_sha(tmp_path: Path) -> None:
         'if is_execute_mode "goodsha"; then echo EXECUTE; else echo DRYRUN; fi\n',
         encoding="utf-8",
     )
-    env = dict(os.environ)
+    env = _clean_env()
     env["EXECUTE_DEPLOYMENT"] = "YES"
     env["EXPECTED_SHA"] = "wrongsha"
     out = subprocess.run(

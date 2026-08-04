@@ -108,24 +108,32 @@ async def test_readiness_contains_no_secrets_or_paths(
     assert '"api_key_configured": true' in dumped.lower()
 
 
-async def test_version_contract_is_0_8_1(
+async def test_version_contract_matches_declared_contract(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    from hermes_mcp_bridge.contracts import (
+        CURRENT_CONTRACT_VERSION,
+        SCHEMA_VERSION,
+        expected_tool_count,
+    )
+
     server = _make_server_module(monkeypatch, tmp_path)
     server.client._transport_factory = lambda: _mock_transport()
     result = await server.hermes_health()
-    assert result["bridge"]["bridge_version"] == "0.8.1"
-    assert result["bridge"]["manifest_version"] == "0.8.1"
-    assert result["bridge"]["schema_version"] == "0.6.1"  # schema unchanged
+    assert result["bridge"]["bridge_version"] == CURRENT_CONTRACT_VERSION
+    assert result["bridge"]["manifest_version"] == CURRENT_CONTRACT_VERSION
+    assert result["bridge"]["schema_version"] == SCHEMA_VERSION
+    assert SCHEMA_VERSION == "0.6.1"  # wire schema pinned across the 0.8.x line
     readiness = await server.hermes_readiness()
     assert readiness["version_added"] == "0.8.0"  # tool introduced in 0.8.0
-    assert readiness["bridge_version"] == "0.8.1"
-    assert readiness["contract_version"] == "0.8.1"
-    assert readiness["schema_version"] == "0.6.1"
+    assert readiness["bridge_version"] == CURRENT_CONTRACT_VERSION
+    assert readiness["contract_version"] == CURRENT_CONTRACT_VERSION
+    assert readiness["schema_version"] == SCHEMA_VERSION
     contract = readiness["components"]["tool_contract"]
     assert contract["status"] == "ready"
-    assert contract["count"] == 27
-    assert contract["expected_count"] == 27
+    assert contract["count"] == expected_tool_count()
+    assert contract["expected_count"] == expected_tool_count()
+    assert expected_tool_count() == 27
     assert contract["missing"] == []
 
 

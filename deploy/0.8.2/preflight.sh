@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Read-only preflight for the 0.8.1 rollout. Never mutates state.
+# Read-only preflight for the 0.8.2 rollout. Never mutates state.
 #
 # Usage:
 #   ./preflight.sh
 #
 # Environment:
-#   EXPECTED_SHA_0_8_1   git SHA expected on the candidate image label
+#   EXPECTED_SHA_0_8_2   git SHA expected on the candidate image label
 #   CANDIDATE_IMAGE      candidate image tag
 #   ROLLBACK_IMAGE       rollback image tag
 #   ROLLBACK_IMAGE_ID    expected image ID of ROLLBACK_IMAGE
@@ -18,22 +18,22 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib.sh
 . "$HERE/lib.sh"
 
-CANDIDATE_IMAGE="${CANDIDATE_IMAGE:-hermes-mcp-bridge:0.8.1-candidate}"
-ROLLBACK_IMAGE="${ROLLBACK_IMAGE:-hermes-mcp-bridge:rollback-0.8.0-9c7fc64}"
+CANDIDATE_IMAGE="${CANDIDATE_IMAGE:-hermes-mcp-bridge:0.8.2-candidate}"
+ROLLBACK_IMAGE="${ROLLBACK_IMAGE:-hermes-mcp-bridge:rollback-0.8.1-a3c8c11}"
 ROLLBACK_IMAGE_ID="${ROLLBACK_IMAGE_ID:-}"
-EXPECTED_SHA_0_8_1="${EXPECTED_SHA_0_8_1:-}"
+EXPECTED_SHA_0_8_2="${EXPECTED_SHA_0_8_2:-}"
 BRIDGE_ENV_FILE="${BRIDGE_ENV_FILE:-/home/estourpm/hermes-mcp-bridge/.env}"
 BRIDGE_STATE_DIR="${BRIDGE_STATE_DIR:-/home/estourpm/hermes-mcp-bridge/data}"
 MIN_FREE_KB="${MIN_FREE_KB:-5242880}"
 
 require_cmd docker df awk
 
-if [ -n "$EXPECTED_SHA_0_8_1" ]; then
-  assert_image_revision "$CANDIDATE_IMAGE" "$EXPECTED_SHA_0_8_1"
+if [ -n "$EXPECTED_SHA_0_8_2" ]; then
+  assert_image_revision "$CANDIDATE_IMAGE" "$EXPECTED_SHA_0_8_2"
 else
   docker image inspect "$CANDIDATE_IMAGE" >/dev/null 2>&1 \
     || fail "imagem candidata ausente: $CANDIDATE_IMAGE"
-  warn "EXPECTED_SHA_0_8_1 nao definido: revision da imagem nao verificada"
+  warn "EXPECTED_SHA_0_8_2 nao definido: revision da imagem nao verificada"
 fi
 
 if [ -n "$ROLLBACK_IMAGE_ID" ]; then

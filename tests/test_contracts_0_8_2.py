@@ -1,4 +1,4 @@
-"""Contract tests for the 0.8.1 tool surface and schema pinning."""
+"""Contract tests for the 0.8.2 tool surface and schema pinning."""
 
 from __future__ import annotations
 
@@ -32,18 +32,19 @@ def _server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> types.ModuleType
     return importlib.import_module("hermes_mcp_bridge.server")
 
 
-def test_current_contract_is_0_8_1() -> None:
-    assert CURRENT_CONTRACT_VERSION == "0.8.1"
-    assert __version__ == "0.8.1"
+def test_current_contract_is_0_8_2() -> None:
+    assert CURRENT_CONTRACT_VERSION == "0.8.2"
+    assert __version__ == "0.8.2"
+    assert __version__ == CURRENT_CONTRACT_VERSION
 
 
 def test_schema_version_unchanged_in_0_8_x() -> None:
     assert SCHEMA_VERSION == "0.6.1"
 
 
-def test_contract_0_8_1_has_27_tools_including_readiness() -> None:
-    tools = required_tools("0.8.1")
-    assert expected_tool_count("0.8.1") == 27
+def test_contract_0_8_2_has_27_tools_including_readiness() -> None:
+    tools = required_tools("0.8.2")
+    assert expected_tool_count("0.8.2") == 27
     assert len(tools) == 27
     assert "hermes_readiness" in tools
 
@@ -54,13 +55,14 @@ def test_contract_0_6_1_has_26_tools_without_readiness() -> None:
     assert "hermes_readiness" not in tools
 
 
-def test_0_8_1_is_additive_over_0_6_1() -> None:
-    assert required_tools("0.6.1") < required_tools("0.8.1")
-    assert required_tools("0.8.1") - required_tools("0.6.1") == {"hermes_readiness"}
+def test_0_8_2_is_additive_over_0_6_1() -> None:
+    assert required_tools("0.6.1") < required_tools("0.8.2")
+    assert required_tools("0.8.2") - required_tools("0.6.1") == {"hermes_readiness"}
 
 
-def test_0_8_0_and_0_8_1_share_the_same_tool_set() -> None:
+def test_all_0_8_x_share_the_same_tool_set() -> None:
     assert required_tools("0.8.0") == required_tools("0.8.1")
+    assert required_tools("0.8.1") == required_tools("0.8.2")
 
 
 def test_unknown_contract_version_raises() -> None:
@@ -69,15 +71,15 @@ def test_unknown_contract_version_raises() -> None:
 
 
 def test_diff_detects_missing_and_extra_tools() -> None:
-    observed = (set(required_tools("0.8.1")) - {"hermes_readiness"}) | {"hermes_bogus"}
-    diff = diff_tools(observed, version="0.8.1")
+    observed = (set(required_tools("0.8.2")) - {"hermes_readiness"}) | {"hermes_bogus"}
+    diff = diff_tools(observed, version="0.8.2")
     assert diff["missing"] == ["hermes_readiness"]
     assert diff["extra"] == ["hermes_bogus"]
 
 
 def test_validate_tools_reports_not_ok_when_missing() -> None:
-    observed = set(required_tools("0.8.1")) - {"hermes_readiness"}
-    result = validate_tools(observed, version="0.8.1")
+    observed = set(required_tools("0.8.2")) - {"hermes_readiness"}
+    result = validate_tools(observed, version="0.8.2")
     assert result["ok"] is False
     assert result["count"] == 26
     assert result["expected_count"] == 27
@@ -85,8 +87,8 @@ def test_validate_tools_reports_not_ok_when_missing() -> None:
 
 
 def test_validate_tools_allows_additive_extra_tools() -> None:
-    observed = set(required_tools("0.8.1")) | {"hermes_future"}
-    result = validate_tools(observed, version="0.8.1")
+    observed = set(required_tools("0.8.2")) | {"hermes_future"}
+    result = validate_tools(observed, version="0.8.2")
     assert result["ok"] is True
     assert result["extra"] == ["hermes_future"]
 
@@ -130,8 +132,8 @@ def test_manifest_matches_contract(
     result = validate_manifest_contract(manifest, version=CURRENT_CONTRACT_VERSION)
     assert result["ok"] is True
     assert result["count"] == 27
-    assert manifest.bridge_version == "0.8.1"
-    assert manifest.manifest_version == "0.8.1"
+    assert manifest.bridge_version == CURRENT_CONTRACT_VERSION
+    assert manifest.manifest_version == CURRENT_CONTRACT_VERSION
 
 
 def test_manifest_declares_readiness(

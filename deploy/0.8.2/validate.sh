@@ -16,6 +16,12 @@ REQUIRED_TOOL="${REQUIRED_TOOL:-hermes_readiness}"
 
 require_cmd curl jq docker
 
+# 0.8.2: never validate the MCP surface while the container is still within its
+# legitimate health start window. "starting" inside the derived budget is not a
+# failure; unhealthy or timeout is.
+wait_for_health "$CONTAINER_NAME" "${HEALTH_SETTLE_SECONDS:-}" \
+  || fail "container nao atingiu health=healthy dentro do budget"
+
 call() {
   curl -s -m 25 -X POST "$URL" \
     -H 'Content-Type: application/json' \

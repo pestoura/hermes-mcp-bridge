@@ -55,11 +55,12 @@ TOOL_CONTRACTS: MappingProxyType[str, frozenset[str]] = MappingProxyType(
         "0.6.1": _TOOLS_0_6,
         "0.8.0": _TOOLS_0_6 | _TOOLS_ADDED_0_8,
         "0.8.1": _TOOLS_0_6 | _TOOLS_ADDED_0_8,
+        "0.8.2": _TOOLS_0_6 | _TOOLS_ADDED_0_8,
     }
 )
 
 #: Contract version implemented by this build.
-CURRENT_CONTRACT_VERSION = "0.8.1"
+CURRENT_CONTRACT_VERSION = "0.8.2"
 
 #: Wire schema version. Intentionally unchanged in 0.8.x.
 SCHEMA_VERSION = "0.6.1"

@@ -27,19 +27,32 @@
 | Contract | Tools | Adds |
 | --- | --- | --- |
 | 0.6.0 / 0.6.1 | 26 | — |
-| 0.8.0 / 0.8.1 | 27 | `hermes_readiness` |
+| 0.8.0 / 0.8.1 / 0.8.2 | 27 | `hermes_readiness` |
+
+## 0.8.1 -> 0.8.2
+
+0.8.2 is a patch release. It changes **no** client-visible contract: 27 tools,
+schema `0.6.1`, no new SQLite migration, `hermes_readiness` still mandatory.
+Only `bridge_version`/`manifest_version`/`contract_version` move to `0.8.2`.
+
+The entire change is operational: the rollout scripts no longer sleep a fixed
+number of seconds before validating. See the "Health criteria" section of
+`docs/production-rollout-0.8.2.md`.
 
 ### Upgrade path
 
-1. Build and tag the 0.8.1 candidate image with the release SHA in
+1. Build and tag the 0.8.2 candidate image with the release SHA in
    `org.opencontainers.image.revision`.
-2. Run `deploy/0.8.1/preflight.sh` (read-only).
-3. Run `deploy/0.8.1/deploy.sh` in dry-run and review the printed plan.
-4. Re-run with `EXECUTE_DEPLOYMENT=YES EXPECTED_SHA=<sha>` to apply.
-5. `deploy/0.8.1/validate.sh` asserts 27 tools, `hermes_readiness` present,
-   `bridge_version` 0.8.1 and `schema_version` 0.6.1.
-6. Roll back with `deploy/0.8.1/rollback.sh` (same two gates). No state
-   migration is reversed.
+2. Run `deploy/0.8.2/preflight.sh` (read-only).
+3. Run `deploy/0.8.2/deploy.sh` in dry-run and review the printed plan.
+4. Re-run with `EXECUTE_DEPLOYMENT=YES EXPECTED_SHA=<sha>` to apply. Do **not**
+   pass `SETTLE_SECONDS`; the health budget is derived from the container's own
+   healthcheck.
+5. `deploy/0.8.2/validate.sh` waits for `health=healthy` and then asserts 27
+   tools, `hermes_readiness` present, `bridge_version` 0.8.2 and
+   `schema_version` 0.6.1.
+6. Roll back with `deploy/0.8.2/rollback.sh` (same two gates, same health
+   logic). No state migration is reversed.
 
 ## 0.3.0 → 0.4.0
 
