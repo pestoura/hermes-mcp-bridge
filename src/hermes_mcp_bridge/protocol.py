@@ -15,12 +15,13 @@ class SchemaVersion(StrEnum):
     V0_4_0 = "0.4.0"
     V0_5_0 = "0.5.0"
     V0_6_0 = "0.6.0"
+    V0_6_1 = "0.6.1"
 
 
 class ExecutionEnvelope(BaseModel):
     """Versioned execution envelope attached to tool outputs."""
 
-    schema_version: str = Field(default=SchemaVersion.V0_6_0)
+    schema_version: str = Field(default=SchemaVersion.V0_6_1)
     payload_version: str | None = Field(default=None)
     origin_type: str | None = Field(default=None)
     context_key: str | None = Field(default=None)
@@ -135,7 +136,7 @@ class ToolManifest(BaseModel):
 class CapabilityManifest(BaseModel):
     """Canonical capability manifest for the bridge."""
 
-    schema_version: str = Field(default=SchemaVersion.V0_6_0)
+    schema_version: str = Field(default=SchemaVersion.V0_6_1)
     bridge_version: str
     manifest_version: str
     manifest_hash: str
@@ -164,7 +165,7 @@ class CapabilityManifest(BaseModel):
         provenance: dict[str, Any],
         upstream_capabilities: dict[str, Any] | None,
     ) -> CapabilityManifest:
-        schema_version = SchemaVersion.V0_6_0
+        schema_version = SchemaVersion.V0_6_1
         canonical = {
             "schema_version": schema_version,
             "bridge_version": bridge_version,
@@ -220,7 +221,7 @@ class CapabilityManifest(BaseModel):
 class AgentCard(BaseModel):
     """Versioned agent card for the bridge identity."""
 
-    schema_version: str = Field(default=SchemaVersion.V0_6_0)
+    schema_version: str = Field(default=SchemaVersion.V0_6_1)
     agent_id: str
     name: str
     purpose: str
@@ -504,7 +505,7 @@ def load_agent_card_from_env() -> AgentCard:
             "HERMES_AGENT_CARD_PURPOSE",
             "Thin MCP bridge that delegates natural-language objectives to hermes-agent.",
         ),
-        version=os.getenv("HERMES_AGENT_CARD_VERSION", SchemaVersion.V0_6_0),
+        version=os.getenv("HERMES_AGENT_CARD_VERSION", SchemaVersion.V0_6_1),
         capabilities=[
             "delegate-objectives",
             "connected-wait",
@@ -595,7 +596,7 @@ def canonical_capability_fallback(bridge_version: str) -> CapabilityManifest:
             read_only=True,
         ),
         ToolManifest(
-            name="recent_runs",
+            name="hermes_recent_runs",
             description="List recent registry entries by status or recency.",
             version_added="0.1.0",
             stability="stable",
@@ -633,7 +634,7 @@ def canonical_capability_fallback(bridge_version: str) -> CapabilityManifest:
     }
     return CapabilityManifest.build(
         bridge_version=bridge_version,
-        manifest_version="0.6.0",
+        manifest_version="0.6.1",
         tools=tools,
         orchestration_modes=orchestration_modes,
         limits=limits,
@@ -649,7 +650,7 @@ _MANIFEST_TOOL_NAMES = {
     "hermes_status",
     "hermes_stop",
     "hermes_health",
-    "recent_runs",
+    "hermes_recent_runs",
     "hermes_capabilities",
     "hermes_agent_card",
     "hermes_policy_evaluate",
