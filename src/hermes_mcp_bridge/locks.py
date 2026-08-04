@@ -9,6 +9,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from .models import LockStatus, LockType, ResourceLock
+from .observability.instrumentation import record_sqlite_operation
 
 
 class LockError(RuntimeError):
@@ -85,7 +86,8 @@ class LockRegistry:
                         ),
                     )
                     connection.execute("COMMIT")
-                except Exception:
+                except Exception as exc:
+                    record_sqlite_operation(kind="locks", outcome="error", exc=exc)
                     connection.execute("ROLLBACK")
                     raise
             finally:
@@ -115,7 +117,8 @@ class LockRegistry:
                 )
                 connection.execute("COMMIT")
                 return self._row_to_lock(lock_key, owner, row)
-            except Exception:
+            except Exception as exc:
+                record_sqlite_operation(kind="locks", outcome="error", exc=exc)
                 connection.execute("ROLLBACK")
                 raise
             finally:

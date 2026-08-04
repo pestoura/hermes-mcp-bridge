@@ -18,6 +18,19 @@ services:
       - ALL
     tmpfs:
       - /tmp:size=32m,mode=1777
+    # Observability (see docs/observability.md). All values are non-secret and
+    # optional; the exporter stays disabled unless BRIDGE_METRICS_ENABLED=1 and
+    # binds to loopback only. Remote exposure additionally requires
+    # BRIDGE_METRICS_ALLOW_REMOTE=1 plus BRIDGE_METRICS_TOKEN (keep the token in
+    # .env, never here).
+    environment:
+      BRIDGE_LOG_FORMAT: "${BRIDGE_LOG_FORMAT:-json}"
+      BRIDGE_LOG_LEVEL: "${BRIDGE_LOG_LEVEL:-INFO}"
+      BRIDGE_METRICS_ENABLED: "${BRIDGE_METRICS_ENABLED:-}"
+      BRIDGE_METRICS_HOST: "${BRIDGE_METRICS_HOST:-127.0.0.1}"
+      BRIDGE_METRICS_PORT: "${BRIDGE_METRICS_PORT:-9464}"
+      BRIDGE_TRACING_ENABLED: "${BRIDGE_TRACING_ENABLED:-}"
+      BRIDGE_TRACING_EXPORT: "${BRIDGE_TRACING_EXPORT:-}"
     healthcheck:
       test:
         - CMD-SHELL

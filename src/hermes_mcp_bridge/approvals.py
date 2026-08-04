@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from .config import get_settings
+from .observability.instrumentation import record_sqlite_operation
 from .protocol import ApprovalRecord, ApprovalStatus
 
 _APPROVAL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:\-]{0,159}$")
@@ -112,8 +113,9 @@ class ApprovalRegistry:
         now = _utcnow().isoformat()
         if record.created_at is None:
             record.created_at = now
-        connection = _open_connection(self._db_path)
+        connection = None
         try:
+            connection = _open_connection(self._db_path)
             connection.execute("BEGIN IMMEDIATE")
             connection.execute(
                 """
@@ -142,13 +144,20 @@ class ApprovalRegistry:
             )
             connection.execute("COMMIT")
         except sqlite3.IntegrityError:
-            connection.execute("ROLLBACK")
+            if connection is not None:
+                with suppress(Exception):
+                    connection.execute("ROLLBACK")
+            record_sqlite_operation(kind="approvals", outcome="error")
             raise
-        except Exception:
-            connection.execute("ROLLBACK")
+        except Exception as exc:
+            if connection is not None:
+                with suppress(Exception):
+                    connection.execute("ROLLBACK")
+            record_sqlite_operation(kind="approvals", outcome="error", exc=exc)
             raise
         finally:
-            connection.close()
+            if connection is not None:
+                connection.close()
         return self.get(record.approval_id)
 
     def get(self, approval_id: str) -> ApprovalRecord:
@@ -181,8 +190,9 @@ class ApprovalRegistry:
     ) -> ApprovalRecord:
         _validate_approval_id(approval_id)
         now = _utcnow().isoformat()
-        connection = _open_connection(self._db_path)
+        connection = None
         try:
+            connection = _open_connection(self._db_path)
             connection.execute("BEGIN IMMEDIATE")
             cursor = connection.execute(
                 "SELECT decision, expires_at, resource_fingerprint"
@@ -209,19 +219,22 @@ class ApprovalRegistry:
                 (decision.value, now, principal, approval_id),
             )
             connection.execute("COMMIT")
-        except Exception:
+        except Exception as exc:
             with suppress(Exception):
                 connection.execute("ROLLBACK")
+            record_sqlite_operation(kind="approvals", outcome="error", exc=exc)
             raise
         finally:
-            connection.close()
+            if connection is not None:
+                connection.close()
         return self.get(approval_id)
 
     def consume(self, approval_id: str, resource_fingerprint: str | None) -> ApprovalRecord:
         _validate_approval_id(approval_id)
         now = _utcnow().isoformat()
-        connection = _open_connection(self._db_path)
+        connection = None
         try:
+            connection = _open_connection(self._db_path)
             connection.execute("BEGIN IMMEDIATE")
             cursor = connection.execute(
                 "SELECT decision, resource_fingerprint, consumed_at, created_at"
@@ -253,18 +266,21 @@ class ApprovalRegistry:
                 (now, ApprovalStatus.CONSUMED.value, approval_id),
             )
             connection.execute("COMMIT")
-        except Exception:
+        except Exception as exc:
             with suppress(Exception):
                 connection.execute("ROLLBACK")
+            record_sqlite_operation(kind="approvals", outcome="error", exc=exc)
             raise
         finally:
-            connection.close()
+            if connection is not None:
+                connection.close()
         return self.get(approval_id)
 
     def mark_stale(self, approval_id: str) -> ApprovalRecord:
         _validate_approval_id(approval_id)
-        connection = _open_connection(self._db_path)
+        connection = None
         try:
+            connection = _open_connection(self._db_path)
             connection.execute("BEGIN IMMEDIATE")
             cursor = connection.execute(
                 "SELECT decision FROM approvals WHERE approval_id = ?",
@@ -287,17 +303,22 @@ class ApprovalRegistry:
                 (ApprovalStatus.STALE.value, now, approval_id),
             )
             connection.execute("COMMIT")
-        except Exception:
-            connection.execute("ROLLBACK")
+        except Exception as exc:
+            with suppress(Exception):
+                if connection is not None:
+                    connection.execute("ROLLBACK")
+            record_sqlite_operation(kind="approvals", outcome="error", exc=exc)
             raise
         finally:
-            connection.close()
+            if connection is not None:
+                connection.close()
         return self.get(approval_id)
 
     def expire(self, approval_id: str) -> ApprovalRecord:
         _validate_approval_id(approval_id)
-        connection = _open_connection(self._db_path)
+        connection = None
         try:
+            connection = _open_connection(self._db_path)
             connection.execute("BEGIN IMMEDIATE")
             cursor = connection.execute(
                 "SELECT decision FROM approvals WHERE approval_id = ?",
@@ -316,11 +337,15 @@ class ApprovalRegistry:
                 (ApprovalStatus.EXPIRED.value, now, approval_id),
             )
             connection.execute("COMMIT")
-        except Exception:
-            connection.execute("ROLLBACK")
+        except Exception as exc:
+            with suppress(Exception):
+                if connection is not None:
+                    connection.execute("ROLLBACK")
+            record_sqlite_operation(kind="approvals", outcome="error", exc=exc)
             raise
         finally:
-            connection.close()
+            if connection is not None:
+                connection.close()
         return self.get(approval_id)
 
     def list_recent(self, *, limit: int = 50) -> list[ApprovalRecord]:

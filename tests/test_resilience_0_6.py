@@ -178,7 +178,7 @@ def test_approval_first_create_and_status_on_empty_db(tmp_path: Path) -> None:
     assert status.principal == "tester"
 
 
-def test_tool_inventory_exact_26_matches_manifest_and_smoke() -> None:
+def test_tool_inventory_exact_27_matches_manifest_and_smoke() -> None:
     import asyncio
     import importlib
 
@@ -204,6 +204,7 @@ def test_tool_inventory_exact_26_matches_manifest_and_smoke() -> None:
         "hermes_plan",
         "hermes_prompt",
         "hermes_quota_status",
+        "hermes_readiness",
         "hermes_recent_runs",
         "hermes_result_manifest",
         "hermes_saga_compensate",
@@ -215,8 +216,8 @@ def test_tool_inventory_exact_26_matches_manifest_and_smoke() -> None:
         "hermes_wait",
     }
     assert discovered == expected
-    assert len(discovered) == 26
+    assert len(discovered) == 27
 
     manifest_obj = asyncio.run(_build_capability_manifest())
     assert set(manifest_obj.effective_tools) == expected
-    assert len(manifest_obj.effective_tools) == 26
+    assert len(manifest_obj.effective_tools) == 27

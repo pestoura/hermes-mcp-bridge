@@ -7,6 +7,7 @@ import json
 import logging
 import math
 import re
+import time
 import uuid
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
@@ -20,6 +21,12 @@ from .models import (
     TERMINAL_STATUSES,
     HermesPromptResult,
     RunStatus,
+)
+from .observability import (
+    record_polling_iteration,
+    record_sse_connection,
+    record_sse_fallback,
+    record_upstream,
 )
 from .protocol import OrchestrationMode
 
@@ -454,6 +461,7 @@ class HermesClient:
             )
 
         remaining = max(0.0, deadline - loop.time())
+        record_sse_fallback(stream_error or "stream_ended")
         await self._notify_progress(
             progress_callback,
             {
@@ -510,6 +518,7 @@ class HermesClient:
             await asyncio.sleep(
                 min(self._settings.hermes_run_poll_interval_seconds, remaining)
             )
+            record_polling_iteration()
             latest = await self.get_run(
                 execution_id,
                 fallback_session_id=fallback_session_id,
@@ -547,10 +556,12 @@ class HermesClient:
             ):
                 if response.status_code != 200:
                     await response.aread()
+                    record_sse_connection("rejected")
                     raise HermesAPIError(
                         "Hermes event stream returned "
                         f"HTTP {response.status_code}: {self._error_detail(response)}"
                     )
+                record_sse_connection("open")
                 data_lines: list[str] = []
                 async for line in response.aiter_lines():
                     if not line:
@@ -626,12 +637,30 @@ class HermesClient:
         path: str,
         **kwargs: Any,
     ) -> httpx.Response:
+        started = time.perf_counter()
+        status_code: int | None = None
+        outcome = "success"
         try:
-            return await client.request(method, path, **kwargs)
+            response = await client.request(method, path, **kwargs)
+            status_code = response.status_code
+            if status_code >= 500:
+                outcome = "upstream_error"
+            elif status_code >= 400:
+                outcome = "client_error"
+            return response
         except httpx.TimeoutException as exc:
+            outcome = "timeout"
             raise HermesAPIError("Hermes API request timed out") from exc
         except httpx.RequestError as exc:
+            outcome = "unreachable"
             raise HermesAPIError("Unable to reach the Hermes API server") from exc
+        finally:
+            record_upstream(
+                path=path,
+                status_code=status_code,
+                duration_seconds=time.perf_counter() - started,
+                outcome=outcome,
+            )
 
     @staticmethod
     def _decode(response: httpx.Response, *, expected: set[int]) -> dict[str, Any]:

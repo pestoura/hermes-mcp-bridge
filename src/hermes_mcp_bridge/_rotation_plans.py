@@ -6,11 +6,19 @@ digests, new-value digest, active-runs/health snapshot, created_at, expiry and
 nonce). The proof is NOT derived from ``new_value`` alone, so a manually built
 plan cannot be replayed or forged.
 
-The registry is thread-safe and process-local. Each plan is single-use and has a
-short TTL: ``apply_rotation`` consumes it atomically. Cross-process reuse is
-only permitted when an HMAC secret (HERMES_BRIDGE_HMAC_SECRET) is configured;
-without it, a plan produced in another process must fail closed. The new secret
-value and raw digests are never persisted here.
+The registry is thread-safe and **process-local**. Each plan is single-use and
+has a short TTL: ``apply_rotation`` consumes it atomically. Cross-process reuse
+is *not* supported: a plan registered in one process is never visible to
+another, because the registry lives only in memory. ``HERMES_BRIDGE_HMAC_SECRET``
+does **not** enable cross-process reuse — it only binds the proof to an extra
+deployment-wide secret, so a plan produced under a different secret fails
+closed. Any plan token coming from another process is therefore rejected as
+"unknown". The new secret value and raw digests are never persisted here.
+
+The registry is bounded: consumed and expired entries are purged on every
+mutation, and the number of live plans is capped by ``MAX_LIVE_PLANS`` (oldest
+entries are evicted first) so a loop of ``plan_rotation`` calls cannot grow
+memory without bound.
 """
 
 from __future__ import annotations
@@ -23,6 +31,7 @@ import time
 from dataclasses import dataclass
 
 PLAN_TTL_SECONDS = 120
+MAX_LIVE_PLANS = 64
 _HMAC_ENV = "HERMES_BRIDGE_HMAC_SECRET"
 
 
@@ -79,6 +88,34 @@ def _content_proof(
     return h.hexdigest()[:32]
 
 
+def _purge_locked(now: float) -> int:
+    """Remove expired records. Caller must hold ``_registry_lock``.
+
+    Consumed records are kept until their TTL elapses so that a replay is
+    reported as "already consumed" instead of "unknown"; they are still the
+    first candidates for eviction when the size cap is reached.
+    """
+
+    stale = [k for k, v in _registry.items() if now > v.expires_at]
+    for key in stale:
+        _registry.pop(key, None)
+    return len(stale)
+
+
+def _evict_locked() -> int:
+    """Cap the live registry size: consumed first, then oldest."""
+
+    removed = 0
+    while len(_registry) > MAX_LIVE_PLANS:
+        victim = min(
+            _registry,
+            key=lambda k: (not _registry[k].consumed, _registry[k].created_at),
+        )
+        _registry.pop(victim, None)
+        removed += 1
+    return removed
+
+
 def register_plan(
     *,
     key: str,
@@ -102,11 +139,13 @@ def register_plan(
         created_at=created_at,
     )
     with _registry_lock:
+        _purge_locked(created_at)
         _registry[proof] = _PlanRecord(
             proof=proof,
             created_at=created_at,
             expires_at=created_at + PLAN_TTL_SECONDS,
         )
+        _evict_locked()
     return proof, nonce
 
 
@@ -149,13 +188,23 @@ def verify_and_consume(
         if recomputed != plan_token:
             raise ValueError("plan token mismatch: plan content altered")
         rec.consumed = True
+        # NOTE: the consumed record is intentionally kept until it expires so a
+        # replay is reported as "already consumed" rather than "unknown".
+        # Purging of consumed/expired entries happens on the next registration.
 
 
 def purge_expired() -> int:
+    """Purge consumed and expired plans; returns the number of removed records."""
+
     now = time.monotonic()
-    removed = 0
     with _registry_lock:
-        for k in [k for k, v in _registry.items() if now > v.expires_at]:
-            _registry.pop(k, None)
-            removed += 1
+        removed = _purge_locked(now)
+        removed += _evict_locked()
     return removed
+
+
+def registry_size() -> int:
+    """Return the number of live (non-purged) plan records."""
+
+    with _registry_lock:
+        return len(_registry)

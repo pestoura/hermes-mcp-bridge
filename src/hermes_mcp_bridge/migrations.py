@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .config import get_settings
+from .observability.instrumentation import record_sqlite_operation
 
 
 @dataclass(frozen=True)
@@ -255,7 +256,8 @@ def apply_migrations(db_path: str | None = None) -> int:
                     "INSERT INTO schema_migrations (version, label, applied_at) VALUES (?, ?, ?)",
                     (migration.version, migration.label, _utcnow().isoformat()),
                 )
-        except Exception:
+        except Exception as exc:
+            record_sqlite_operation(kind="migrations", outcome="error", exc=exc)
             if connection.in_transaction:
                 connection.execute("ROLLBACK")
             raise

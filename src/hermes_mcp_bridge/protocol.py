@@ -634,7 +634,7 @@ def canonical_capability_fallback(bridge_version: str) -> CapabilityManifest:
     }
     return CapabilityManifest.build(
         bridge_version=bridge_version,
-        manifest_version="0.6.1",
+        manifest_version="0.8.0",
         tools=tools,
         orchestration_modes=orchestration_modes,
         limits=limits,
