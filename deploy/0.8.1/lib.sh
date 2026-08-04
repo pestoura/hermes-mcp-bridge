@@ -9,13 +9,15 @@ set -Eeuo pipefail
 # Fixed Docker Compose project. Every compose invocation MUST use this so the
 # rollout cannot accidentally create or mutate a differently-named project
 # derived from the current directory.
-COMPOSE_PROJECT="hermes-mcp-bridge"
+# These are consumed by the scripts that source this file; exported so that
+# static analysis does not flag them as unused (SC2034).
+export COMPOSE_PROJECT="hermes-mcp-bridge"
 
 # Contract expected by this rollout.
-BRIDGE_VERSION="0.8.1"
-SCHEMA_VERSION="0.6.1"
-EXPECTED_TOOL_COUNT="27"
-CONTAINER_NAME="hermes-mcp-bridge"
+export BRIDGE_VERSION="0.8.1"
+export SCHEMA_VERSION="0.6.1"
+export EXPECTED_TOOL_COUNT="27"
+export CONTAINER_NAME="hermes-mcp-bridge"
 
 log()  { printf '%s\n' "$*"; }
 ok()   { printf 'OK: %s\n' "$*"; }

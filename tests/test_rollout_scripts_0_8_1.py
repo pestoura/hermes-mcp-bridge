@@ -16,6 +16,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -75,6 +76,7 @@ def test_no_raw_docker_compose_without_project(script: Path) -> None:
 def test_compose_helper_pins_the_fixed_project() -> None:
     text = _read(DEPLOY_DIR / "lib.sh")
     assert f'COMPOSE_PROJECT="{COMPOSE_PROJECT}"' in text
+    assert "export COMPOSE_PROJECT=" in text
     assert 'docker compose -p "$COMPOSE_PROJECT" -f "$file" "$@"' in text
 
 
@@ -133,9 +135,9 @@ def test_validate_checks_contract_count_and_required_tool() -> None:
 
 def test_lib_declares_27_tools_and_schema_0_6_1() -> None:
     text = _read(DEPLOY_DIR / "lib.sh")
-    assert 'BRIDGE_VERSION="0.8.1"' in text
-    assert 'SCHEMA_VERSION="0.6.1"' in text
-    assert 'EXPECTED_TOOL_COUNT="27"' in text
+    assert 'export BRIDGE_VERSION="0.8.1"' in text
+    assert 'export SCHEMA_VERSION="0.6.1"' in text
+    assert 'export EXPECTED_TOOL_COUNT="27"' in text
 
 
 @pytest.mark.parametrize("script", SCRIPTS, ids=lambda p: p.name)
@@ -177,10 +179,20 @@ def test_scripts_contain_no_secret_material() -> None:
             assert token not in text, f"{script} contem material sensivel: {token}"
 
 
-@pytest.mark.skipif(shutil.which("shellcheck") is None, reason="shellcheck ausente")
+def _find_shellcheck() -> str | None:
+    found = shutil.which("shellcheck")
+    if found:
+        return found
+    candidate = Path(sys.executable).parent / "shellcheck"
+    return str(candidate) if candidate.exists() else None
+
+
+@pytest.mark.skipif(_find_shellcheck() is None, reason="shellcheck ausente")
 def test_shellcheck_clean() -> None:  # pragma: no cover - env dependent
+    shellcheck = _find_shellcheck()
+    assert shellcheck is not None
     result = subprocess.run(
-        ["shellcheck", "-S", "warning", *[str(p) for p in SCRIPTS]],
+        [shellcheck, "-S", "warning", *[str(p) for p in SCRIPTS]],
         capture_output=True,
         text=True,
         check=False,
