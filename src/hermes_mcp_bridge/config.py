@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     mcp_path: str = "/mcp"
     log_level: str = "INFO"
     bridge_state_db_path: str = "/var/lib/hermes-mcp-bridge/state.sqlite3"
-    bridge_version: str = "0.8.1"
+    bridge_version: str = "0.8.2"
 
 
 @lru_cache(maxsize=1)

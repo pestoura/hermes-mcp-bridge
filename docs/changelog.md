@@ -5,6 +5,62 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.8.2 — Health-settle correctness (false-rollback fix)
+
+### Fixed
+
+- **False rollback during rollout.** `deploy/0.8.1/deploy.sh` waited a fixed
+  `SETTLE_SECONDS=12` after `docker compose up -d` and then ran `validate.sh`.
+  The container healthcheck declares `start_period=10s`, `interval=30s`,
+  `timeout=5s`, `retries=3`, so the first probe is only recorded at ~10s and the
+  Docker health status is still `starting` at 12s. Validation therefore raced
+  the healthcheck and reported failure on a perfectly healthy container. The
+  0.8.1 production rollout only completed after a manual `SETTLE_SECONDS=60`
+  override — a magic number, not a fix.
+
+### Added
+
+- `health_settle_budget()` in `deploy/0.8.2/lib.sh` derives the stabilisation
+  budget from the container's own healthcheck configuration:
+  `start_period + (interval + timeout) * retries + HEALTH_SETTLE_MARGIN_SECONDS`,
+  clamped to `[HEALTH_SETTLE_MIN_SECONDS, HEALTH_SETTLE_MAX_SECONDS]`
+  (defaults 30s and 300s). For the production healthcheck this yields 130s.
+- `wait_for_health()` replaces the fixed sleep with a bounded poll of the Docker
+  health status (`HEALTH_POLL_INTERVAL_SECONDS`, default 2s). Health criteria:
+  `healthy` => pass; `unhealthy` => fail immediately; `starting` inside the
+  budget => keep waiting (NOT a failure); budget expiry => fail. A container
+  with no declared healthcheck warns and passes.
+- `HEALTH_FALLBACK_*` knobs cover containers that declare no healthcheck fields.
+- `tests/test_health_settle_0_8_2.py`: reproduces the defect exactly (12s of
+  `starting` then `healthy` before 60s must PASS), plus `unhealthy` => FAIL,
+  permanent `starting` => timeout FAIL, budget derivation, floor/ceiling
+  clamping, fallback path, and a guard that health logs never expose container
+  `Env`.
+
+### Changed
+
+- Package, bridge and manifest version bumped to `0.8.2`. Schema stays `0.6.1`
+  and the tool set stays at 27 with `hermes_readiness` mandatory. No new SQLite
+  migration.
+- Rollout tooling moved to `deploy/0.8.2/`. `deploy.sh`, `rollback.sh` and
+  `validate.sh` all use the same `wait_for_health()` logic, so a rollback can no
+  longer be declared failed while its container is legitimately starting.
+- `validate.sh` waits for health before probing the MCP surface.
+- Rollback defaults now target `hermes-mcp-bridge:rollback-0.8.1-a3c8c11`.
+- Version assertions in `tests/test_observability_health.py` and
+  `tests/test_contracts_0_8_2.py` derive from `contracts.CURRENT_CONTRACT_VERSION`
+  instead of hard-coded literals, so future bumps no longer break them.
+- Rollout script tests scrub ambient `EXECUTE_DEPLOYMENT`/`ROLLBACK_IMAGE_ID`
+  style variables from the environment, making them hermetic on an operator
+  shell that has a previous rollout exported.
+
+### Operational note
+
+Operators must no longer pass `SETTLE_SECONDS`. The budget is derived. Use
+`HEALTH_SETTLE_SECONDS` only to override deliberately, and
+`HEALTH_SETTLE_MARGIN_SECONDS` / `HEALTH_SETTLE_MIN_SECONDS` /
+`HEALTH_SETTLE_MAX_SECONDS` to tune policy.
+
 ## 0.8.1 — Rollout contract hardening
 
 ### Added

@@ -39,8 +39,35 @@ jobs:
       - name: Lint
         run: python -m ruff check .
 
+      - name: ShellCheck rollout scripts
+        run: python -m pytest -q tests/test_rollout_scripts_0_8_2.py::test_shellcheck_clean
+
       - name: Test
         run: python -m pytest -q
 
       - name: Build runtime image
         run: docker build --tag hermes-mcp-bridge:ci .
+
+      - name: Scan runtime image (Trivy)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: hermes-mcp-bridge:ci
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: '0'
+          ignore-unfixed: true
+
+      - name: Generate SBOM (CycloneDX)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: hermes-mcp-bridge:ci
+          scan-type: image
+          format: cyclonedx
+          output: sbom-cyclonedx.json
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cyclonedx
+          path: sbom-cyclonedx.json
+          if-no-files-found: error

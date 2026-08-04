@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
-# Rollback from 0.8.1 to the previous known-good image. DRY-RUN BY DEFAULT.
+# Rollback from 0.8.2 to the previous known-good image. DRY-RUN BY DEFAULT.
 #
 # Mutating mode requires BOTH EXECUTE_DEPLOYMENT=YES and a matching
 # EXPECTED_SHA. The rollback never touches the SQLite state file: the schema
-# (0.6.1) is unchanged across 0.8.0/0.8.1, so no data migration is reversed.
+# (0.6.1) is unchanged across 0.8.0/0.8.1/0.8.2, so no data migration is
+# reversed.
+#
+# 0.8.2 change: uses the same wait_for_health() polling as deploy.sh instead of
+# a fixed sleep, so a rollback cannot be declared failed while the replacement
+# container is still legitimately in "starting".
 
 set -Eeuo pipefail
 
@@ -13,11 +18,11 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 REQUIRED_SHA="${REQUIRED_SHA:-}"
 COMPOSE_FILE="${COMPOSE_FILE:-$HERE/compose.rollback.yml}"
-ROLLBACK_IMAGE="${ROLLBACK_IMAGE:-hermes-mcp-bridge:rollback-0.8.0-9c7fc64}"
+ROLLBACK_IMAGE="${ROLLBACK_IMAGE:-hermes-mcp-bridge:rollback-0.8.1-a3c8c11}"
 ROLLBACK_IMAGE_ID="${ROLLBACK_IMAGE_ID:-}"
-ROLLBACK_BRIDGE_VERSION="${ROLLBACK_BRIDGE_VERSION:-0.8.0}"
+ROLLBACK_BRIDGE_VERSION="${ROLLBACK_BRIDGE_VERSION:-0.8.1}"
 ROLLBACK_TOOL_COUNT="${ROLLBACK_TOOL_COUNT:-27}"
-SETTLE_SECONDS="${SETTLE_SECONDS:-12}"
+HEALTH_SETTLE_SECONDS="${HEALTH_SETTLE_SECONDS:-}"
 
 require_cmd docker
 require_file "$COMPOSE_FILE"
@@ -34,6 +39,7 @@ if [ -z "$REQUIRED_SHA" ] || ! is_execute_mode "$REQUIRED_SHA"; then
   log "DRY_RUN: nenhuma accao mutavel executada."
   log "DRY_RUN: projeto compose fixo = $COMPOSE_PROJECT"
   log "DRY_RUN: executaria docker compose -p $COMPOSE_PROJECT -f $COMPOSE_FILE up -d"
+  log "DRY_RUN: aguardaria health com budget derivado do healthcheck"
   log "DRY_RUN: validaria bridge_version=$ROLLBACK_BRIDGE_VERSION tools=$ROLLBACK_TOOL_COUNT"
   compose_config_check "$COMPOSE_FILE"
   log "ROLLBACK: DRY_RUN OK"
@@ -49,7 +55,8 @@ if [ "$current_image" = "$ROLLBACK_IMAGE" ]; then
   ok "container ja na imagem de rollback; nao recria (idempotente)"
 else
   compose "$COMPOSE_FILE" up -d
-  sleep "$SETTLE_SECONDS"
+  wait_for_health "$CONTAINER_NAME" "$HEALTH_SETTLE_SECONDS" \
+    || fail "health nao estabilizou apos rollback"
 fi
 
 MCP_PORT="${MCP_PORT:-8765}" \

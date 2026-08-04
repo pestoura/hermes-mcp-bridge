@@ -1,6 +1,6 @@
 services:
   hermes-mcp-bridge:
-    image: "${CANDIDATE_IMAGE:-hermes-mcp-bridge:0.8.1-candidate}"
+    image: "${CANDIDATE_IMAGE:-hermes-mcp-bridge:0.8.2-candidate}"
     container_name: hermes-mcp-bridge
     restart: unless-stopped
     init: true

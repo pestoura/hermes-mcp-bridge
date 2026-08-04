@@ -1,6 +1,6 @@
 services:
   hermes-mcp-bridge:
-    image: "${ROLLBACK_IMAGE:-hermes-mcp-bridge:rollback-0.8.0-9c7fc64}"
+    image: "${ROLLBACK_IMAGE:-hermes-mcp-bridge:rollback-0.8.1-a3c8c11}"
     container_name: hermes-mcp-bridge
     restart: unless-stopped
     init: true
