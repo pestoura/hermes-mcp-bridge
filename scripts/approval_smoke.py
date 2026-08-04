@@ -21,7 +21,8 @@ from mcp.client.streamable_http import streamable_http_client
 
 from hermes_mcp_bridge.approval_parser import (
     ApprovalIdParseError,
-    extract_approval_id_from_mcp_result,
+    extract_approval_id,
+    extract_structured_string_field,
 )
 
 
@@ -29,6 +30,15 @@ def _sanitize_approval_id(approval_id: str) -> str:
     prefix = approval_id[:8]
     digest = hashlib.sha256(approval_id.encode("utf-8")).hexdigest()[:12]
     return f"{prefix}...{digest}"
+
+
+def _sanitize_parse_error(exc: ApprovalIdParseError) -> dict:
+    message = str(exc)
+    return {
+        "error": message,
+        "shape": message,
+        "type": type(exc).__name__,
+    }
 
 
 async def _run(url: str) -> int:
@@ -62,74 +72,77 @@ async def _run(url: str) -> int:
                     "hermes_approval_create", arguments=create_args
                 )
                 try:
-                    approval_id = extract_approval_id_from_mcp_result(create_result)
+                    created_id = extract_approval_id(create_result)
+                    created_action = extract_structured_string_field(create_result, "action")
                 except ApprovalIdParseError as exc:
                     print(
                         json.dumps(
-                            {
-                                "error": f"Invalid create payload: {exc}",
-                                "create_result": str(create_result),
-                            },
+                            _sanitize_parse_error(exc),
                             indent=2,
-                            default=str,
                         )
                     )
                     return 2
 
                 status_result = await session.call_tool(
-                    "hermes_approval_status", arguments={"approval_id": approval_id}
+                    "hermes_approval_status", arguments={"approval_id": created_id}
                 )
                 try:
-                    status_payload = extract_approval_id_from_mcp_result(status_result)
+                    status_id = extract_approval_id(status_result)
+                    status_action = extract_structured_string_field(status_result, "action")
+                    status_decision = extract_structured_string_field(status_result, "decision")
                 except ApprovalIdParseError as exc:
                     print(
                         json.dumps(
-                            {
-                                "error": f"Invalid status payload: {exc}",
-                                "status_result": str(status_result),
-                            },
+                            _sanitize_parse_error(exc),
                             indent=2,
-                            default=str,
                         )
                     )
                     return 3
 
-                if status_payload != approval_id:
+                if status_id != created_id:
                     print(
                         json.dumps(
                             {
                                 "error": "approval_id mismatch",
-                                "expected": _sanitize_approval_id(approval_id),
-                                "got": _sanitize_approval_id(status_payload),
+                                "expected": _sanitize_approval_id(created_id),
+                                "got": _sanitize_approval_id(status_id),
                             },
                             indent=2,
                         )
                     )
                     return 4
 
-                status_text = str(status_result)
-                if (
-                    '"decision":"requested"' not in status_text
-                    and "'decision': 'requested'" not in status_text
-                ):
+                if status_action != created_action:
                     print(
                         json.dumps(
                             {
-                                "error": "approval not in requested state",
-                                "status_result": str(status_result),
+                                "error": "action mismatch",
+                                "expected": created_action,
+                                "got": status_action,
                             },
                             indent=2,
-                            default=str,
                         )
                     )
                     return 5
 
+                if status_decision != "requested":
+                    print(
+                        json.dumps(
+                            {
+                                "error": "approval not in requested state",
+                                "decision": status_decision,
+                            },
+                            indent=2,
+                        )
+                    )
+                    return 6
+
                 print(
                     json.dumps(
                         {
-                            "approval_id": _sanitize_approval_id(approval_id),
-                            "action": "approval_smoke_test",
-                            "decision": "requested",
+                            "approval_id": _sanitize_approval_id(created_id),
+                            "action": status_action,
+                            "decision": status_decision,
                             "expires_in_seconds": expiry_seconds,
                         },
                         indent=2,

@@ -11,124 +11,11 @@ import json
 import re
 from typing import Any
 
-
-_APPROVAL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:\-]{0,159}$")
+_APPROVAL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:\\-]{0,159}$")
 
 
 class ApprovalIdParseError(Exception):
     """Raised when a payload does not yield a valid approval_id."""
-
-
-def extract_approval_id(payload: Any) -> str:
-    """Return a normalized approval_id or raise ApprovalIdParseError.
-
-    Supported shapes:
-    - dict with key `approval_id` at top level;
-    - wrapper dict `{"result": {"approval_id": "..."}}`;
-    - nested dict with approval_id after extracting structured keys or content text.
-
-    Rejected:
-    - raw string payloads;
-    - approval_id not a `str`;
-    - surrounding quotes, leading/trailing whitespace or newlines;
-    - raw JSON serialization (`"...", {"a":1}`);
-    - dict/list payload where approval_id cannot be resolved as a plain string.
-    """
-    if payload is None:
-        raise ApprovalIdParseError("Payload is None")
-
-    if isinstance(payload, str):
-        raise ApprovalIdParseError(
-            "Refusing to parse raw string payload as structured result"
-        )
-
-    if isinstance(payload, dict):
-        if "approval_id" in payload:
-            raw = payload["approval_id"]
-        elif "result" in payload and isinstance(payload["result"], dict):
-            raw = _find_approval_id_value(payload["result"])
-        else:
-            raw = _find_approval_id_value(payload)
-        if raw is None:
-            raise ApprovalIdParseError(
-                "approval_id not found in payload after normalizing top-level keys"
-            )
-    else:
-        raise ApprovalIdParseError(
-            f"Unsupported payload type: {type(payload).__name__}"
-        )
-
-    return _normalize_approval_id_value(raw)
-
-
-def extract_approval_id_from_mcp_result(result: Any) -> str:
-    """Public helper used by smoke tests and operational scripts.
-
-    Accepts the MCP CallToolResult-like object or dict payload and returns a
-    normalized approval_id string. Raises ApprovalIdParseError on any shape
-    mismatch.
-    """
-    if isinstance(result, dict):
-        if "approval_id" in result:
-            return _normalize_approval_id_value(result["approval_id"])
-        if "result" in result and isinstance(result["result"], dict):
-            return extract_approval_id(result["result"])
-
-        structured = None
-        for key in ("structuredContent", "structured_content"):
-            if key in result and isinstance(result[key], dict):
-                structured = result[key]
-                break
-        if structured is not None:
-            if "approval_id" in structured:
-                return _normalize_approval_id_value(structured["approval_id"])
-            return extract_approval_id(structured)
-
-        text_parts: list[str] = []
-        for item in result.get("content", []):
-            text = getattr(item, "text", None)
-            if isinstance(text, str):
-                text_parts.append(text)
-        if text_parts:
-            combined = "\n".join(text_parts)
-            try:
-                payload = json.loads(combined)
-            except json.JSONDecodeError as exc:
-                raise ApprovalIdParseError(
-                    "Text content is not valid JSON"
-                ) from exc
-            return extract_approval_id(payload)
-
-        raise ApprovalIdParseError(
-            "Dict payload has no structuredContent, structured_content, approval_id, content, or result wrapper"
-        )
-
-    structured = getattr(result, "structuredContent", None)
-    if structured is None:
-        structured = getattr(result, "structured_content", None)
-    if isinstance(structured, dict):
-        if "approval_id" in structured:
-            return _normalize_approval_id_value(structured["approval_id"])
-        return extract_approval_id(structured)
-
-    text_parts = []
-    for item in getattr(result, "content", []):
-        text = getattr(item, "text", None)
-        if isinstance(text, str):
-            text_parts.append(text)
-    if text_parts:
-        combined = "\n".join(text_parts)
-        try:
-            payload = json.loads(combined)
-        except json.JSONDecodeError as exc:
-            raise ApprovalIdParseError(
-                "Text content is not valid JSON"
-            ) from exc
-        return extract_approval_id(payload)
-
-    raise ApprovalIdParseError(
-        "MCP result object has no structuredContent/structured_content or valid text content"
-    )
 
 
 def _normalize_approval_id_value(raw: Any) -> str:
@@ -154,18 +41,124 @@ def _normalize_approval_id_value(raw: Any) -> str:
     return normalized
 
 
-def _find_approval_id_value(payload: Any) -> Any:
+def _unwrap_one(payload: Any) -> dict:
+    """Return a dict payload after at most one structured wrapper hop.
+
+    Accepted single wrappers:
+    - {"result": <dict>}
+    - {"structuredContent": <dict>}
+    - {"structured_content": <dict>}
+    - {"content": [...]} with first text item being valid JSON dict
+
+    Rejected:
+    - anything that is not dict/object
+    - nested wrappers after one hop
+    - lists/tuples/sets at top level
+    """
+    if payload is None:
+        raise ApprovalIdParseError("Payload is None")
+
+    if isinstance(payload, (list, tuple, set)):
+        raise ApprovalIdParseError(
+            f"Unsupported payload type: {type(payload).__name__}"
+        )
+
     if isinstance(payload, dict):
         if "approval_id" in payload:
-            return payload["approval_id"]
-        for value in payload.values():
-            found = _find_approval_id_value(value)
-            if found is not None:
-                return found
-        return None
-    if isinstance(payload, list):
-        for item in payload:
-            found = _find_approval_id_value(item)
-            if found is not None:
-                return found
-    return None
+            return payload
+        for key in ("result", "structuredContent", "structured_content"):
+            if key in payload and isinstance(payload[key], dict):
+                return payload[key]
+        content = payload.get("content")
+        if isinstance(content, list) and content:
+            first = content[0]
+            text = getattr(first, "text", None)
+            if isinstance(text, str):
+                try:
+                    parsed = json.loads(text)
+                except json.JSONDecodeError as exc:
+                    raise ApprovalIdParseError("Text content is not valid JSON") from exc
+                if isinstance(parsed, dict):
+                    return parsed
+        raise ApprovalIdParseError(
+            "Dict payload has no structuredContent/structured_content/approval_id/content/result"
+        )
+
+    if isinstance(payload, str):
+        raise ApprovalIdParseError(
+            "Refusing to parse raw string payload as structured result"
+        )
+
+    # Object path: attribute access only
+    for key in ("structuredContent", "structured_content"):
+        value = getattr(payload, key, None)
+        if isinstance(value, dict):
+            return value
+    content = getattr(payload, "content", None)
+    if isinstance(content, list) and content:
+        first = content[0]
+        text = getattr(first, "text", None)
+        if isinstance(text, str):
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError as exc:
+                raise ApprovalIdParseError("Text content is not valid JSON") from exc
+            if isinstance(parsed, dict):
+                return parsed
+
+    raise ApprovalIdParseError(
+        "Payload has no structuredContent/structured_content or valid text content"
+    )
+
+
+def extract_approval_id(payload: Any) -> str:
+    """Return a normalized approval_id or raise ApprovalIdParseError.
+
+    Accepted shapes after single-hop unwrap:
+    - dict with top-level `approval_id` whose value is a plain str
+    - wrapper single-hop resolving to one of the above
+
+    Rejected:
+    - lists/tuples/sets at any level
+    - ambiguous/multiple wrappers
+    - approval_id value that is not plain str
+    - raw JSON-serialized strings
+    - whitespace/quotes/newlines in approval_id
+    """
+    candidate = _unwrap_one(payload)
+
+    if not isinstance(candidate, dict):
+        raise ApprovalIdParseError(
+            f"Unsupported payload type: {type(candidate).__name__}"
+        )
+
+    if "approval_id" not in candidate:
+        raise ApprovalIdParseError("approval_id not found in payload")
+
+    raw = candidate["approval_id"]
+    return _normalize_approval_id_value(raw)
+
+
+def extract_structured_string_field(payload: Any, field: str) -> str:
+    """Extract a top-level string field from a strict dict payload.
+
+    Fail closed on any non-dict or non-str value.
+    """
+    candidate = _unwrap_one(payload)
+    if not isinstance(candidate, dict):
+        raise ApprovalIdParseError(
+            f"Unsupported payload type: {type(candidate).__name__}"
+        )
+    if field not in candidate:
+        raise ApprovalIdParseError(f"field not found: {field}")
+    return _normalize_approval_id_value(candidate[field])
+
+
+def extract_approval_id_from_mcp_result(result: Any) -> str:
+    """Public helper used by smoke tests and operational scripts.
+
+    Accepts the MCP CallToolResult-like object or dict payload and returns a
+    normalized approval_id string. Raises ApprovalIdParseError on any shape
+    mismatch.
+    """
+    return extract_approval_id(result)
