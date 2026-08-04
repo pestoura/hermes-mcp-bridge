@@ -151,9 +151,12 @@ tool contract is not satisfied.
 
 ## Known limitations
 
-- ShellCheck is not installed on the release host. Equivalent static checks
-  (fixed Compose project, fail-fast, quoting, dry-run non-mutability,
-  `bash -n`) are enforced by `tests/test_rollout_scripts_0_8_1.py`; the same
-  test runs ShellCheck automatically when it is available.
+- ShellCheck is not installed system-wide on the release host. The test suite
+  discovers it on `PATH` or next to the active interpreter (`shellcheck-py`),
+  runs it at severity `warning`, and skips only when it is truly unavailable.
+  Equivalent static checks (fixed Compose project, fail-fast, quoting, dry-run
+  non-mutability, `bash -n`) are always enforced by
+  `tests/test_rollout_scripts_0_8_1.py`, so the guarantees hold with or without
+  ShellCheck.
 - The scripts never build images and never publish. Image build and tagging is
   a separate, explicitly authorized step.

@@ -21,7 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Rollout/rollback runbook `docs/production-rollout-0.8.1.md`.
 - Tests: `tests/test_contracts_0_8_1.py` and `tests/test_rollout_scripts_0_8_1.py`
   (fixed Compose project, non-mutating dry-run, candidate/rollback command
-  shapes, 27 tools, readiness present, schema 0.6.1, missing/extra detection).
+  shapes, 27 tools, readiness present, schema 0.6.1, missing/extra detection,
+  `bash -n` parsing and ShellCheck when available).
 
 ### Changed
 
