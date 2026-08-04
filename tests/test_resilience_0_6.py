@@ -7,7 +7,6 @@ import types
 from pathlib import Path
 
 import pytest
-
 from pydantic import SecretStr
 
 from hermes_mcp_bridge.config import Settings
