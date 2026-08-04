@@ -144,6 +144,69 @@ def record_sqlite_operation(*, kind: str, outcome: str, exc: BaseException | Non
         _safe(log_event, "bridge.sqlite.ok", kind=resolved_kind, outcome="success")
 
 
+_UPSTREAM_CLASSES = frozenset(
+    {"runs", "run_events", "run_stop", "sessions", "health", "other"}
+)
+_EVENT_SOURCES = frozenset({"sse", "polling", "recovery", "unknown", "other"})
+_CIRCUIT_STATES = frozenset({"closed", "open", "half_open", "other"})
+
+
+def _bounded(value: str | None, allowed: frozenset[str]) -> str:
+    normalized = (value or "other").strip().lower().replace("-", "_")[:32]
+    return normalized if normalized in allowed else "other"
+
+
+def record_sqlite_retry(*, kind: str) -> None:
+    """One bounded retry after transient SQLite contention."""
+
+    normalized = (kind or "other").strip().lower()[:32]
+    _call("sqlite_retries_total", "inc", kind=normalized)
+    _call("sqlite_lock_contention_total", "inc")
+    _safe(log_event, "bridge.sqlite.retry", kind=normalized, outcome="retry")
+
+
+def record_circuit_transition(*, name: str, state: str) -> None:
+    upstream = _bounded(name, _UPSTREAM_CLASSES)
+    target = _bounded(state, _CIRCUIT_STATES)
+    _call("circuit_transitions_total", "inc", upstream=upstream, state=target)
+    _safe(
+        log_event,
+        "bridge.circuit.transition",
+        upstream=upstream,
+        state=target,
+        outcome="transition",
+    )
+
+
+def record_circuit_rejection(*, name: str) -> None:
+    upstream = _bounded(name, _UPSTREAM_CLASSES)
+    _call("circuit_rejections_total", "inc", upstream=upstream)
+    _safe(log_event, "bridge.circuit.rejected", upstream=upstream, outcome="rejected")
+
+
+def record_duplicate_event(*, source: str) -> None:
+    origin = _bounded(source, _EVENT_SOURCES)
+    _call("duplicate_events_total", "inc", source=origin)
+
+
+def record_out_of_order_event(*, source: str) -> None:
+    origin = _bounded(source, _EVENT_SOURCES)
+    _call("out_of_order_events_total", "inc", source=origin)
+
+
+def record_backoff_sleep(seconds: float, *, source: str = "unknown") -> None:
+    origin = _bounded(source, _EVENT_SOURCES)
+    _call("backoff_sleep_seconds", "observe", float(seconds), source=origin)
+
+
+def record_recovery(*, outcome: str, count: int = 1) -> None:
+    """Runs recovered from persisted state after a restart."""
+
+    normalized = (outcome or "other").strip().lower()[:32]
+    _call("recovery_runs_total", "inc", float(max(0, int(count))), outcome=normalized)
+    _safe(log_event, "bridge.recovery", outcome=normalized)
+
+
 def set_active_runs(count: int) -> None:
     _call("active_runs", "set", float(count))
 

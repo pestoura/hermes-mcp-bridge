@@ -1513,8 +1513,8 @@ async def _build_capability_manifest() -> CapabilityManifest:
     ]
 
     return CapabilityManifest.build(
-        bridge_version="0.8.0",
-        manifest_version="0.8.0",
+        bridge_version=settings.bridge_version,
+        manifest_version="0.9.0",
         tools=tools,
         orchestration_modes=["auto", "explicit"],
         limits={

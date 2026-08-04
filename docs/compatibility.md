@@ -1,5 +1,34 @@
 # Compatibility
 
+## 0.8.0 → 0.9.0
+
+### Client compatibility
+
+- No MCP tool was added, removed or renamed; all 27 tools of 0.8.0 keep their
+  request and response contract.
+- `schema_version` stays `0.6.1`: no migration is introduced, so a 0.9.0 bridge
+  and a 0.8.0 bridge can read the same state database.
+- `bridge_version` and `manifest_version` move to `0.9.0` (and therefore the
+  manifest hash changes). `hermes_readiness.version_added` deliberately stays
+  `0.8.0`.
+- All resilience behaviour (retry, circuit breaker) is **disabled by default**,
+  so the observed request pattern is byte-for-byte the 0.8.0 pattern until an
+  operator opts in.
+
+### Upgrade path
+
+1. Deploy 0.9.0 with default configuration (all resilience flags off).
+2. Verify `hermes_health` returns `bridge_version: "0.9.0"` and
+   `schema_version: "0.6.1"`.
+3. Re-cache the capability manifest: the hash changed with the version bump.
+4. Enable `BRIDGE_RETRY_ENABLED` and/or `BRIDGE_CIRCUIT_ENABLED` only after
+   confirming the new metrics are scraped.
+
+### Rollback
+
+Downgrading to 0.8.0 requires no schema action; the state database is
+unchanged. See `docs/resilience-0.9.md`.
+
 ## 0.3.0 → 0.4.0
 
 ### Client compatibility

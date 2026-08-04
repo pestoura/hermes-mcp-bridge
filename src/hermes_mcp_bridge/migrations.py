@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -207,8 +208,12 @@ class MigrationError(RuntimeError):
 
 
 def _open_connection(db_path: str) -> sqlite3.Connection:
-    connection = sqlite3.connect(db_path, check_same_thread=False)
+    connection = sqlite3.connect(db_path, check_same_thread=False, timeout=30.0)
     connection.isolation_level = None
+    # busy_timeout must be set before any statement that can take a lock
+    # (journal_mode=WAL needs an exclusive lock on first switch), otherwise
+    # concurrent migrators fail immediately with "database is locked".
+    connection.execute("PRAGMA busy_timeout=30000")
     return connection
 
 
@@ -234,6 +239,35 @@ def _current_version(connection: sqlite3.Connection) -> int:
         return 0
 
 
+def _ensure_wal(connection: sqlite3.Connection, *, attempts: int = 50) -> None:
+    """Switch the database to WAL, tolerating concurrent migrators.
+
+    ``PRAGMA journal_mode=WAL`` needs a brief exclusive lock and SQLite does
+    **not** route that particular contention through the busy handler: it
+    returns ``SQLITE_BUSY`` immediately. So a plain ``busy_timeout`` is not
+    enough here and the pragma has to be retried explicitly. The loop is
+    bounded (attempts x 10ms) and gives up by raising the original error, so it
+    can never spin forever. Once any connection has switched the file to WAL
+    the mode is persistent, so later calls return ``wal`` on the first try.
+    """
+
+    last_error: sqlite3.OperationalError | None = None
+    for _ in range(max(1, attempts)):
+        try:
+            row = connection.execute("PRAGMA journal_mode=WAL").fetchone()
+        except sqlite3.OperationalError as exc:  # pragma: no cover - timing dependent
+            if "locked" not in str(exc).lower() and "busy" not in str(exc).lower():
+                raise
+            last_error = exc
+        else:
+            if row and str(row[0]).lower() == "wal":
+                return
+        time.sleep(0.01)
+    if last_error is not None:
+        raise last_error
+    raise sqlite3.OperationalError("could not switch database to WAL journal mode")
+
+
 def apply_migrations(db_path: str | None = None) -> int:
     """Apply pending migrations and return the current schema version."""
     settings = get_settings()
@@ -242,20 +276,32 @@ def apply_migrations(db_path: str | None = None) -> int:
         Path(target_db).expanduser().resolve().parent.mkdir(parents=True, exist_ok=True)
     connection = _open_connection(target_db)
     try:
-        connection.execute("PRAGMA journal_mode=WAL")
-        connection.execute("PRAGMA busy_timeout=5000")
+        _ensure_wal(connection)
         connection.execute("PRAGMA synchronous=NORMAL")
         try:
-            _ensure_schema_table(connection)
-            current = _current_version(connection)
-            for migration in _MIGRATIONS:
-                if migration.version <= current:
-                    continue
-                connection.executescript(migration.sql)
-                connection.execute(
-                    "INSERT INTO schema_migrations (version, label, applied_at) VALUES (?, ?, ?)",
-                    (migration.version, migration.label, _utcnow().isoformat()),
-                )
+            # Serialise concurrent migrators: BEGIN IMMEDIATE takes the write
+            # lock up-front so version checks and inserts cannot interleave
+            # between processes/threads. busy_timeout above bounds the wait.
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                _ensure_schema_table(connection)
+                current = _current_version(connection)
+                for migration in _MIGRATIONS:
+                    if migration.version <= current:
+                        continue
+                    # executescript() commits the open transaction, so re-take
+                    # the write lock right after to keep the ledger insert and
+                    # the DDL under a single serialised migrator.
+                    connection.executescript(migration.sql)
+                    connection.execute(
+                        "INSERT OR IGNORE INTO schema_migrations "
+                        "(version, label, applied_at) VALUES (?, ?, ?)",
+                        (migration.version, migration.label, _utcnow().isoformat()),
+                    )
+                    connection.execute("BEGIN IMMEDIATE")
+            finally:
+                if connection.in_transaction:
+                    connection.execute("COMMIT")
         except Exception as exc:
             record_sqlite_operation(kind="migrations", outcome="error", exc=exc)
             if connection.in_transaction:

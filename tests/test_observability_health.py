@@ -108,18 +108,19 @@ async def test_readiness_contains_no_secrets_or_paths(
     assert '"api_key_configured": true' in dumped.lower()
 
 
-async def test_version_contract_is_0_8_0(
+async def test_version_contract_is_0_9_0(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     server = _make_server_module(monkeypatch, tmp_path)
     server.client._transport_factory = lambda: _mock_transport()
     result = await server.hermes_health()
-    assert result["bridge"]["bridge_version"] == "0.8.0"
-    assert result["bridge"]["manifest_version"] == "0.8.0"
+    assert result["bridge"]["bridge_version"] == "0.9.0"
+    assert result["bridge"]["manifest_version"] == "0.9.0"
     assert result["bridge"]["schema_version"] == "0.6.1"  # schema unchanged
     readiness = await server.hermes_readiness()
+    # readiness tool itself was introduced in 0.8.0 and keeps that marker
     assert readiness["version_added"] == "0.8.0"
-    assert readiness["bridge_version"] == "0.8.0"
+    assert readiness["bridge_version"] == "0.9.0"
 
 
 async def test_readiness_does_not_run_integrity_check(

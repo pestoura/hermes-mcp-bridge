@@ -28,6 +28,10 @@ ALLOWED_LABELS: frozenset[str] = frozenset(
         "mode",
         "version",
         "kind",
+        # Block 3 resilience labels (bounded, allow-listed).
+        "state",
+        "source",
+        "upstream",
     }
 )
 
@@ -52,6 +56,16 @@ FORBIDDEN_LABELS: frozenset[str] = frozenset(
 )
 
 MAX_SERIES_PER_METRIC = 200
+
+#: Bounded value domains for the resilience labels introduced in 0.9.
+#: A value outside the domain is folded into ``other`` instead of creating a
+#: new series, so cardinality stays provably finite.
+BOUNDED_LABEL_VALUES: dict[str, frozenset[str]] = {
+    "state": frozenset({"closed", "open", "half_open", "other"}),
+    "source": frozenset({"sse", "polling", "recovery", "unknown", "other"}),
+    "upstream": frozenset({"runs", "run_events", "run_stop", "sessions", "health", "other"}),
+}
+
 DEFAULT_BUCKETS: tuple[float, ...] = (
     0.005,
     0.025,
@@ -83,6 +97,9 @@ def _validate_labels(labels: dict[str, str] | None) -> tuple[tuple[str, str], ..
         if key not in ALLOWED_LABELS:
             raise CardinalityError(f"label not allow-listed: {key}")
         value = str(raw_value)
+        allowed_values = BOUNDED_LABEL_VALUES.get(key)
+        if allowed_values is not None and value not in allowed_values:
+            value = "other"
         if len(value) > 64:
             value = value[:64]
         normalized.append((key, value))
@@ -378,6 +395,34 @@ class _Metrics:
         )
         self.observability_errors_total = registry.counter(
             "bridge_observability_errors_total", "Observability internal failures by kind."
+        )
+        # -- Block 3 resilience metrics ---------------------------------
+        self.sqlite_retries_total = registry.counter(
+            "bridge_sqlite_retries_total",
+            "Bounded SQLite retries after transient contention, by operation kind.",
+        )
+        self.circuit_transitions_total = registry.counter(
+            "bridge_circuit_transitions_total",
+            "Circuit breaker state transitions by upstream and target state.",
+        )
+        self.circuit_rejections_total = registry.counter(
+            "bridge_circuit_rejections_total",
+            "Calls rejected because the circuit was open, by upstream.",
+        )
+        self.duplicate_events_total = registry.counter(
+            "bridge_duplicate_events_total",
+            "Duplicate run events ignored idempotently, by source.",
+        )
+        self.out_of_order_events_total = registry.counter(
+            "bridge_out_of_order_events_total",
+            "Out-of-order or regressing run events ignored, by source.",
+        )
+        self.recovery_runs_total = registry.counter(
+            "bridge_recovery_runs_total",
+            "Runs recovered from persisted state after a restart, by outcome.",
+        )
+        self.backoff_sleep_seconds = registry.histogram(
+            "bridge_backoff_sleep_seconds", "Bounded backoff sleep durations in seconds."
         )
 
 
