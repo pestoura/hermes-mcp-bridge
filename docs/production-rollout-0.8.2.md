@@ -68,7 +68,7 @@ until a terminal condition.
 | `unhealthy` | — | **FAIL**, return immediately (no waiting out the budget) |
 | `starting` | yes | keep waiting — **explicitly not a failure** |
 | `starting` | no (budget expired) | **FAIL** with a timeout message |
-| no healthcheck declared | — | warn, pass (nothing to verify) |
+| no healthcheck declared | — | warn, pass — unless `HEALTH_REQUIRE_HEALTHCHECK=1`, then FAIL |
 | container missing | — | **FAIL** |
 
 `deploy.sh`, `rollback.sh` and `validate.sh` all use this same function, so a
@@ -85,6 +85,7 @@ legitimately starting.
 | `HEALTH_SETTLE_MAX_SECONDS` | `300` | ceiling, bounds a stuck rollout |
 | `HEALTH_SETTLE_SECONDS` | *(unset)* | hard override of the derived budget |
 | `HEALTH_FALLBACK_*` | 10/30/5/3 | used only when no healthcheck is declared |
+| `HEALTH_REQUIRE_HEALTHCHECK` | `0` (`1` in deploy/rollback) | fail closed when no healthcheck is declared |
 
 **Do not pass `SETTLE_SECONDS`.** It no longer exists. Passing
 `HEALTH_SETTLE_SECONDS` is a deliberate override and should be justified.

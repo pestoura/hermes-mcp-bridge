@@ -31,6 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   budget => keep waiting (NOT a failure); budget expiry => fail. A container
   with no declared healthcheck warns and passes.
 - `HEALTH_FALLBACK_*` knobs cover containers that declare no healthcheck fields.
+- `HEALTH_REQUIRE_HEALTHCHECK=1` makes `wait_for_health()` fail closed when a
+  container declares no healthcheck. `deploy.sh` and `rollback.sh` set it: a
+  container that cannot prove readiness must not count as a successful
+  deployment. Read-only callers keep the permissive warn-and-pass behaviour.
 - `tests/test_health_settle_0_8_2.py`: reproduces the defect exactly (12s of
   `starting` then `healthy` before 60s must PASS), plus `unhealthy` => FAIL,
   permanent `starting` => timeout FAIL, budget derivation, floor/ceiling
