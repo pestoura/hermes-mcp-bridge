@@ -134,7 +134,7 @@ def test_api_key_assignment_in_string_is_redacted() -> None:
     scrubbed = redact_text(f'api_key="{SECRET}" and password=hunter2')
     assert SECRET not in scrubbed
     assert "hunter2" not in scrubbed
-    assert "api_key=[REDACTED]" in scrubbed
+    assert 'api_key="[REDACTED]"' in scrubbed
 
 
 def test_embedded_secret_no_suffix_leak() -> None:
@@ -309,3 +309,175 @@ def test_enforce_total_size_keeps_essential_fields() -> None:
     assert trimmed["event"] == "bridge.tool.call"
     assert trimmed["outcome"] == "success"
     assert "blob" not in trimmed
+
+
+# --- Adversarial HIGH-1 / HIGH-2 regression cases ---
+
+ADVERSARIAL_CASES: list[str] = [
+    '{"api_key":"sk-secret-123"}',
+    '{"api_key": "sk-secret-123"}',
+    "{'api_key': 'sk-secret-123'}",
+    '{"token": "ghp_secretvalue"}',
+    "{'token': 'ghp_secretvalue'}",
+    '{"client_secret":"topsecret"}',
+    '{"Authorization": "Bearer abc123def456"}',
+    '{"Authorization":"abc123def456"}',
+    'Proxy-Authorization: Digest xyz789',
+    'proxy-authorization=Basic dXNlcjpwYXNz',
+    '{"password":"hunter2"}',
+    'password=hunter2',
+    'access_token=at-12345',
+    'refresh_token=rt-999',
+    'private_key=MIIabc',
+    'Authorization: Bearer tok1',
+    'Set-Cookie: session=sk-x7y9; csrf=z3k2; lang=pt; Path=/; HttpOnly',
+    'Cookie: auth=sk-z; theme=dark',
+    '{"error":"upstream 500","body":"{\\"api_key\\":\\"x\\"}"}',
+    "two secrets on same line: token=aaa and password=bbb",
+    '{"run_id":"abc-123","session_id":"def-456","sha256":"deadbeef","uuid":"a-b-c-d"}',
+    "temperature=0.7",
+    "Path=/ and SameSite=Lax preserved",
+]
+
+
+@pytest.mark.parametrize("raw", ADVERSARIAL_CASES)
+def test_redact_text_adversarial_cases(raw: str) -> None:
+    out = redact_text(raw)
+    # Every secret-shaped value must be gone.
+    for secret in (
+        "sk-secret-123",
+        "ghp_secretvalue",
+        "topsecret",
+        "abc123def456",
+        "xyz789",
+        "hunter2",
+        "at-12345",
+        "rt-999",
+        "MIIabc",
+        "tok1",
+        "sk-x7y9",
+        "z3k2",
+        "sk-z",
+        "leaked",
+        "aaa",
+        "bbb",
+    ):
+        if secret in raw:
+            assert secret not in out, f"{secret} leaked in {raw!r}"
+    # Benign identifiers must survive only when present in the source.
+    for benign in (
+        "abc-123",
+        "def-456",
+        "deadbeef",
+        "a-b-c-d",
+        "0.7",
+        "lang=pt",
+        "Path=/",
+        "HttpOnly",
+        "Secure",
+        "SameSite=Lax",
+        "Max-Age=3600",
+        "theme=dark",
+    ):
+        if benign in raw:
+            assert benign in out, f"benign {benign} lost from {raw!r}"
+
+
+@pytest.mark.parametrize("raw", ADVERSARIAL_CASES)
+def test_redact_text_is_idempotent_over_three_passes(raw: str) -> None:
+    once = redact_text(raw)
+    twice = redact_text(once)
+    thrice = redact_text(twice)
+    assert once == twice == thrice
+    assert "]]" not in once
+    assert "]]]" not in once
+    assert "[REDACTED]=[REDACTED]" not in once
+
+
+def test_quoted_json_keys_redacted_even_with_scheme() -> None:
+    out = redact_text('{"Authorization": "Bearer abc123def456"}')
+    assert out == '{"Authorization": "Bearer [REDACTED]"}'
+
+
+def test_authorization_without_scheme_redacted() -> None:
+    out = redact_text('{"Authorization": "abc123def456"}')
+    assert "abc123def456" not in out
+    assert "[REDACTED]" in out
+
+
+def test_cookie_preserves_benign_attributes() -> None:
+    raw = (
+        "Set-Cookie: session=sk-x7y9; csrf=z3k2; lang=SK; Path=/; "
+        "HttpOnly; Secure; SameSite=Strict; Max-Age=3600; Expires=Wed, 09 Jun; "
+        "Domain=.example.com"
+    )
+    out = redact_text(raw)
+    assert "sk-x7y9" not in out
+    assert "z3k2" not in out
+    assert "session=[REDACTED]" in out
+    assert "csrf=[REDACTED]" in out
+    assert "lang=SK" in out
+    assert "Path=/" in out
+    assert "HttpOnly" in out
+    assert "Secure" in out
+    assert "SameSite=Strict" in out
+    assert "Max-Age=3600" in out
+    assert "Expires=Wed, 09 Jun" in out
+    assert "Domain=.example.com" in out
+
+
+def test_exception_with_json_body_is_redacted() -> None:
+    class _UpstreamError(Exception):
+        def __init__(self, body: str) -> None:
+            super().__init__("upstream 500")
+            self.body = body
+
+    err = _UpstreamError('{"api_key":"leaked"}')
+    # The embedded JSON body must be scrubbed when serialized.
+    out = redact_text(err.body)
+    assert "leaked" not in out
+    assert "[REDACTED]" in out
+
+
+def test_logging_extras_with_json_string_is_redacted() -> None:
+    extras = {"payload": '{"password":"hunter2"}'}
+    scrubbed = sanitize(extras)
+    assert "hunter2" not in str(scrubbed)
+    assert "[REDACTED]" in str(scrubbed)
+
+
+def test_two_secrets_same_line_both_redacted() -> None:
+    out = redact_text("token=aaa and password=bbb")
+    assert "aaa" not in out
+    assert "bbb" not in out
+    assert out.count("[REDACTED]") == 2
+
+
+def test_multiline_secret_does_not_leak_next_line() -> None:
+    raw = 'line1 {"api_key":"sk-x"}\nline2 benign run_id=ok'
+    out = redact_text(raw)
+    assert "sk-x" not in out
+    assert "run_id=ok" in out
+
+
+def test_sanitize_is_idempotent_over_three_passes() -> None:
+    payload = {
+        "api_key": "sk-x",
+        "nested": {"token": "ghp-y"},
+        "list": [{"password": "z"}],
+    }
+    once = sanitize(payload)
+    twice = sanitize(once)
+    thrice = sanitize(twice)
+    assert once == twice == thrice
+    assert "sk-x" not in str(once)
+    assert "ghp-y" not in str(once)
+    assert "z" not in str(once)
+
+
+def test_redacted_placeholder_never_re_redacted() -> None:
+    for base in ["token=[REDACTED]", "Authorization [REDACTED]", '{"api_key":"[REDACTED]"}']:
+        out = redact_text(base)
+        assert out == base
+        assert "[REDACTED]=[REDACTED]" not in out
+        assert out.count("[REDACTED]") == base.count("[REDACTED]")

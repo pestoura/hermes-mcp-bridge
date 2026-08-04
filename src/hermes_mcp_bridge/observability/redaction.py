@@ -144,7 +144,19 @@ SECRET_KEY_NAMES: frozenset[str] = frozenset(
 
 #: Cookie names that are not secrets and may keep their value in free text.
 _BENIGN_COOKIE_NAMES: frozenset[str] = frozenset(
-    {"lang", "locale", "theme", "utm_source", "utm_medium", "utm_campaign"}
+    {
+        "lang",
+        "locale",
+        "theme",
+        "utm_source",
+        "utm_medium",
+        "utm_campaign",
+        "path",
+        "samesite",
+        "max-age",
+        "expires",
+        "domain",
+    }
 )
 
 _ENV_EXTRA_FIELDS = "BRIDGE_LOG_REDACT_FIELDS"
@@ -164,16 +176,25 @@ _SCHEME_CRED_RE = re.compile(
 _COOKIE_RE = re.compile(
     r"(?i)\b(?:set[-_]?cookie|cookie)\b\s*[:=]\s*\S[^\r\n]*"
 )
-# key=value / key: value assignments for sensitive names. A negative lookahead
-# prevents matching an already-redacted placeholder ([REDACTED]) so the rule is
-# idempotent and never doubles a closer.
+# key=value / key: value assignments for sensitive names, with optional quotes
+# around the key (JSON-style "key": "value") and the value. The value class
+# excludes '[' so an already-redacted placeholder ([REDACTED]) is never
+# re-consumed; this makes the rule idempotent and prevents doubled closers.
 _KEY_VALUE_RE = re.compile(
-    r'(?i)\b(api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|'
-    r'secret|password|passwd|pwd|token|authorization|auth|cookie|bearer|'
-    r'apikey|x-api-key|private[_-]?key|hmac|hmac[_-]?secret|nonce|'
-    r'lease[_-]?token|plan[_-]?token)\b'
-    r'\s*[:=]\s*("|\')?(?![REDACTED])([^\s",;}\]]+)\1?'
+    r"(?i)(?P<q1>[\"']?)(?<![\w-])(?P<key>api[_-]?key|access[_-]?token|"
+    r"refresh[_-]?token|client[_-]?secret|secret|password|passwd|pwd|token|"
+    r"authorization|auth|cookie|bearer|apikey|x-api-key|private[_-]?key|hmac|"
+    r"hmac[_-]?secret|nonce|lease[_-]?token|plan[_-]?token)(?![\w-])"
+    r"(?P<q2>[\"']?)\s*(?P<sep>[:=])\s*(?P<q3>[\"']?)(?P<val>[^\s\"',;}\]\[]+)"
+    r"(?P=q3)"
 )
+
+
+def _redact_kv(m: re.Match[str]) -> str:
+    return (
+        f"{m.group('q1')}{m.group('key')}{m.group('q2')}"
+        f"{m.group('sep')}{m.group('q3')}{REDACTED}{m.group('q3')}"
+    )
 _KEYLIKE_RE = re.compile(r"\b(?:sk|pk|ghp|gho|ghs|github_pat|xoxb|xoxp)[-_][A-Za-z0-9_\\-]{8,}")
 _PEM_RE = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----")
 _JWT_RE = re.compile(r"\beyJ[A-Za-z0-9_\\-]{8,}\.[A-Za-z0-9_\\-]{8,}\.[A-Za-z0-9_\\-]{4,}")
@@ -244,7 +265,7 @@ def redact_text(value: str) -> str:
     )
     text = _SCHEME_CRED_RE.sub(lambda m: f"{m.group(1)} {REDACTED}", text)
     text = _COOKIE_RE.sub(lambda m: _redact_cookie_header(m.group(0)), text)
-    text = _KEY_VALUE_RE.sub(lambda m: f"{m.group(1)}={REDACTED}", text)
+    text = _KEY_VALUE_RE.sub(_redact_kv, text)
     text = _KEYLIKE_RE.sub(REDACTED, text)
     text = _PATH_RE.sub("[PATH]", text)
     if len(text) > MAX_STRING_CHARS:

@@ -16,6 +16,7 @@ from contextlib import contextmanager
 from typing import Any
 
 from .context import correlation_scope, get_field
+from .redaction import sanitize
 
 ENV_TRACING_ENABLED = "BRIDGE_TRACING_ENABLED"
 ENV_TRACING_EXPORT = "BRIDGE_TRACING_EXPORT"
@@ -79,9 +80,12 @@ class NoOpSpan:
 
     def set_attribute(self, key: str, value: Any) -> None:
         try:
-            self.attributes[str(key)] = value
+            # Fail closed: attribute values may capture user-supplied payloads,
+            # so sanitize them through the central redactor before storing.
+            safe_value = sanitize(value, _key=key)
+            self.attributes[str(key)] = safe_value
             if self._delegate is not None:
-                self._delegate.set_attribute(str(key), value)
+                self._delegate.set_attribute(str(key), safe_value)
         except Exception:  # pragma: no cover - fail open
             pass
 

@@ -82,6 +82,19 @@ def test_set_attribute_never_raises() -> None:
         assert span.attributes["outcome"] == "success"
 
 
+def test_noop_span_set_attribute_sanitizes_secrets() -> None:
+    span = tr.NoOpSpan("op", "a" * 32, "b" * 16)
+    span.set_attribute("Authorization", "Bearer xyz")
+    span.set_attribute("api_key", "sk-secret")
+    span.set_attribute("run_id", "abc-123")
+    span.set_attribute("temperature", 0.7)
+    # Sensitive keys are redacted; benign identifiers are preserved.
+    assert span.attributes["Authorization"] == "[REDACTED]"
+    assert span.attributes["api_key"] == "[REDACTED]"
+    assert span.attributes["run_id"] == "abc-123"
+    assert span.attributes["temperature"] == 0.7
+
+
 def test_tracing_status_shape() -> None:
     status = tr.tracing_status()
     assert status["enabled"] is False
