@@ -180,20 +180,29 @@ _COOKIE_RE = re.compile(
 # around the key (JSON-style "key": "value") and the value. The value class
 # excludes '[' so an already-redacted placeholder ([REDACTED]) is never
 # re-consumed; this makes the rule idempotent and prevents doubled closers.
+#
+# Escape awareness: JSON embedded in free text may arrive at escape level 0
+# (``"key"``), level 1 (``\"key\"``) or level 2 (``\\"key\\"``). Instead of a
+# destructive global unescape, the quote groups accept an optional run of
+# backslashes before the quote character. The closing quote is matched with a
+# backreference so the original escape level and structure are preserved
+# verbatim and only the value is replaced.
+_Q = r"\\{0,4}[\"']|"
 _KEY_VALUE_RE = re.compile(
-    r"(?i)(?P<q1>[\"']?)(?<![\w-])(?P<key>api[_-]?key|access[_-]?token|"
+    r"(?i)(?P<q1>" + _Q + r")(?<![\w-])(?P<key>api[_-]?key|access[_-]?token|"
     r"refresh[_-]?token|client[_-]?secret|secret|password|passwd|pwd|token|"
     r"authorization|auth|cookie|bearer|apikey|x-api-key|private[_-]?key|hmac|"
     r"hmac[_-]?secret|nonce|lease[_-]?token|plan[_-]?token)(?![\w-])"
-    r"(?P<q2>[\"']?)\s*(?P<sep>[:=])\s*(?P<q3>[\"']?)(?P<val>[^\s\"',;}\]\[]+)"
-    r"(?P=q3)"
+    r"(?P<q2>" + _Q + r")(?P<ws1>\s*)(?P<sep>[:=])(?P<ws2>\s*)(?P<q3>" + _Q + r")"
+    r"(?P<val>[^\s\"',;}\]\[\\]+)(?P=q3)"
 )
 
 
 def _redact_kv(m: re.Match[str]) -> str:
     return (
         f"{m.group('q1')}{m.group('key')}{m.group('q2')}"
-        f"{m.group('sep')}{m.group('q3')}{REDACTED}{m.group('q3')}"
+        f"{m.group('ws1')}{m.group('sep')}{m.group('ws2')}"
+        f"{m.group('q3')}{REDACTED}{m.group('q3')}"
     )
 _KEYLIKE_RE = re.compile(r"\b(?:sk|pk|ghp|gho|ghs|github_pat|xoxb|xoxp)[-_][A-Za-z0-9_\\-]{8,}")
 _PEM_RE = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----")
@@ -233,24 +242,79 @@ def fingerprint(value: str, *, keep: int = 4) -> str:
     return f"{prefix}…{digest}" if prefix else digest
 
 
-def _redact_cookie_value(value: str) -> str:
-    """Redact every sensitive name=value pair value inside a Cookie header.
+#: Cookie attribute names that are directives, not credential pairs.
+_COOKIE_ATTR_NAMES: frozenset[str] = frozenset(
+    {"path", "samesite", "max-age", "expires", "domain", "version", "comment"}
+)
+#: Valueless cookie flags that must survive redaction untouched.
+_COOKIE_FLAGS: frozenset[str] = frozenset({"httponly", "secure", "partitioned"})
 
-    Non-secret cookie names (lang, theme, locale, utm_*) keep their value.
+# A syntactically legal cookie name (RFC 6265 token, pragmatically narrowed).
+_COOKIE_NAME_RE = re.compile(r"^[A-Za-z0-9_.\-]+$")
+
+
+def _redact_cookie_value(value: str) -> str:
+    """Redact a Cookie/Set-Cookie value list, fail-closed on malformed input.
+
+    Each ';'-separated segment must be either a valueless flag (HttpOnly,
+    Secure) or an analysable ``name=value`` pair. Benign names (lang, theme,
+    locale, utm_*) and attribute directives (Path, SameSite, Max-Age, Expires,
+    Domain) keep their value; every other pair value becomes ``[REDACTED]``.
+
+    If no segment is an analysable pair or a known flag -- i.e. the header is
+    bare or malformed, such as ``Cookie: abc123`` -- the entire value is
+    replaced with ``[REDACTED]`` rather than being emitted verbatim.
     """
 
-    def _replace(match: re.Match[str]) -> str:
-        name = match.group(1)
-        quote = match.group(2) or ""
-        if name.lower() in _BENIGN_COOKIE_NAMES:
-            return match.group(0)
-        return f"{name}={quote}{REDACTED}{quote}"
+    segments = value.split(";")
+    rendered: list[str] = []
+    analysable = False
 
-    return re.sub(
-        r'([A-Za-z0-9_.-]+)=("?)([^\s;"]+)\2',
-        _replace,
-        value,
-    )
+    for segment in segments:
+        stripped = segment.strip()
+        if not stripped:
+            continue
+        lowered = stripped.lower()
+        if lowered in _COOKIE_FLAGS:
+            analysable = True
+            rendered.append(stripped)
+            continue
+        if stripped == REDACTED:
+            # Already redacted: idempotent passthrough, not fresh evidence
+            # of a well-formed header.
+            rendered.append(stripped)
+            continue
+        name, sep, raw_val = stripped.partition("=")
+        name = name.strip()
+        if not sep or not _COOKIE_NAME_RE.match(name):
+            # Malformed segment: fail closed for the whole header.
+            return REDACTED
+        lname = name.lower()
+        val = raw_val.strip()
+        quote = ""
+        if len(val) >= 2 and val[0] == '"' and val[-1] == '"':
+            quote, val = '"', val[1:-1]
+        if lname in _COOKIE_ATTR_NAMES:
+            # Attribute directive: value may contain spaces/commas (Expires).
+            analysable = True
+            rendered.append(stripped)
+            continue
+        if '"' in val or " " in val or ";" in val:
+            # Unparseable pair value: fail closed for the whole header.
+            return REDACTED
+        analysable = True
+        if (
+            val == REDACTED
+            or lname in _BENIGN_COOKIE_NAMES
+            or lname.startswith("utm_")
+        ):
+            rendered.append(stripped)
+        else:
+            rendered.append(f"{name}={quote}{REDACTED}{quote}")
+
+    if not analysable:
+        return REDACTED
+    return "; ".join(rendered)
 
 
 def redact_text(value: str) -> str:
