@@ -18,18 +18,25 @@ The bridge does **not** execute shell commands or manage infrastructure itself. 
 
 ## Version and contract
 
-Bridge contract version: **0.8.0**.
+Bridge contract version: **0.8.1**. Wire schema version: **0.6.1** (intentionally
+unchanged across the 0.8.x line).
 
 Compatibility:
 
-- 0.8.0 is additive over 0.6.1. It adds structured observability (JSON logging,
-  metrics, optional tracing), a `hermes_readiness` tool, and SQLite error/lock
-  metrics. No existing tool changes its request/response contract.
+- 0.8.1 is a patch release over 0.8.0. It changes no tool request/response
+  contract: the 0.8.x tool set stays at **27 tools**, including
+  `hermes_readiness`.
+- The 0.8.x line is additive over 0.6.1 (26 tools). Structured observability
+  (JSON logging, metrics, optional tracing), `hermes_readiness`, and SQLite
+  error/lock metrics were introduced in 0.8.0.
+- The required tool set per contract version is declared once in
+  `src/hermes_mcp_bridge/contracts.py`. Scripts, docs and tests validate against
+  that set (mandatory tools + derived count) instead of a blind global constant.
 - Clients with an approved tool catalog must refresh: the capability manifest
-  `bridge_version`/`manifest_version` move to 0.8.0 and a 27th tool
-  (`hermes_readiness`) is now advertised.
-- Production remains on 0.6.1 until a later rollout. The 0.7 line was internal
-  tooling/hardening only; 0.8.0 is the next runtime contract.
+  `bridge_version`/`manifest_version` move to 0.8.1.
+- Rollout and rollback tooling lives in `deploy/0.8.1/` and always pins the
+  Docker Compose project `hermes-mcp-bridge`. See
+  `docs/production-rollout-0.8.1.md`.
 
 ## MCP tools
 

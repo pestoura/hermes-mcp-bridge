@@ -13,35 +13,14 @@ from typing import Any
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
-EXPECTED_TOOLS = {
-    "hermes_prompt",
-    "hermes_submit",
-    "hermes_wait",
-    "hermes_status",
-    "hermes_stop",
-    "hermes_health",
-    "hermes_readiness",
-    "hermes_recent_runs",
-    "hermes_capabilities",
-    "hermes_agent_card",
-    "hermes_policy_evaluate",
-    "hermes_approval_create",
-    "hermes_approval_respond",
-    "hermes_approval_status",
-    "hermes_result_manifest",
-    "hermes_plan",
-    "hermes_execute_approved_plan",
-    "hermes_checkpoint_create",
-    "hermes_checkpoint_status",
-    "hermes_continue",
-    "hermes_saga_start",
-    "hermes_saga_status",
-    "hermes_saga_compensate",
-    "hermes_lock_acquire",
-    "hermes_lock_status",
-    "hermes_lock_release",
-    "hermes_quota_status",
-}
+from hermes_mcp_bridge.contracts import (
+    CURRENT_CONTRACT_VERSION,
+    SCHEMA_VERSION,
+    required_tools,
+    validate_tools,
+)
+
+EXPECTED_TOOLS = set(required_tools(CURRENT_CONTRACT_VERSION))
 
 
 def _tool_result_payload(result: Any) -> Any:
@@ -79,10 +58,14 @@ async def _run(url: str, prompt: str | None, wait_seconds: float) -> None:
 
                 tool_list = await session.list_tools()
                 names = {tool.name for tool in tool_list.tools}
-                missing = sorted(EXPECTED_TOOLS - names)
-                print(json.dumps({"tools": sorted(names), "missing": missing}, indent=2))
-                if missing:
-                    raise RuntimeError(f"Missing expected MCP tools: {', '.join(missing)}")
+                contract = validate_tools(names, version=CURRENT_CONTRACT_VERSION)
+                print(json.dumps({"tools": sorted(names), "contract": contract}, indent=2))
+                if not contract["ok"]:
+                    missing = ", ".join(contract["missing"])
+                    raise RuntimeError(f"Missing expected MCP tools: {missing}")
+                if contract["extra"]:
+                    extra = ", ".join(contract["extra"])
+                    print(json.dumps({"warning": f"undeclared extra tools: {extra}"}))
 
                 health = await session.call_tool(
                     "hermes_health",
@@ -103,10 +86,12 @@ async def _run(url: str, prompt: str | None, wait_seconds: float) -> None:
                 bridge = health_payload.get("bridge") or {}
                 if str(bridge.get("state_registry", {}).get("status", "up")) != "up":
                     raise RuntimeError("bridge state_registry health is not up")
-                if bridge.get("schema_version") != "0.6.1":
-                    raise RuntimeError("bridge schema_version is not 0.6.1")
-                if bridge.get("manifest_version") != "0.8.0":
-                    raise RuntimeError("bridge manifest_version is not 0.8.0")
+                if bridge.get("schema_version") != SCHEMA_VERSION:
+                    raise RuntimeError(f"bridge schema_version is not {SCHEMA_VERSION}")
+                if bridge.get("manifest_version") != CURRENT_CONTRACT_VERSION:
+                    raise RuntimeError(
+                        f"bridge manifest_version is not {CURRENT_CONTRACT_VERSION}"
+                    )
                 if not bridge.get("manifest_hash"):
                     raise RuntimeError("bridge manifest_hash is missing")
 
@@ -124,10 +109,14 @@ async def _run(url: str, prompt: str | None, wait_seconds: float) -> None:
                 )
                 if not isinstance(capabilities_payload, dict):
                     raise RuntimeError("hermes_capabilities did not return a payload")
-                if capabilities_payload.get("bridge_version") != "0.8.0":
-                    raise RuntimeError("capability bridge_version is not 0.8.0")
-                if capabilities_payload.get("schema_version") != "0.6.1":
-                    raise RuntimeError("capability schema_version is not 0.6.1")
+                if capabilities_payload.get("bridge_version") != CURRENT_CONTRACT_VERSION:
+                    raise RuntimeError(
+                        f"capability bridge_version is not {CURRENT_CONTRACT_VERSION}"
+                    )
+                if capabilities_payload.get("schema_version") != SCHEMA_VERSION:
+                    raise RuntimeError(
+                        f"capability schema_version is not {SCHEMA_VERSION}"
+                    )
                 if not capabilities_payload.get("manifest_hash"):
                     raise RuntimeError("capability manifest_hash is missing")
                 if capabilities_payload.get("upstream_capabilities_source") not in (
@@ -151,10 +140,14 @@ async def _run(url: str, prompt: str | None, wait_seconds: float) -> None:
                 )
                 if not isinstance(agent_card_payload, dict):
                     raise RuntimeError("hermes_agent_card did not return a payload")
-                if agent_card_payload.get("schema_version") != "0.6.1":
-                    raise RuntimeError("agent card schema_version is not 0.6.1")
-                if agent_card_payload.get("version") != "0.8.0":
-                    raise RuntimeError("agent card version is not 0.8.0")
+                if agent_card_payload.get("schema_version") != SCHEMA_VERSION:
+                    raise RuntimeError(
+                        f"agent card schema_version is not {SCHEMA_VERSION}"
+                    )
+                if agent_card_payload.get("version") != CURRENT_CONTRACT_VERSION:
+                    raise RuntimeError(
+                        f"agent card version is not {CURRENT_CONTRACT_VERSION}"
+                    )
                 if not agent_card_payload.get("card_hash"):
                     raise RuntimeError("agent card card_hash is missing")
 
