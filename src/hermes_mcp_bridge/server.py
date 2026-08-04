@@ -43,6 +43,16 @@ from .models import (
     SagaStatus,
     SagaStep,
 )
+from .observability import (
+    configure_logging,
+    instrument_all_tools,
+    log_event,
+    observability_health,
+    record_approval,
+    set_bridge_info,
+    set_migrations_version,
+    start_exporter_if_enabled,
+)
 from .policy import PolicyEvaluationInput, evaluate_policy
 from .protocol import (
     AgentCard,
@@ -64,7 +74,10 @@ from .sagas import SagaRegistry
 from .tracing import build_trace_metadata
 
 settings = get_settings()
-apply_migrations(settings.bridge_state_db_path)
+configure_logging()
+set_bridge_info(settings.bridge_version)
+_schema_version = apply_migrations(settings.bridge_state_db_path)
+set_migrations_version(_schema_version or 0)
 client = HermesClient(settings)
 registry = get_registry()
 registry.initialize()
@@ -680,6 +693,7 @@ async def hermes_health(detailed: bool = False) -> dict[str, Any]:
             "default_policy_source": "env/file/empty",
             "hmac_signing_configured": signing_configured,
         },
+        "observability": observability_health(),
     }
     upstream_payload = upstream if isinstance(upstream, dict) else {}
     manifest = await _build_capability_manifest()
@@ -843,6 +857,7 @@ async def hermes_approval_respond(
         return {"approval_id": approval_id, "error": str(exc)}
     except ApprovalStatusError as exc:
         return {"approval_id": approval_id, "error": str(exc)}
+    record_approval(updated.decision.value)
     return {
         "approval_id": updated.approval_id,
         "action": updated.action,
@@ -1332,6 +1347,15 @@ async def _build_capability_manifest() -> CapabilityManifest:
             read_only=True,
         ),
         ToolManifest(
+            name="hermes_readiness",
+            description=(
+                "Report readiness of upstream, state DB, approvals, metrics and config."
+            ),
+            version_added="0.8.0",
+            stability="experimental",
+            read_only=True,
+        ),
+        ToolManifest(
             name="hermes_recent_runs",
             description="List recent registry entries by status or recency.",
             version_added="0.1.0",
@@ -1530,6 +1554,71 @@ def _canonical_json_hash(payload: Any) -> str:
     return _hash(payload)
 
 
+@mcp.tool()
+async def hermes_readiness() -> dict[str, Any]:
+    """Report readiness of upstream, state DB, approvals, metrics and config.
+
+    Cheap by design: no SQLite ``integrity_check``, no full table scans, and no
+    sensitive values (no paths, keys, tokens or prompts) are ever returned.
+    """
+
+    components: dict[str, Any] = {}
+
+    try:
+        await client.health(detailed=False)
+        components["upstream"] = {"status": "ready"}
+    except HermesAPIError:
+        components["upstream"] = {"status": "not_ready", "reason": "unreachable"}
+
+    try:
+        state_health = await asyncio.to_thread(registry.health)
+        ready = str(state_health.get("status", "down")) == "up"
+        components["state_db"] = {
+            "status": "ready" if ready else "not_ready",
+            "schema_version": state_health.get("schema_version"),
+        }
+    except Exception:
+        components["state_db"] = {"status": "not_ready", "reason": "error"}
+
+    try:
+        approvals_health = await asyncio.to_thread(get_approval_registry().health)
+        ready = str(approvals_health.get("status", "down")) == "up"
+        components["approval_registry"] = {"status": "ready" if ready else "not_ready"}
+    except Exception:
+        components["approval_registry"] = {"status": "not_ready", "reason": "error"}
+
+    observability = observability_health()
+    components["metrics_registry"] = {
+        "status": "ready"
+        if observability["metrics_registry"].get("status") == "up"
+        else "not_ready",
+        "exporter_enabled": observability["metrics"].get("enabled"),
+        "bind_scope": observability["metrics"].get("bind_scope"),
+    }
+    components["logging"] = {
+        "status": "ready" if observability["logging"].get("logging_configured") else "not_ready",
+        "mode": observability["logging"].get("logging_mode"),
+    }
+    components["tracing"] = {
+        "status": "ready",
+        "implementation": observability["tracing"].get("implementation"),
+        "export_enabled": observability["tracing"].get("export_enabled"),
+    }
+    components["config"] = {
+        "status": "ready",
+        "bridge_version": settings.bridge_version,
+        "api_key_configured": bool(settings.hermes_api_key.get_secret_value()),
+    }
+
+    overall = "ready"
+    for name, component in components.items():
+        if component.get("status") != "ready":
+            overall = "degraded" if name in {"upstream", "tracing"} else "not_ready"
+            if overall == "not_ready":
+                break
+    return {"status": overall, "components": components}
+
+
 def _load_server_module() -> ModuleType:
     return importlib.import_module("hermes_mcp_bridge.server")
 
@@ -1540,9 +1629,20 @@ def server_tool_names() -> list[str]:
     return sorted(tool.name for tool in tools)
 
 
+INSTRUMENTED_TOOL_COUNT = instrument_all_tools(mcp)
+
+
 def main() -> None:
     """Run the bridge using MCP Streamable HTTP transport."""
 
+    configure_logging()
+    start_exporter_if_enabled()
+    log_event(
+        "bridge.startup",
+        outcome="success",
+        bridge_version=settings.bridge_version,
+        instrumented_tools=INSTRUMENTED_TOOL_COUNT,
+    )
     mcp.run(transport="streamable-http")
 
 

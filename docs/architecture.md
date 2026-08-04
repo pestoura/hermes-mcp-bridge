@@ -104,7 +104,8 @@ The bridge does not possess SSH credentials, cloud tokens, Kanban credentials or
 
 ## Tool inventory
 
-Bridge version 0.6.1 exposes **26** tools:
+Bridge version 0.6.1 plus the Block 2 observability slice exposes **27** tools
+(the 26 pre-existing tools and the read-only `hermes_readiness`):
 
 - `hermes_submit`
 - `hermes_prompt`
@@ -112,6 +113,7 @@ Bridge version 0.6.1 exposes **26** tools:
 - `hermes_status`
 - `hermes_stop`
 - `hermes_health`
+- `hermes_readiness`
 - `hermes_capabilities`
 - `hermes_agent_card`
 - `hermes_recent_runs`

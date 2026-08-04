@@ -21,6 +21,7 @@ from hermes_mcp_bridge.registry import RunRegistry
 EXPECTED_TOOLS = {
     "hermes_health",
     "hermes_prompt",
+    "hermes_readiness",
     "hermes_recent_runs",
     "hermes_status",
     "hermes_stop",

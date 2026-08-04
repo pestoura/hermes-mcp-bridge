@@ -20,6 +20,7 @@ EXPECTED_TOOLS = {
     "hermes_status",
     "hermes_stop",
     "hermes_health",
+    "hermes_readiness",
     "hermes_recent_runs",
     "hermes_capabilities",
     "hermes_agent_card",

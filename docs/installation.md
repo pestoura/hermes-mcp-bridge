@@ -186,7 +186,7 @@ python -m pytest -q
 python scripts/smoke_test.py --url http://127.0.0.1:8765/mcp
 ```
 
-Confirm the 26 expected tools and the updated schemas.
+Confirm the 27 expected tools and the updated schemas.
 
 ### 9. Validate connected execution
 

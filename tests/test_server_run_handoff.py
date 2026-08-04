@@ -41,6 +41,7 @@ def test_exact_seven_tools_registered(monkeypatch: pytest.MonkeyPatch, tmp_path:
         "hermes_capabilities",
         "hermes_health",
         "hermes_prompt",
+        "hermes_readiness",
         "hermes_recent_runs",
         "hermes_status",
         "hermes_stop",

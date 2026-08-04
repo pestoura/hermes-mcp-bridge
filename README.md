@@ -262,6 +262,37 @@ Both modules are covered by `tests/test_state_backup.py` and
 `tests/test_secret_rotation.py`. No secret values, full hashes, or `.env`
 contents appear in logs, tests, or the diff.
 
+## Observability (structured logging, metrics, readiness, tracing)
+
+Block 2 adds a self-contained `hermes_mcp_bridge.observability` package:
+
+- **Structured logging** — deterministic JSON (default) or text
+  (`BRIDGE_LOG_FORMAT=text`) with UTC timestamps, correlation context
+  (`correlation_id`, `trace_id`, `execution_id`, `run_id`, `session_id`,
+  `tool_name`), `duration_ms` and `outcome`. Central fail-closed redaction
+  guarantees prompts, outputs, tokens, `Authorization`/`Bearer` values, full
+  approval ids and filesystem paths never reach a log line, and arbitrary
+  objects are never `repr()`-serialized.
+- **Metrics** — a thread-safe, dependency-free registry rendering valid
+  Prometheus text. Exposed on `GET /metrics` by a loopback-only exporter that
+  is **disabled by default** (`BRIDGE_METRICS_ENABLED=1`); binding a
+  non-loopback address requires an explicit opt-in *and* a bearer token.
+  High-cardinality labels (`run_id`, `session_id`, `client_request_id`, paths,
+  secrets) are rejected in code.
+- **Health/readiness** — `hermes_health` reports an `observability` block, and
+  the new read-only `hermes_readiness` tool distinguishes upstream, state DB,
+  approval registry, metrics registry, logging, tracing and config. Neither is
+  expensive: no `PRAGMA integrity_check`, no full scans, no sensitive values.
+- **Tracing** — a no-op span interface with W3C `traceparent` propagation.
+  OpenTelemetry is optional and lazily imported; export is off by default and
+  fail-open for telemetry only, never for auth or policy.
+
+Telemetry can never break execution: formatter, sink and registry failures are
+swallowed and the tool call proceeds. Configuration and the full event/metric
+catalogue, dashboards, alerts and the diagnostic runbook live in
+[docs/observability.md](docs/observability.md); sanitized environment examples
+are in `.env.example`.
+
 ## Scope boundaries
 
 - No shell implementation in the bridge.
