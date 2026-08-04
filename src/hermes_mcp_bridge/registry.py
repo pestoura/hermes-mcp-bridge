@@ -6,10 +6,12 @@ import re
 import sqlite3
 import threading
 import weakref
+from contextlib import suppress
 from datetime import UTC, datetime
 from typing import Any
 
 from hermes_mcp_bridge.config import get_settings
+from hermes_mcp_bridge.observability.instrumentation import record_sqlite_operation
 
 CLIENT_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:\-]{0,159}$")
 _CLIENT_REQUEST_ID_MAX_LENGTH = 160
@@ -131,6 +133,7 @@ class RunRegistry:
             finally:
                 connection.close()
         except Exception as error:
+            record_sqlite_operation(kind="state", outcome="error", exc=error)
             return {"status": "down", "error": str(error)}
 
     def get(self, client_request_id: str) -> dict[str, object] | None:
@@ -170,8 +173,9 @@ class RunRegistry:
         _validate_client_request_id(client_request_id)
         now = _utcnow().isoformat()
         with self._key_lock(client_request_id):
-            connection = _open_connection(self._db_path)
+            connection = None
             try:
+                connection = _open_connection(self._db_path)
                 connection.execute("BEGIN IMMEDIATE")
                 cursor = connection.execute(
                     "SELECT fingerprint FROM run_mappings WHERE client_request_id = ?",
@@ -206,9 +210,12 @@ class RunRegistry:
                         ),
                     )
                 connection.execute("COMMIT")
-            except Exception:
-                connection.execute("ROLLBACK")
-                connection.close()
+            except Exception as exc:
+                record_sqlite_operation(kind="state", outcome="error", exc=exc)
+                if connection is not None:
+                    with suppress(Exception):
+                        connection.execute("ROLLBACK")
+                        connection.close()
                 raise
             connection.close()
         return self.get(client_request_id)
@@ -223,8 +230,9 @@ class RunRegistry:
         _validate_client_request_id(client_request_id)
         now = _utcnow().isoformat()
         with self._key_lock(client_request_id):
-            connection = _open_connection(self._db_path)
+            connection = None
             try:
+                connection = _open_connection(self._db_path)
                 connection.execute("BEGIN IMMEDIATE")
                 cursor = connection.execute(
                     "SELECT fingerprint FROM run_mappings WHERE client_request_id = ?",
@@ -249,9 +257,12 @@ class RunRegistry:
                 connection.execute("COMMIT")
                 connection.close()
                 return self.get(client_request_id)
-            except Exception:
-                connection.execute("ROLLBACK")
-                connection.close()
+            except Exception as exc:
+                record_sqlite_operation(kind="state", outcome="error", exc=exc)
+                if connection is not None:
+                    with suppress(Exception):
+                        connection.execute("ROLLBACK")
+                        connection.close()
                 raise
     def list_recent(
         self,

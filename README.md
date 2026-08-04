@@ -18,7 +18,18 @@ The bridge does **not** execute shell commands or manage infrastructure itself. 
 
 ## Version and contract
 
-Bridge contract version: **0.6.1**.
+Bridge contract version: **0.8.0**.
+
+Compatibility:
+
+- 0.8.0 is additive over 0.6.1. It adds structured observability (JSON logging,
+  metrics, optional tracing), a `hermes_readiness` tool, and SQLite error/lock
+  metrics. No existing tool changes its request/response contract.
+- Clients with an approved tool catalog must refresh: the capability manifest
+  `bridge_version`/`manifest_version` move to 0.8.0 and a 27th tool
+  (`hermes_readiness`) is now advertised.
+- Production remains on 0.6.1 until a later rollout. The 0.7 line was internal
+  tooling/hardening only; 0.8.0 is the next runtime contract.
 
 ## MCP tools
 

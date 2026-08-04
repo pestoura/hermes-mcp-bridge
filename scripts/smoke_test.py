@@ -105,8 +105,8 @@ async def _run(url: str, prompt: str | None, wait_seconds: float) -> None:
                     raise RuntimeError("bridge state_registry health is not up")
                 if bridge.get("schema_version") != "0.6.1":
                     raise RuntimeError("bridge schema_version is not 0.6.1")
-                if not bridge.get("manifest_version"):
-                    raise RuntimeError("bridge manifest_version is missing")
+                if bridge.get("manifest_version") != "0.8.0":
+                    raise RuntimeError("bridge manifest_version is not 0.8.0")
                 if not bridge.get("manifest_hash"):
                     raise RuntimeError("bridge manifest_hash is missing")
 
@@ -124,8 +124,8 @@ async def _run(url: str, prompt: str | None, wait_seconds: float) -> None:
                 )
                 if not isinstance(capabilities_payload, dict):
                     raise RuntimeError("hermes_capabilities did not return a payload")
-                if capabilities_payload.get("bridge_version") != "0.6.1":
-                    raise RuntimeError("capability bridge_version is not 0.6.1")
+                if capabilities_payload.get("bridge_version") != "0.8.0":
+                    raise RuntimeError("capability bridge_version is not 0.8.0")
                 if capabilities_payload.get("schema_version") != "0.6.1":
                     raise RuntimeError("capability schema_version is not 0.6.1")
                 if not capabilities_payload.get("manifest_hash"):
@@ -153,8 +153,8 @@ async def _run(url: str, prompt: str | None, wait_seconds: float) -> None:
                     raise RuntimeError("hermes_agent_card did not return a payload")
                 if agent_card_payload.get("schema_version") != "0.6.1":
                     raise RuntimeError("agent card schema_version is not 0.6.1")
-                if agent_card_payload.get("version") != "0.6.1":
-                    raise RuntimeError("agent card version is not 0.6.1")
+                if agent_card_payload.get("version") != "0.8.0":
+                    raise RuntimeError("agent card version is not 0.8.0")
                 if not agent_card_payload.get("card_hash"):
                     raise RuntimeError("agent card card_hash is missing")
 

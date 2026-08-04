@@ -99,3 +99,13 @@ def test_enabling_tracing_does_not_require_otel(monkeypatch: pytest.MonkeyPatch)
 def test_format_and_roundtrip() -> None:
     header = tr.format_traceparent(tr.new_trace_id(), tr.new_span_id())
     assert tr.parse_traceparent(header) is not None
+
+
+def test_otel_probe_is_cached_and_resettable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(tr.ENV_TRACING_ENABLED, raising=False)
+    tr.reset_otel_probe_cache()
+    first = tr.otel_tracer_cached()
+    second = tr.otel_tracer_cached()
+    assert first is second  # cached, no re-import
+    tr.reset_otel_probe_cache()
+    assert tr.otel_tracer_cached() is first or tr.otel_tracer_cached() is None

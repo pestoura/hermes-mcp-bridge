@@ -1,5 +1,10 @@
 # Observability (Block 2)
 
+> Contract version **0.8.0** (additive over 0.6.1). Production remains on 0.6.1
+> until a later rollout. No existing tool request/response contract changes;
+> a 27th read-only tool (`hermes_readiness`) is added and the capability
+> manifest `bridge_version`/`manifest_version` move to 0.8.0.
+
 Structured logging, exportable metrics, health/readiness and optional tracing
 for `hermes-mcp-bridge`. Everything here is **off or loopback-only by default**
 and passes through central, fail-closed redaction.
@@ -46,6 +51,9 @@ All events are single-line JSON with UTC millisecond timestamps and sorted keys.
 | `bridge.tool.call` | INFO | `tool`, `outcome` (`success`/`error`/`cancelled`), `duration_ms` |
 | `bridge.upstream.request` | INFO | `endpoint_class`, `status_class`, `outcome`, `duration_ms` |
 | `bridge.sse.fallback` | INFO | `reason`, `outcome=fallback` |
+| `bridge.sqlite.ok` | DEBUG | `kind` |
+| `bridge.sqlite.error` | ERROR | `kind` (real SQLite op failures from state/approvals/locks/migrations) |
+| `bridge.tool.skip_instrumentation` | WARN | `tool`, `outcome=unsupported_generator` (streaming tools are not wrapped) |
 | `log.format_failed` | ERROR | emitted by the formatter itself when serialization fails |
 
 Every record additionally carries whichever correlation fields are bound:
@@ -72,7 +80,7 @@ Sanitized example:
 | `bridge_sse_connections_total` | counter | `outcome` | SSE connection attempts |
 | `bridge_sse_fallbacks_total` | counter | `reason` | SSE → polling fallbacks |
 | `bridge_polling_iterations_total` | counter | — | Polling loop iterations |
-| `bridge_active_runs` | gauge | — | Runs observed as active |
+| `bridge_active_runs` | gauge | — | Runs observed active upstream (last observed via `hermes_health`; not authoritative) |
 | `bridge_approvals_total` | counter | `decision` | Approval decisions |
 | `bridge_sqlite_errors_total` | counter | `kind` | SQLite errors |
 | `bridge_sqlite_lock_contention_total` | counter | — | Lock/busy events |
@@ -103,18 +111,28 @@ after exercising the bridge are a subset of the allow-list.
 
 Redaction is central and fail-closed:
 
-- Field names matching secrets (`authorization`, `token`, `api_key`, `secret`,
-  `password`, `cookie`, `private_key`, `prompt`, `output`, `content`,
-  `messages`, `traceback`, …) are replaced with `[REDACTED]`.
-- Free text is scrubbed for `Bearer …`, `Basic …`, `Authorization:` headers,
-  `key=value` secret assignments, JWTs, PEM private keys and known key prefixes.
+- Field names matching secrets (`authorization`, `proxy-authorization`, `token`,
+  `api_key`, `secret`, `password`, `cookie`, `private_key`, `prompt`, `output`,
+  `content`, `messages`, `traceback`, …) are replaced with `[REDACTED]`.
+- Free text is scrubbed for auth headers **with or without scheme and in `:` or
+  `=` form** (`Authorization: <cred>`, `Authorization=Bearer <cred>`,
+  `Proxy-Authorization: Digest <cred>`), bare scheme tokens (`Bearer`,
+  `Basic`, `Digest` + credential), `Cookie`/`Set-Cookie` multi-pair values
+  (each name=value value is redacted), `key=value`/`key: value` secret
+  assignments, JWTs, PEM private keys and known key prefixes (`sk-`, `ghp_`,
+  `xoxb-`, …).
+- Context-aware: secret shapes are redacted by name or well-known pattern;
+  benign hashes (e.g. `a1b2c3…`, commit SHAs) are preserved, and no suffix
+  leaks remain after redaction.
 - Filesystem paths become `[PATH]` in free text and `[PATH:<ext>]` in path fields.
 - `approval_id` is fingerprinted (`appr…<sha256 prefix>`), never emitted in full.
-- Exceptions become `{"type": ..., "message": <redacted>}`. Stack traces are
-  never serialized.
+- Exceptions become `{"type": ..., "message": <redacted>}` — including upstream
+  exception text. Stack traces are never serialized.
+- Positional `(key, secret)` pairs and sequences of pairs are redacted on the
+  second element; the key name is preserved.
 - Arbitrary objects are **never** `repr()`/`str()`-ed; they collapse to
-  `[TypeName]`.
-- Limits: depth 6, 50 items/keys, 512 chars per string, 8192 chars per record.
+  `[TypeName]`. Cycles are detected and replaced with `[CYCLE]`.
+- Limits: depth 8, 50 items/keys, 512 chars per string, 8192 chars per record.
 
 Telemetry never changes behaviour: a formatter, sink or registry failure is
 swallowed and the tool call proceeds normally.

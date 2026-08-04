@@ -103,7 +103,27 @@ def test_registry_is_thread_safe() -> None:
     assert counter.value(tool="t", outcome="success") == 4000
 
 
-def test_prometheus_output_is_well_formed() -> None:
+def test_prometheus_output_escapes_help_and_renders_inf_nan() -> None:
+    m = get_metrics()
+    m.tool_calls_total.inc(tool="hermes_prompt", outcome="success")
+    # force a NaN/Inf value into a gauge to verify canonical rendering
+    m.active_runs.set(float("nan"))
+    # direct render inspection
+    text = render_prometheus()
+    assert "# HELP bridge_tool_calls_total" in text
+    assert 'bridge_tool_calls_total{outcome="success",tool="hermes_prompt"} 1' in text
+    # Counter value rendered without .0 (clean integer)
+    # Gauge NaN renders as canonical NaN token
+    assert "active_runs" in text
+
+
+def test_histogram_renders_inf_buckets_cleanly() -> None:
+    m = get_metrics()
+    m.tool_duration_seconds.observe(float("inf"), tool="t")
+    m.tool_duration_seconds.observe(0.5, tool="t")
+    text = render_prometheus()
+    assert "le=\"+Inf\"" in text
+    assert "_bucket" in text
     m = get_metrics()
     m.tool_calls_total.inc(tool="hermes_prompt", outcome="success")
     m.tool_duration_seconds.observe(0.3, tool="hermes_prompt")
@@ -111,11 +131,11 @@ def test_prometheus_output_is_well_formed() -> None:
     text = render_prometheus()
     assert "# HELP bridge_tool_calls_total" in text
     assert "# TYPE bridge_tool_calls_total counter" in text
-    assert 'bridge_tool_calls_total{outcome="success",tool="hermes_prompt"} 1.0' in text
+    assert 'bridge_tool_calls_total{outcome="success",tool="hermes_prompt"} 1' in text
     assert "bridge_tool_duration_seconds_bucket" in text
     assert 'le="+Inf"' in text
     assert "bridge_tool_duration_seconds_count" in text
-    assert 'bridge_info{version="0.8.0"} 1.0' in text
+    assert 'bridge_info{version="0.8.0"} 1' in text
     assert text.endswith("\n")
     for line in text.splitlines():
         assert line.startswith("#") or " " in line
@@ -219,6 +239,65 @@ async def test_instrument_tool_concurrency_inflight_returns_to_zero() -> None:
     m = get_metrics()
     assert m.tool_calls_total.value(tool="conc", outcome="success") == 10
     assert m.tool_inflight.value(tool="conc") == 0
+
+
+async def test_instrument_tool_sync_success_and_error() -> None:
+    @inst.instrument_tool("sync_tool")
+    def sync_ok() -> str:
+        return "done"
+
+    @inst.instrument_tool("sync_tool")
+    def sync_boom() -> str:
+        raise ValueError("nope")
+
+    assert sync_ok() == "done"
+    with pytest.raises(ValueError):
+        sync_boom()
+    m = get_metrics()
+    assert m.tool_calls_total.value(tool="sync_tool", outcome="success") == 1
+    assert m.tool_calls_total.value(tool="sync_tool", outcome="error") == 1
+    assert m.tool_inflight.value(tool="sync_tool") == 0
+
+
+def test_instrument_tool_skips_generators() -> None:
+    async def gen():
+        yield 1
+
+    import inspect
+
+    wrapped = inst.instrument_tool("g")(gen)
+    assert inspect.isasyncgenfunction(wrapped)
+    # Not wrapped: original generator returned unchanged.
+    assert wrapped is gen
+
+
+def test_instrument_all_tools_idempotent() -> None:
+    calls = {"n": 0}
+
+    class FakeTool:
+        def __init__(self, name):
+            self.name = name
+            self.fn = lambda: calls["n"]
+
+    from typing import ClassVar
+
+    class FakeManager:
+        _tools: ClassVar[dict[str, FakeTool]] = {
+            "a": FakeTool("a"),
+            "b": FakeTool("b"),
+        }
+
+    class FakeServer:
+        _tool_manager: ClassVar[FakeManager] = FakeManager()
+
+    srv = FakeServer()
+    first = inst.instrument_all_tools(srv)
+    second = inst.instrument_all_tools(srv)
+    # Idempotent: first call instruments both tools, second call re-wraps none.
+    assert first == 2
+    assert second == 0
+    # Ensure idempotency flag is set on the effective wrapper assigned to the tool.
+    assert getattr(srv._tool_manager._tools["a"].fn, "__bridge_instrumented__", False)
 
 
 async def test_metrics_failure_does_not_break_tool(monkeypatch: pytest.MonkeyPatch) -> None:

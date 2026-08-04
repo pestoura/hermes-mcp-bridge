@@ -11,16 +11,14 @@ from __future__ import annotations
 import asyncio
 import functools
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from contextlib import suppress
-from typing import Any, TypeVar
+from typing import Any
 
 from .context import correlation_scope, new_correlation_id
 from .logging import log_event
 from .metrics import get_metrics
 from .tracing import start_span
-
-T = TypeVar("T")
 
 _ENDPOINT_CLASSES: tuple[tuple[str, str], ...] = (
     ("/v1/runs", "runs"),
@@ -125,6 +123,27 @@ def record_sqlite_error(kind: str) -> None:
         _call("sqlite_lock_contention_total", "inc")
 
 
+def record_sqlite_operation(*, kind: str, outcome: str, exc: BaseException | None = None) -> None:
+    """Record a real SQLite operation outcome without double-counting.
+
+    ``kind`` is a low-cardinality operation class (state, approvals, locks,
+    migrations) and ``outcome`` one of ``success``/``error``. On error, a
+    normalized SQLite kind label is emitted and lock contention is derived when
+    the exception message mentions a locked/busy database.
+    """
+
+    resolved_kind = (kind or "other").strip().lower()[:32]
+    if outcome == "error" or exc is not None:
+        message = str(getattr(exc, "args", ("",))[0] if exc is not None else "") or ""
+        if "locked" in message.lower() or "busy" in message.lower():
+            record_sqlite_error(f"{resolved_kind} lock")
+        else:
+            record_sqlite_error(resolved_kind)
+        _safe(log_event, "bridge.sqlite.error", kind=resolved_kind, outcome="error")
+    else:
+        _safe(log_event, "bridge.sqlite.ok", kind=resolved_kind, outcome="success")
+
+
 def set_active_runs(count: int) -> None:
     _call("active_runs", "set", float(count))
 
@@ -135,14 +154,54 @@ def set_migrations_version(version: int | float) -> None:
 
 def instrument_tool(
     name: str | None = None,
-) -> Callable[[Callable[..., Awaitable[T]]], Callable[..., Awaitable[T]]]:
-    """Instrument an async MCP tool with logs, metrics, span and correlation."""
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    """Instrument an MCP tool with logs, metrics, span and correlation.
 
-    def decorator(func: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
-        tool_name = name or func.__name__
+    Supports both async and sync functions while preserving signature and
+    return type. Async generator tools (streaming) are NOT wrapped: instrumentation
+    would consume the stream, so the original function is returned unchanged with a
+    warning event. This keeps streaming tools safe by construction.
+    """
+
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        tool_name = name or getattr(func, "__name__", "tool")
+
+        import inspect
+
+        if inspect.isasyncgenfunction(func) or inspect.isgeneratorfunction(func):
+            _safe(
+                log_event,
+                "bridge.tool.skip_instrumentation",
+                tool=tool_name,
+                outcome="unsupported_generator",
+            )
+            return func
+
+        if inspect.iscoroutinefunction(func):
+
+            @functools.wraps(func)
+            async def awrapper(*args: Any, **kwargs: Any) -> Any:
+                started = time.perf_counter()
+                outcome = "success"
+                _call("tool_inflight", "inc", tool=tool_name)
+                try:
+                    with correlation_scope(
+                        correlation_id=new_correlation_id(), tool_name=tool_name
+                    ), start_span(f"tool.{tool_name}"):
+                        return await func(*args, **kwargs)
+                except asyncio.CancelledError:
+                    outcome = "cancelled"
+                    raise
+                except Exception:
+                    outcome = "error"
+                    raise
+                finally:
+                    _finish_tool(tool_name, started, outcome)
+
+            return awrapper
 
         @functools.wraps(func)
-        async def wrapper(*args: Any, **kwargs: Any) -> T:
+        def swrapper(*args: Any, **kwargs: Any) -> Any:
             started = time.perf_counter()
             outcome = "success"
             _call("tool_inflight", "inc", tool=tool_name)
@@ -150,29 +209,30 @@ def instrument_tool(
                 with correlation_scope(
                     correlation_id=new_correlation_id(), tool_name=tool_name
                 ), start_span(f"tool.{tool_name}"):
-                    return await func(*args, **kwargs)
-            except asyncio.CancelledError:
-                outcome = "cancelled"
-                raise
+                    return func(*args, **kwargs)
             except Exception:
                 outcome = "error"
                 raise
             finally:
-                duration = time.perf_counter() - started
-                _call("tool_inflight", "dec", tool=tool_name)
-                _call("tool_calls_total", "inc", tool=tool_name, outcome=outcome)
-                _call("tool_duration_seconds", "observe", duration, tool=tool_name)
-                _safe(
-                    log_event,
-                    "bridge.tool.call",
-                    tool=tool_name,
-                    outcome=outcome,
-                    duration_ms=round(duration * 1000, 3),
-                )
+                _finish_tool(tool_name, started, outcome)
 
-        return wrapper
+        return swrapper
 
     return decorator
+
+
+def _finish_tool(tool_name: str, started: float, outcome: str) -> None:
+    duration = time.perf_counter() - started
+    _call("tool_inflight", "dec", tool=tool_name)
+    _call("tool_calls_total", "inc", tool=tool_name, outcome=outcome)
+    _call("tool_duration_seconds", "observe", duration, tool=tool_name)
+    _safe(
+        log_event,
+        "bridge.tool.call",
+        tool=tool_name,
+        outcome=outcome,
+        duration_ms=round(duration * 1000, 3),
+    )
 
 
 def instrument_all_tools(mcp_server: Any) -> int:

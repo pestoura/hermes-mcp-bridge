@@ -88,20 +88,21 @@ class _FakeSession:
                 '"bridge":{'
                 '"state_registry":{"status":"up"},'
                 '"schema_version":"0.6.1",'
-                '"manifest_version":"1","manifest_hash":"abc"}'
+                '"manifest_version":"0.8.0","manifest_hash":"abc"}'
                 '}'
             )
         elif name == "hermes_capabilities":
             payload = (
-                '{"bridge_version":"0.6.1",'
+                '{"bridge_version":"0.8.0",'
                 '"schema_version":"0.6.1",'
+                '"manifest_version":"0.8.0",'
                 '"manifest_hash":"abc",'
                 '"upstream_capabilities_source":"upstream"}'
             )
         elif name == "hermes_agent_card":
             payload = (
                 '{"schema_version":"0.6.1",'
-                '"version":"0.6.1",'
+                '"version":"0.8.0",'
                 '"card_hash":"abc"}'
             )
         else:

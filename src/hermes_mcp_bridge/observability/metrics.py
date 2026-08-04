@@ -105,6 +105,23 @@ def _render_labels(
     return "{" + body + "}"
 
 
+def _render_value(value: float) -> str:
+    if value != value:  # NaN
+        return "NaN"
+    if value == float("inf"):
+        return "+Inf"
+    if value == float("-inf"):
+        return "-Inf"
+    # Keep integer-valued floats clean; otherwise full repr.
+    if value == int(value):
+        return str(int(value))
+    return repr(value)
+
+
+def _escape_help(text: str) -> str:
+    return text.replace("\\", "\\\\").replace("\n", "\\n").replace('"', '\\"')
+
+
 class _Metric:
     def __init__(self, name: str, help_text: str, mtype: str) -> None:
         self.name = name
@@ -139,11 +156,14 @@ class Counter(_Metric):
             return self._values.get(key, 0.0)
 
     def render(self) -> list[str]:
-        lines = [f"# HELP {self.name} {self.help}", f"# TYPE {self.name} counter"]
+        lines = [
+            f"# HELP {self.name} {_escape_help(self.help)}",
+            f"# TYPE {self.name} counter",
+        ]
         with self._lock:
             items = sorted(self._values.items())
         for key, val in items:
-            lines.append(f"{self.name}{_render_labels(key)} {val!r}")
+            lines.append(f"{self.name}{_render_labels(key)} {_render_value(val)}")
         return lines
 
 
@@ -175,11 +195,14 @@ class Gauge(_Metric):
             return self._values.get(key, 0.0)
 
     def render(self) -> list[str]:
-        lines = [f"# HELP {self.name} {self.help}", f"# TYPE {self.name} gauge"]
+        lines = [
+            f"# HELP {self.name} {_escape_help(self.help)}",
+            f"# TYPE {self.name} gauge",
+        ]
         with self._lock:
             items = sorted(self._values.items())
         for key, val in items:
-            lines.append(f"{self.name}{_render_labels(key)} {val!r}")
+            lines.append(f"{self.name}{_render_labels(key)} {_render_value(val)}")
         return lines
 
 
@@ -226,10 +249,14 @@ class Histogram(_Metric):
             for index, bound in enumerate(self.buckets):
                 lines.append(
                     f"{self.name}_bucket"
-                    f"{_render_labels(key, ('le', repr(bound)))} {counts[index]}"
+                    f"{_render_labels(key, ('le', _render_value(bound)))} {counts[index]}"
                 )
-            lines.append(f"{self.name}_bucket{_render_labels(key, ('le', '+Inf'))} {total}")
-            lines.append(f"{self.name}_sum{_render_labels(key)} {total_sum!r}")
+            lines.append(
+                f"{self.name}_bucket{_render_labels(key, ('le', '+Inf'))} {total}"
+            )
+            lines.append(
+                f"{self.name}_sum{_render_labels(key)} {_render_value(total_sum)}"
+            )
             lines.append(f"{self.name}_count{_render_labels(key)} {total}")
         return lines
 
@@ -331,7 +358,8 @@ class _Metrics:
             "bridge_polling_iterations_total", "Run polling iterations."
         )
         self.active_runs = registry.gauge(
-            "bridge_active_runs", "Runs observed as active by the bridge."
+            "bridge_active_runs",
+            "Runs observed as active upstream (last observed via health; not authoritative).",
         )
         self.approvals_total = registry.counter(
             "bridge_approvals_total", "Approval outcomes by decision."

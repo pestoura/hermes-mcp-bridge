@@ -51,7 +51,7 @@ def test_metrics_endpoint_serves_prometheus(monkeypatch: pytest.MonkeyPatch) -> 
         assert response.headers["Content-Type"] == CONTENT_TYPE
         assert response.headers["Cache-Control"] == "no-store"
         assert "# TYPE bridge_tool_calls_total counter" in body
-        assert 'bridge_tool_calls_total{outcome="success",tool="hermes_prompt"} 1.0' in body
+        assert 'bridge_tool_calls_total{outcome="success",tool="hermes_prompt"} 1' in body
     finally:
         exporter.stop()
 

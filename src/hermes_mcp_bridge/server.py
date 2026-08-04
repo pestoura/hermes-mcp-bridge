@@ -49,6 +49,7 @@ from .observability import (
     log_event,
     observability_health,
     record_approval,
+    set_active_runs,
     set_bridge_info,
     set_migrations_version,
     start_exporter_if_enabled,
@@ -678,6 +679,11 @@ async def hermes_health(detailed: bool = False) -> dict[str, Any]:
     except HermesAPIError as exc:
         upstream = {"status": "error", "error": str(exc)}
 
+    upstream_payload = upstream if isinstance(upstream, dict) else {}
+    observed_runs = upstream_payload.get("active_api_runs")
+    if isinstance(observed_runs, int) and observed_runs >= 0:
+        set_active_runs(observed_runs)
+
     registry_health = await asyncio.to_thread(registry.health)
     approval_registry = get_approval_registry()
     approval_registry_health = await asyncio.to_thread(approval_registry.health)
@@ -1281,6 +1287,7 @@ async def hermes_quota_status(
     }
 
 
+
 def _requested_effective_upstream(
     requested_mode: str,
 ) -> tuple[list[str], list[str], dict[str, Any]]:
@@ -1506,8 +1513,8 @@ async def _build_capability_manifest() -> CapabilityManifest:
     ]
 
     return CapabilityManifest.build(
-        bridge_version="0.6.1",
-        manifest_version="0.6.1",
+        bridge_version="0.8.0",
+        manifest_version="0.8.0",
         tools=tools,
         orchestration_modes=["auto", "explicit"],
         limits={
@@ -1616,7 +1623,12 @@ async def hermes_readiness() -> dict[str, Any]:
             overall = "degraded" if name in {"upstream", "tracing"} else "not_ready"
             if overall == "not_ready":
                 break
-    return {"status": overall, "components": components}
+    return {
+        "status": overall,
+        "version_added": "0.8.0",
+        "bridge_version": settings.bridge_version,
+        "components": components,
+    }
 
 
 def _load_server_module() -> ModuleType:

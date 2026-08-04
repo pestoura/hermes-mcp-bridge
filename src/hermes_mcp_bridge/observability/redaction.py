@@ -2,16 +2,25 @@
 
 Rules:
 
-* Never emit secrets: Authorization/Bearer headers, API keys, tokens, cookies,
-  private keys, approval IDs in full, prompts, outputs or filesystem paths.
+* Never emit secrets: Authorization/Proxy-Authorization headers, API keys,
+  tokens, cookies, private keys, approval IDs in full, prompts, outputs or
+  filesystem paths.
 * Never serialize arbitrary objects with ``repr``/``str``: unknown types are
   reduced to their type name only (fail closed).
-* Recursive sanitization with hard depth / breadth / length limits so a hostile
-  or accidental payload cannot blow up a log line.
+* Redaction is context-aware: only values bound to sensitive key names, or
+  well-known credential shapes (Bearer/Basic/Digest, JWT, PEM, key prefixes),
+  are scrubbed. Arbitrary benign hashes/identifiers are left intact.
+* Recursive sanitization with hard depth / breadth / length limits and cycle
+  protection so a hostile or accidental payload cannot blow up a log line.
+
+The output of ``redact_text`` is canonical and idempotent: re-running it on
+already-redacted text leaves the text unchanged and never produces ``]]`` or
+other doubled closers.
 """
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 from collections.abc import Iterable, Mapping, Sequence
@@ -20,7 +29,7 @@ from typing import Any
 REDACTED = "[REDACTED]"
 TRUNCATED_SUFFIX = "…[truncated]"
 
-MAX_DEPTH = 6
+MAX_DEPTH = 8
 MAX_ITEMS = 50
 MAX_KEYS = 50
 MAX_STRING_CHARS = 512
@@ -44,6 +53,7 @@ SENSITIVE_FIELDS: frozenset[str] = frozenset(
         "client_secret",
         "password",
         "passwd",
+        "pwd",
         "cookie",
         "set-cookie",
         "session_cookie",
@@ -62,6 +72,7 @@ SENSITIVE_FIELDS: frozenset[str] = frozenset(
         "response_text",
         "content",
         "message",
+        "body",
         "messages",
         "history",
         "traceback",
@@ -100,19 +111,73 @@ PATH_FIELDS: frozenset[str] = frozenset(
     }
 )
 
+#: Key/assignment names whose bound value is a secret (not a benign id).
+SECRET_KEY_NAMES: frozenset[str] = frozenset(
+    {
+        "authorization",
+        "proxy-authorization",
+        "api_key",
+        "apikey",
+        "x-api-key",
+        "hermes_api_key",
+        "token",
+        "access_token",
+        "refresh_token",
+        "id_token",
+        "bearer",
+        "secret",
+        "client_secret",
+        "password",
+        "passwd",
+        "pwd",
+        "cookie",
+        "set-cookie",
+        "private_key",
+        "hmac",
+        "hmac_secret",
+        "lease_token",
+        "leasetoken",
+        "plan_token",
+        "nonce",
+    }
+)
+
+#: Cookie names that are not secrets and may keep their value in free text.
+_BENIGN_COOKIE_NAMES: frozenset[str] = frozenset(
+    {"lang", "locale", "theme", "utm_source", "utm_medium", "utm_campaign"}
+)
+
 _ENV_EXTRA_FIELDS = "BRIDGE_LOG_REDACT_FIELDS"
 
-_BEARER_RE = re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._\-+/=]{4,}")
-_BASIC_RE = re.compile(r"(?i)\bbasic\s+[A-Za-z0-9+/=]{8,}")
-_AUTH_HEADER_RE = re.compile(r"(?i)\bauthorization\s*[:=]\s*\S+")
-_APIKEY_ASSIGN_RE = re.compile(
-    r"(?i)\b(api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|"
-    r"secret|password|passwd|token)\b\s*[:=]\s*[\"']?[^\s\"',;}]+"
+# Auth headers, with or without a scheme, in ':' or '=' form. The full value
+# (to end of line, newline or ';') is consumed and redacted in one pass so a
+# later rule cannot re-consume the redacted placeholder.
+_AUTH_HEADER_RE = re.compile(
+    r"(?i)\b(?:proxy[-_]?authorization|authorization)\b\s*[:=]\s*\S[^\r\n;]*"
 )
-_KEYLIKE_RE = re.compile(r"\b(?:sk|pk|ghp|gho|ghs|github_pat|xoxb|xoxp)[-_][A-Za-z0-9_\-]{8,}")
+# Bare auth-scheme tokens (Bearer/Basic/Digest) followed by a credential.
+_SCHEME_CRED_RE = re.compile(
+    r"(?i)\b(bearer|basic|digest)\s+[A-Za-z0-9._\-+/=]{6,}"
+)
+# Cookie / Set-Cookie headers; the whole value list is captured and each pair
+# value is redacted separately (preserving non-secret names).
+_COOKIE_RE = re.compile(
+    r"(?i)\b(?:set[-_]?cookie|cookie)\b\s*[:=]\s*\S[^\r\n]*"
+)
+# key=value / key: value assignments for sensitive names. A negative lookahead
+# prevents matching an already-redacted placeholder ([REDACTED]) so the rule is
+# idempotent and never doubles a closer.
+_KEY_VALUE_RE = re.compile(
+    r'(?i)\b(api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|'
+    r'secret|password|passwd|pwd|token|authorization|auth|cookie|bearer|'
+    r'apikey|x-api-key|private[_-]?key|hmac|hmac[_-]?secret|nonce|'
+    r'lease[_-]?token|plan[_-]?token)\b'
+    r'\s*[:=]\s*("|\')?(?![REDACTED])([^\s",;}\]]+)\1?'
+)
+_KEYLIKE_RE = re.compile(r"\b(?:sk|pk|ghp|gho|ghs|github_pat|xoxb|xoxp)[-_][A-Za-z0-9_\\-]{8,}")
 _PEM_RE = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----")
-_JWT_RE = re.compile(r"\beyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{4,}")
-_PATH_RE = re.compile(r"(?:^|(?<=[\s\"'=(]))(?:/[A-Za-z0-9._\-]+){2,}/?")
+_JWT_RE = re.compile(r"\beyJ[A-Za-z0-9_\\-]{8,}\.[A-Za-z0-9_\\-]{8,}\.[A-Za-z0-9_\\-]{4,}")
+_PATH_RE = re.compile(r"(?:^|(?<=[\s\"'=(]))(?:/[A-Za-z0-9._\\-]+){2,}/?")
 
 _SAFE_SCALARS = (bool, int, float)
 
@@ -124,23 +189,47 @@ def _extra_fields() -> frozenset[str]:
 
 def is_sensitive_key(key: str) -> bool:
     lowered = str(key).strip().lower()
-    if lowered in SENSITIVE_FIELDS or lowered in _extra_fields():
+    if (
+        lowered in SECRET_KEY_NAMES
+        or lowered in SENSITIVE_FIELDS
+        or lowered in _extra_fields()
+    ):
         return True
+    # Narrow substring markers tied to secrets only (avoid benign ids like
+    # session_id or run_id which are not secrets).
     return any(
         marker in lowered
-        for marker in ("secret", "password", "token", "apikey", "api_key", "authorization")
+        for marker in ("secret", "password", "apikey", "api_key", "authorization")
     )
 
 
 def fingerprint(value: str, *, keep: int = 4) -> str:
     """Return a non-reversible short fingerprint of an identifier."""
 
-    import hashlib
-
     text = str(value)
     digest = hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()[:12]
     prefix = text[:keep] if keep > 0 else ""
     return f"{prefix}…{digest}" if prefix else digest
+
+
+def _redact_cookie_value(value: str) -> str:
+    """Redact every sensitive name=value pair value inside a Cookie header.
+
+    Non-secret cookie names (lang, theme, locale, utm_*) keep their value.
+    """
+
+    def _replace(match: re.Match[str]) -> str:
+        name = match.group(1)
+        quote = match.group(2) or ""
+        if name.lower() in _BENIGN_COOKIE_NAMES:
+            return match.group(0)
+        return f"{name}={quote}{REDACTED}{quote}"
+
+    return re.sub(
+        r'([A-Za-z0-9_.-]+)=("?)([^\s;"]+)\2',
+        _replace,
+        value,
+    )
 
 
 def redact_text(value: str) -> str:
@@ -149,15 +238,26 @@ def redact_text(value: str) -> str:
     text = value
     text = _PEM_RE.sub(REDACTED, text)
     text = _JWT_RE.sub(REDACTED, text)
-    text = _AUTH_HEADER_RE.sub(f"authorization={REDACTED}", text)
-    text = _BEARER_RE.sub(f"Bearer {REDACTED}", text)
-    text = _BASIC_RE.sub(f"Basic {REDACTED}", text)
-    text = _APIKEY_ASSIGN_RE.sub(lambda m: f"{m.group(1)}={REDACTED}", text)
+    text = _AUTH_HEADER_RE.sub(
+        lambda m: f"{m.group(0).split(':', 1)[0].split('=', 1)[0].strip()} {REDACTED}",
+        text,
+    )
+    text = _SCHEME_CRED_RE.sub(lambda m: f"{m.group(1)} {REDACTED}", text)
+    text = _COOKIE_RE.sub(lambda m: _redact_cookie_header(m.group(0)), text)
+    text = _KEY_VALUE_RE.sub(lambda m: f"{m.group(1)}={REDACTED}", text)
     text = _KEYLIKE_RE.sub(REDACTED, text)
     text = _PATH_RE.sub("[PATH]", text)
     if len(text) > MAX_STRING_CHARS:
         text = text[:MAX_STRING_CHARS] + TRUNCATED_SUFFIX
     return text
+
+
+def _redact_cookie_header(header: str) -> str:
+    """Redact the value portion of a Cookie/Set-Cookie header string."""
+
+    sep = ":" if ":" in header else "="
+    name, _, rest = header.partition(sep)
+    return f"{name.strip()} {_redact_cookie_value(rest.strip())}"
 
 
 def redact_path(value: Any) -> str:
@@ -178,9 +278,19 @@ def _redact_exception(exc: BaseException) -> dict[str, Any]:
     }
 
 
-def sanitize(value: Any, *, _depth: int = 0, _key: str | None = None) -> Any:
+def sanitize(
+    value: Any,
+    *,
+    _depth: int = 0,
+    _key: str | None = None,
+    _seen: set[int] | None = None,
+) -> Any:
     """Recursively sanitize a value into JSON-safe, secret-free data."""
 
+    if _seen is None:
+        _seen = set()
+    if isinstance(value, (Mapping, list, dict, tuple, set, frozenset)) and id(value) in _seen:
+        return "[CYCLE]"
     if _depth > MAX_DEPTH:
         return "[MAX_DEPTH]"
 
@@ -194,14 +304,16 @@ def sanitize(value: Any, *, _depth: int = 0, _key: str | None = None) -> Any:
             if isinstance(value, str):
                 return redact_path(value)
             if isinstance(value, (list, tuple, set, frozenset)):
-                return [redact_path(item) for item in list(value)[:MAX_ITEMS]]
+                return [item for item in (redact_path(i) for i in list(value)[:MAX_ITEMS])]
 
     if value is None:
         return None
     if isinstance(value, bool):
         return value
     if isinstance(value, _SAFE_SCALARS):
-        if isinstance(value, float) and (value != value or value in (float("inf"), float("-inf"))):
+        if isinstance(value, float) and (
+            value != value or value in (float("inf"), float("-inf"))
+        ):
             return None
         return value
     if isinstance(value, str):
@@ -212,18 +324,42 @@ def sanitize(value: Any, *, _depth: int = 0, _key: str | None = None) -> Any:
         return _redact_exception(value)
     if isinstance(value, Mapping):
         out: dict[str, Any] = {}
-        for index, (k, v) in enumerate(value.items()):
-            if index >= MAX_KEYS:
-                out["__truncated_keys__"] = True
-                break
-            key = str(k)
-            out[key] = sanitize(v, _depth=_depth + 1, _key=key)
+        _seen.add(id(value))
+        try:
+            for index, (k, v) in enumerate(value.items()):
+                if index >= MAX_KEYS:
+                    out["__truncated_keys__"] = True
+                    break
+                key = str(k)
+                out[key] = sanitize(v, _depth=_depth + 1, _key=key, _seen=_seen)
+        finally:
+            _seen.discard(id(value))
         return out
     if isinstance(value, (Sequence, set, frozenset)) and not isinstance(value, (str, bytes)):
         items = list(value)[:MAX_ITEMS]
-        result = [sanitize(item, _depth=_depth + 1, _key=_key) for item in items]
+        result: list[Any] = []
+        _seen.add(id(value))
+        try:
+            for item in items:
+                # Positional (key, secret) pairs: redact the second element and
+                # preserve the key name.
+                if (
+                    isinstance(item, (tuple, list))
+                    and len(item) == 2
+                    and isinstance(item[0], str)
+                    and is_sensitive_key(item[0])
+                ):
+                    result.append((item[0], REDACTED))
+                else:
+                    result.append(
+                        sanitize(item, _depth=_depth + 1, _key=_key, _seen=_seen)
+                    )
+        finally:
+            _seen.discard(id(value))
         if len(list(value)) > MAX_ITEMS:
             result.append("[TRUNCATED_ITEMS]")
+        if isinstance(value, tuple):
+            return tuple(result)
         return result
     if isinstance(value, Iterable):
         # Unknown iterable: do not consume it, expose only its type.

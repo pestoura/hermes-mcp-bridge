@@ -110,6 +110,27 @@ def _otel_tracer() -> Any | None:
         return None
 
 
+_otel_probe_cache: dict[str, Any | None] = {}
+
+
+def otel_tracer_cached() -> Any | None:
+    """Cached OpenTelemetry tracer probe; avoids re-importing on every call.
+
+    The cache is keyed by whether tracing is enabled, so it stays correct when
+    the env changes. Call :func:`reset_otel_probe_cache` to force a re-probe
+    (used by tests).
+    """
+
+    key = "on" if tracing_enabled() else "off"
+    if key not in _otel_probe_cache:
+        _otel_probe_cache[key] = _otel_tracer()
+    return _otel_probe_cache[key]
+
+
+def reset_otel_probe_cache() -> None:
+    _otel_probe_cache.clear()
+
+
 @contextmanager
 def start_span(
     name: str, *, traceparent: str | None = None, **attributes: Any
@@ -120,7 +141,7 @@ def start_span(
     trace_id = (parent or {}).get("trace_id") or get_field("trace_id") or new_trace_id()
     span_id = new_span_id()
     delegate = None
-    tracer = _otel_tracer()
+    tracer = otel_tracer_cached()
     span = NoOpSpan(name, trace_id, span_id, delegate)
     for key, value in attributes.items():
         span.set_attribute(key, value)
@@ -141,6 +162,6 @@ def tracing_status() -> dict[str, Any]:
     return {
         "enabled": tracing_enabled(),
         "export_enabled": export_enabled(),
-        "implementation": "opentelemetry" if _otel_tracer() is not None else "noop",
+        "implementation": "opentelemetry" if otel_tracer_cached() is not None else "noop",
         "propagation": "w3c-traceparent",
     }

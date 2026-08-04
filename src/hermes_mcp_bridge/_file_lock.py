@@ -30,6 +30,10 @@ def exclusive_file_lock(lock_path: str, *, blocking: bool = False) -> Iterator[i
     and releases the lock (and closes the fd) on exit.
     """
     abs_path = os.path.realpath(os.path.abspath(os.path.expanduser(lock_path)))
+    # Reject symlinked paths: a symlink could redirect the lock outside the
+    # intended private directory, defeating exclusive locking.
+    if os.path.islink(abs_path):
+        raise FileLockError(f"lock path is a symlink (refused): {abs_path}")
     parent = os.path.dirname(abs_path)
     if parent:
         existed = os.path.isdir(parent)
@@ -37,6 +41,10 @@ def exclusive_file_lock(lock_path: str, *, blocking: bool = False) -> Iterator[i
         if not existed:
             with suppress(OSError):
                 os.chmod(parent, 0o700)
+        # If the parent itself resolves through a symlink, refuse.
+        real_parent = os.path.realpath(parent)
+        if os.path.islink(parent) or real_parent != os.path.abspath(parent):
+            raise FileLockError(f"lock parent is not a safe directory: {parent}")
     fd = os.open(abs_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
     try:
         with suppress(OSError):

@@ -1,4 +1,15 @@
-"""Redaction tests: nested structures, exceptions, secret-looking strings."""
+"""Redaction tests: nested structures, exceptions, secret-looking strings.
+
+Covers the audit variants: Authorization/Proxy-Authorization with and without
+scheme (Bearer/Basic/Digest/token), in ':' and '=' forms, Cookie/Set-Cookie
+multi-pair in free text, embedded secrets bound to sensitive names (with no
+leaked suffix), positional tuple/list pairs, bytes, exceptions, cycles, depth
+limits, and benign-hash preservation.
+
+The redactor output is canonical and idempotent: sanitize(sanitize(x)) == sanitize(x)
+and re-running on already-redacted free text never produces ']]' or other
+doubled closers.
+"""
 
 from __future__ import annotations
 
@@ -15,38 +26,159 @@ from hermes_mcp_bridge.observability.redaction import (
     sanitize,
 )
 
-SECRET = "sk-live-ABCDEF1234567890abcdef"
+SECRET = "sk-super-secret-value-1234567890"
+JWT = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+PEM = (
+    "-----BEGIN RSA PRIVATE KEY-----\n"
+    "MIIBOgIBAAJBAKj34GkxFhD90vcNLYLInFEX6tyaCavwOLdHQnf1rFxE"
+    "-----END RSA PRIVATE KEY-----"
+)
 
 
 def _dump(value: object) -> str:
     return json.dumps(sanitize(value), sort_keys=True, default=str)
 
 
-def test_authorization_header_is_redacted() -> None:
+# --- Header variants ----------------------------------------------------------
+
+
+def test_authorization_bearer_value_redacted() -> None:
     payload = {"headers": {"Authorization": f"Bearer {SECRET}"}}
     dumped = _dump(payload)
     assert SECRET not in dumped
     assert REDACTED in dumped
 
 
-def test_bearer_inside_free_text_is_redacted() -> None:
-    text = f"request failed with Authorization: Bearer {SECRET}"
+def test_authorization_basic_value_redacted() -> None:
+    dumped = _dump({"headers": {"Authorization": f"Basic {SECRET}"}})
+    assert SECRET not in dumped
+    assert REDACTED in dumped
+
+
+def test_authorization_digest_value_redacted() -> None:
+    dumped = _dump({"headers": {"Authorization": f"Digest {SECRET}"}})
+    assert SECRET not in dumped
+    assert REDACTED in dumped
+
+
+def test_authorization_scheme_token_no_prefix_redacted() -> None:
+    dumped = _dump({"headers": {"Authorization": SECRET}})
+    assert SECRET not in dumped
+    assert REDACTED in dumped
+
+
+def test_proxy_authorization_redacted() -> None:
+    dumped = _dump({"headers": {"Proxy-Authorization": f"Digest {SECRET}"}})
+    assert SECRET not in dumped
+    assert REDACTED in dumped
+
+
+def test_authorization_colon_form_in_text() -> None:
+    text = "upstream rejected: Authorization: Bearer " + SECRET
     scrubbed = redact_text(text)
     assert SECRET not in scrubbed
-    assert REDACTED in scrubbed
+    assert "Authorization [REDACTED]" in scrubbed
+
+
+def test_authorization_equals_form_in_text() -> None:
+    text = "request headers Authorization=" + SECRET + " sent"
+    scrubbed = redact_text(text)
+    assert SECRET not in scrubbed
+    assert "Authorization [REDACTED]" in scrubbed
+
+
+def test_bearer_inside_free_text_is_redacted() -> None:
+    text = "request failed with Authorization: Bearer " + SECRET
+    scrubbed = redact_text(text)
+    assert "Authorization [REDACTED]" in scrubbed
+    assert "]]" not in scrubbed
+
+
+def test_redact_text_is_idempotent() -> None:
+    text = "Authorization: Bearer " + SECRET + " and Cookie: session=" + SECRET
+    once = redact_text(text)
+    twice = redact_text(once)
+    assert once == twice
+    assert "]]" not in twice
+
+
+# --- Cookies ------------------------------------------------------------------
+
+
+def test_cookie_in_text_redacted_multi_pair() -> None:
+    text = "Set-Cookie: session=" + SECRET + "; csrf=x7y9; lang=pt"
+    scrubbed = redact_text(text)
+    assert SECRET not in scrubbed
+    assert "session=[REDACTED]" in scrubbed
+    assert "csrf=[REDACTED]" in scrubbed
+    assert "lang=pt" in scrubbed  # benign value preserved
+
+
+def test_cookie_in_dict_redacted() -> None:
+    dumped = _dump({"headers": {"Cookie": f"auth={SECRET}; tracking=abc"}})
+    assert SECRET not in dumped
+    # Whole Cookie value is redacted at key level (fail closed).
+    assert "[REDACTED]" in dumped
+
+
+def test_set_cookie_header_name_redacted() -> None:
+    dumped = _dump({"headers": {"Set-Cookie": f"token={SECRET}"}})
+    assert SECRET not in dumped
+    assert "[REDACTED]" in dumped
+
+
+# --- Embedded secrets bound to sensitive names --------------------------------
 
 
 def test_api_key_assignment_in_string_is_redacted() -> None:
     scrubbed = redact_text(f'api_key="{SECRET}" and password=hunter2')
     assert SECRET not in scrubbed
     assert "hunter2" not in scrubbed
+    assert "api_key=[REDACTED]" in scrubbed
+
+
+def test_embedded_secret_no_suffix_leak() -> None:
+    dumped = _dump({"config": {"token": SECRET, "secret": SECRET, "api_key": SECRET}})
+    assert SECRET not in dumped
+    # No partial/suffix leak: value replaced wholly.
+    assert dumped.count(REDACTED) == 3
 
 
 def test_jwt_and_pem_are_redacted() -> None:
-    jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dBjftJeZ4CVPmB92K27uhbUJU1p1r"
-    pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIabc\n-----END RSA PRIVATE KEY-----"
-    assert jwt not in redact_text(jwt)
-    assert "MIIabc" not in redact_text(pem)
+    assert JWT not in redact_text(JWT)
+    assert "MIIBO" not in redact_text(PEM)
+    assert "BEGIN RSA PRIVATE KEY" not in redact_text(PEM)
+
+
+# --- Positional / sequence pairs ---------------------------------------------
+
+
+def test_positional_tuple_pair_redacted() -> None:
+    payload = {"pairs": [("api_key", SECRET), ("token", SECRET)]}
+    dumped = _dump(payload)
+    assert SECRET not in dumped
+    assert '"api_key": "[REDACTED]"' in dumped or '["api_key", "[REDACTED]"]' in dumped
+
+
+def test_sequence_of_pairs_redacted() -> None:
+    payload = [("password", SECRET), ("username", "pedro")]
+    dumped = _dump(payload)
+    assert SECRET not in dumped
+    assert "pedro" in dumped  # non-secret preserved
+
+
+# --- Prompt/output ------------------------------------------------------------
+
+
+def test_prompt_and_output_never_appear() -> None:
+    payload = {"prompt": "classified prompt body", "output": "classified output body"}
+    dumped = _dump(payload)
+    assert "classified prompt body" not in dumped
+    assert "classified output body" not in dumped
+    assert dumped.count(REDACTED) == 2
+
+
+# --- Nested / exceptions / structures ---------------------------------------
 
 
 def test_nested_dict_and_list_are_sanitized() -> None:
@@ -60,14 +192,6 @@ def test_nested_dict_and_list_are_sanitized() -> None:
     assert SECRET not in dumped
     assert "top secret prompt" not in dumped
     assert "value" in dumped
-
-
-def test_prompt_and_output_never_appear() -> None:
-    payload = {"prompt": "classified prompt body", "output": "classified output body"}
-    dumped = _dump(payload)
-    assert "classified prompt body" not in dumped
-    assert "classified output body" not in dumped
-    assert dumped.count(REDACTED) == 2
 
 
 def test_exception_is_reduced_to_type_and_redacted_message() -> None:
@@ -97,6 +221,10 @@ def test_arbitrary_objects_are_not_repr_serialized() -> None:
     assert "[Leaky]" in dumped
 
 
+def test_bytes_are_not_leaked() -> None:
+    assert sanitize(b"secret-bytes") == f"[BYTES:{len(b'secret-bytes')}]"
+
+
 def test_paths_are_reduced() -> None:
     assert redact_path("/var/lib/hermes-mcp-bridge/state.sqlite3") == "[PATH:sqlite3]"
     dumped = _dump({"db_path": "/var/lib/hermes/state.sqlite3"})
@@ -105,6 +233,21 @@ def test_paths_are_reduced() -> None:
 
 def test_path_like_strings_in_free_text_are_masked() -> None:
     assert "/etc/hermes/secret.env" not in redact_text("read /etc/hermes/secret.env failed")
+
+
+# --- Benign hashes preserved --------------------------------------------------
+
+
+def test_benign_sha256_preserved() -> None:
+    digest = "a" * 64
+    assert digest in redact_text(f"hash={digest}")
+
+
+def test_benign_short_hash_preserved() -> None:
+    assert "abc123" in redact_text("build abc123 completed")
+
+
+# --- Approval id fingerprinting ----------------------------------------------
 
 
 def test_approval_id_is_fingerprinted_not_full() -> None:
@@ -120,10 +263,13 @@ def test_fingerprint_is_stable_and_non_reversible() -> None:
     assert "abc123" not in fingerprint("abc123")[4:]
 
 
+# --- Limits / cycles ----------------------------------------------------------
+
+
 def test_depth_and_breadth_limits() -> None:
     deep: dict = {"level": 0}
     node = deep
-    for i in range(1, 20):
+    for i in range(1, 25):
         node["child"] = {"level": i}
         node = node["child"]
     assert "[MAX_DEPTH]" in _dump(deep)
@@ -136,8 +282,11 @@ def test_long_strings_are_truncated() -> None:
     assert result.endswith("[truncated]")
 
 
-def test_bytes_are_not_leaked() -> None:
-    assert sanitize(b"secret-bytes") == f"[BYTES:{len(b'secret-bytes')}]"
+def test_cycles_do_not_infinite_loop() -> None:
+    cycle: dict = {}
+    cycle["self"] = cycle
+    result = _dump(cycle)
+    assert "[CYCLE]" in result
 
 
 def test_configurable_extra_fields(monkeypatch: pytest.MonkeyPatch) -> None:
