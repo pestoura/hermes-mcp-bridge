@@ -18,7 +18,7 @@ The bridge does **not** execute shell commands or manage infrastructure itself. 
 
 ## Version and contract
 
-Bridge contract version: **0.5.0**.
+Bridge contract version: **0.6.1**.
 
 ## MCP tools
 
@@ -28,7 +28,7 @@ Bridge contract version: **0.5.0**.
 - `hermes_status`: retrieves a run after a detached or interrupted request.
 - `hermes_stop`: requests safe cancellation of a run.
 - `hermes_health`: checks Hermes liveness/readiness and bridge registry state, including manifest metadata.
-- `recent_runs`: lists recent registry entries by status or recency.
+- `hermes_recent_runs`: lists recent registry entries by status or recency.
 - `hermes_capabilities`: returns the canonical capability manifest for this bridge.
 - `hermes_agent_card`: returns the versioned agent card for this bridge.
 - `hermes_policy_evaluate`: evaluates an allow/deny/require-approval policy decision for an action and trust/mutation context.
@@ -36,6 +36,18 @@ Bridge contract version: **0.5.0**.
 - `hermes_approval_respond`: responds to an approval request with approved/rejected.
 - `hermes_approval_status`: returns the current status of an approval request.
 - `hermes_result_manifest`: returns a sanitized result manifest for an execution.
+- `hermes_plan`: creates an executable plan/DAG without executing mutations.
+- `hermes_execute_approved_plan`: executes a previously approved plan with policy gating.
+- `hermes_checkpoint_create`: creates a bridge-side checkpoint without storing blobs.
+- `hermes_checkpoint_status`: queries checkpoint state for a run or plan.
+- `hermes_continue`: resumes a previous execution or checkpoint idempotently.
+- `hermes_saga_start`: starts a saga and registers compensation contracts.
+- `hermes_saga_status`: reads saga state and compensation evidence.
+- `hermes_saga_compensate`: records or inspects a compensation event for a saga.
+- `hermes_lock_acquire`: acquires a typed resource lock with TTL.
+- `hermes_lock_status`: inspects active locks and expiry state.
+- `hermes_lock_release`: releases a held lock idempotently.
+- `hermes_quota_status`: returns current quota and budget evaluation.
 
 `agent` and `subagents` are optional hints translated into Hermes instructions. Omitting them lets Hermes choose its own orchestration.
 
@@ -60,7 +72,7 @@ Bridge contract version: **0.5.0**.
 ### Wait and timeout contract
 
 - `hermes_wait` and `hermes_prompt` use an explicit `wait_seconds` value when provided; when omitted, the effective default in this bridge is **45 seconds**.
-- Explicit wait values are capped at **7200 seconds**.
+- Explicit wait values are capped at **900 seconds** in production profiles.
 - `wait_seconds=0` is the explicit detached mode: the tool returns immediately with the execution identifiers.
 - Wait-budget expiry returns control to the caller with the current run state; it does **not** cancel the Hermes run.
 

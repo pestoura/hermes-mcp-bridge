@@ -1,5 +1,3 @@
-"""Focused 0.6.0 resilience-gate tests."""
-
 from __future__ import annotations
 
 import importlib
@@ -12,6 +10,7 @@ from pydantic import SecretStr
 from hermes_mcp_bridge.config import Settings
 from hermes_mcp_bridge.models import Plan, PlanDependency, PlanStep, QuotaDecision
 from hermes_mcp_bridge.plans import PlanStore, validate_plan_structure
+from hermes_mcp_bridge.protocol import ApprovalRecord
 from hermes_mcp_bridge.quotas import QuotaRegistry
 from hermes_mcp_bridge.tracing import (
     build_trace_metadata,
@@ -98,3 +97,126 @@ async def test_quota_decisions(
     server = _make_server(monkeypatch, tmp_path)
     result = await server.hermes_quota_status(principal="p", resource="r", mutation=True)
     assert result["quota"]["decision"] in {QuotaDecision.ALLOW.value, QuotaDecision.REJECT.value}
+
+
+def test_empty_db_creates_all_expected_tables(tmp_path: Path) -> None:
+    from hermes_mcp_bridge.approvals import ApprovalRegistry
+    from hermes_mcp_bridge.checkpoints import CheckpointRegistry
+    from hermes_mcp_bridge.locks import LockRegistry
+    from hermes_mcp_bridge.migrations import apply_migrations
+    from hermes_mcp_bridge.plans import PlanStore
+    from hermes_mcp_bridge.quotas import QuotaRegistry
+    from hermes_mcp_bridge.registry import RunRegistry
+    from hermes_mcp_bridge.sagas import SagaRegistry
+
+    db_path = str(tmp_path / "state.sqlite3")
+    apply_migrations(db_path)
+    RunRegistry(db_path).initialize()
+    PlanStore(db_path).initialize()
+    ApprovalRegistry(db_path).initialize()
+    CheckpointRegistry(db_path).initialize()
+    LockRegistry(db_path).initialize()
+    SagaRegistry(db_path).initialize()
+    QuotaRegistry(db_path).initialize()
+
+    conn = __import__("sqlite3").connect(db_path, check_same_thread=False)
+    try:
+        tables = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+            ).fetchall()
+        }
+        expected = {
+            "schema_migrations",
+            "run_mappings",
+            "plans",
+            "plan_approvals",
+            "checkpoints",
+            "continuations",
+            "sagas",
+            "resource_locks",
+            "quota_profiles",
+            "approvals",
+        }
+        assert expected.issubset(tables)
+    finally:
+        conn.close()
+
+
+def test_approval_health_up_after_startup_on_empty_db(tmp_path: Path) -> None:
+    from hermes_mcp_bridge.approvals import ApprovalRegistry
+
+    db_path = str(tmp_path / "state.sqlite3")
+    registry = ApprovalRegistry(db_path)
+    registry.initialize()
+    health = registry.health()
+    assert health["status"] == "up"
+    assert health["table_exists"] is True
+
+
+def test_approval_first_create_and_status_on_empty_db(tmp_path: Path) -> None:
+    from hermes_mcp_bridge.approvals import ApprovalRegistry
+
+    db_path = str(tmp_path / "state.sqlite3")
+    registry = ApprovalRegistry(db_path)
+    registry.initialize()
+
+    record = registry.create(
+        ApprovalRecord(
+            approval_id="approval-test-1",
+            action="mutation",
+            principal="tester",
+            created_at="2026-01-01T00:00:00+00:00",
+        )
+    )
+    assert record.approval_id == "approval-test-1"
+    assert record.decision.value == "requested"
+
+    status = registry.get("approval-test-1")
+    assert status.action == "mutation"
+    assert status.principal == "tester"
+
+
+def test_tool_inventory_exact_26_matches_manifest_and_smoke() -> None:
+    import asyncio
+    import importlib
+
+    from hermes_mcp_bridge.server import _build_capability_manifest
+
+    server = importlib.import_module("hermes_mcp_bridge.server")
+    discovered = set(server.server_tool_names())
+    expected = {
+        "hermes_approval_create",
+        "hermes_approval_respond",
+        "hermes_approval_status",
+        "hermes_capabilities",
+        "hermes_agent_card",
+        "hermes_checkpoint_create",
+        "hermes_checkpoint_status",
+        "hermes_continue",
+        "hermes_execute_approved_plan",
+        "hermes_health",
+        "hermes_lock_acquire",
+        "hermes_lock_release",
+        "hermes_lock_status",
+        "hermes_policy_evaluate",
+        "hermes_plan",
+        "hermes_prompt",
+        "hermes_quota_status",
+        "hermes_recent_runs",
+        "hermes_result_manifest",
+        "hermes_saga_compensate",
+        "hermes_saga_start",
+        "hermes_saga_status",
+        "hermes_status",
+        "hermes_stop",
+        "hermes_submit",
+        "hermes_wait",
+    }
+    assert discovered == expected
+    assert len(discovered) == 26
+
+    manifest_obj = asyncio.run(_build_capability_manifest())
+    assert set(manifest_obj.effective_tools) == expected
+    assert len(manifest_obj.effective_tools) == 26

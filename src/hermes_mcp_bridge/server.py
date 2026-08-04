@@ -26,6 +26,7 @@ from .checkpoints import CheckpointRegistry
 from .client import HermesAPIError, HermesClient
 from .config import get_settings
 from .locks import LockError, LockRegistry, LockType, ResourceLock
+from .migrations import apply_migrations
 from .models import (
     TERMINAL_STATUSES,
     Checkpoint,
@@ -63,12 +64,20 @@ from .sagas import SagaRegistry
 from .tracing import build_trace_metadata
 
 settings = get_settings()
+apply_migrations(settings.bridge_state_db_path)
 client = HermesClient(settings)
 registry = get_registry()
 registry.initialize()
+approval_registry = get_approval_registry()
+approval_registry.initialize()
 checkpoint_registry = CheckpointRegistry(settings.bridge_state_db_path)
+checkpoint_registry.initialize()
 lock_registry = LockRegistry(settings.bridge_state_db_path)
+lock_registry.initialize()
 saga_registry = SagaRegistry(settings.bridge_state_db_path)
+saga_registry.initialize()
+quota_registry = get_quota_registry()
+quota_registry.initialize()
 
 mcp = FastMCP(
     "Hermes MCP Bridge",
@@ -1323,7 +1332,7 @@ async def _build_capability_manifest() -> CapabilityManifest:
             read_only=True,
         ),
         ToolManifest(
-            name="recent_runs",
+            name="hermes_recent_runs",
             description="List recent registry entries by status or recency.",
             version_added="0.1.0",
             stability="stable",
@@ -1473,8 +1482,8 @@ async def _build_capability_manifest() -> CapabilityManifest:
     ]
 
     return CapabilityManifest.build(
-        bridge_version="0.6.0",
-        manifest_version="0.6.0",
+        bridge_version="0.6.1",
+        manifest_version="0.6.1",
         tools=tools,
         orchestration_modes=["auto", "explicit"],
         limits={

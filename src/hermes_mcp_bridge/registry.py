@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import sqlite3
 import threading
@@ -103,34 +102,10 @@ class RunRegistry:
         with self._global_lock:
             if self._initialized:
                 return
-            os.makedirs(os.path.dirname(self._db_path), exist_ok=True)
-            connection = _open_connection(self._db_path)
-            try:
-                connection.execute("PRAGMA journal_mode=WAL")
-                connection.execute("PRAGMA busy_timeout=5000")
-                connection.execute("PRAGMA synchronous=NORMAL")
-                connection.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS run_mappings (
-                        client_request_id TEXT PRIMARY KEY,
-                        fingerprint TEXT NOT NULL,
-                        execution_id TEXT NOT NULL,
-                        session_id TEXT,
-                        last_status TEXT NOT NULL,
-                        created_at TEXT NOT NULL,
-                        updated_at TEXT NOT NULL
-                    )
-                    """
-                )
-                connection.execute(
-                    """
-                    CREATE INDEX IF NOT EXISTS idx_run_mappings_updated_at
-                    ON run_mappings (updated_at)
-                    """
-                )
-                self._initialized = True
-            finally:
-                connection.close()
+            from .migrations import apply_migrations
+
+            apply_migrations(self._db_path)
+            self._initialized = True
 
     def health(self) -> dict[str, object]:
         try:

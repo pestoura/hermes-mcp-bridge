@@ -51,7 +51,7 @@ A disconnected MCP request does not stop the Hermes run by default. The run rema
 ## Wait budget contract
 
 - omitted `wait_seconds` on `hermes_prompt` or `hermes_wait` uses the bridge default: **45 seconds**;
-- explicit `wait_seconds` is capped at **7200 seconds**;
+- explicit `wait_seconds` is capped at **900 seconds** in production profiles;
 - `wait_seconds=0` is detached mode and returns immediately;
 - wait expiry reports current run state without cancelling Hermes.
 
@@ -104,7 +104,7 @@ The bridge does not possess SSH credentials, cloud tokens, Kanban credentials or
 
 ## Tool inventory
 
-Bridge version 0.5.0 exposes **14** tools:
+Bridge version 0.6.1 exposes **26** tools:
 
 - `hermes_submit`
 - `hermes_prompt`
@@ -114,16 +114,28 @@ Bridge version 0.5.0 exposes **14** tools:
 - `hermes_health`
 - `hermes_capabilities`
 - `hermes_agent_card`
-- `recent_runs`
+- `hermes_recent_runs`
 - `hermes_policy_evaluate`
 - `hermes_approval_create`
 - `hermes_approval_respond`
 - `hermes_approval_status`
 - `hermes_result_manifest`
+- `hermes_plan`
+- `hermes_execute_approved_plan`
+- `hermes_checkpoint_create`
+- `hermes_checkpoint_status`
+- `hermes_continue`
+- `hermes_saga_start`
+- `hermes_saga_status`
+- `hermes_saga_compensate`
+- `hermes_lock_acquire`
+- `hermes_lock_status`
+- `hermes_lock_release`
+- `hermes_quota_status`
 
 ## Protocol Foundations
 
-Bridge version 0.5.0 adds policy evaluation, persistent approvals, and sanitized result manifests while preserving the existing 9 tools.
+Bridge version 0.6.1 extends policy evaluation, persistent approvals, sanitized result manifests, plans, checkpoints, continuations, sagas, locks and quotas while preserving the original tool surface.
 
 - Execution envelope: `schema_version`, `payload_version`, `origin_type`, `context_key`, `project_key`, `correlation_id`, `causation_id`, `principal`, `delegation_chain`.
 - Event types: `MessageType` and `EventType` enums with typed models (`ProgressEvent`, `ApprovalEvent`, `ToolEvent`, `LifecycleEvent`, `UnknownEvent`).

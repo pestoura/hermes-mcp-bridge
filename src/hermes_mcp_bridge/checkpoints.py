@@ -42,10 +42,16 @@ class CheckpointRegistry:
     def __init__(self, db_path: str) -> None:
         self._db_path = db_path
         self._global_lock = threading.Lock()
+        self._initialized = False
 
     def initialize(self) -> None:
-        with sqlite3.connect(self._db_path, check_same_thread=False) as cx:
-            cx.executescript(DDL)
+        with self._global_lock:
+            if self._initialized:
+                return
+            from .migrations import apply_migrations
+
+            apply_migrations(self._db_path)
+            self._initialized = True
 
     def _now(self) -> str:
         return datetime.now(UTC).isoformat()

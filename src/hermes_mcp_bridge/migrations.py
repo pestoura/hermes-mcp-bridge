@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
+from pathlib import Path
 
 from .config import get_settings
 
@@ -166,6 +167,37 @@ _MIGRATIONS: list[Migration] = [
         );
         """,
     ),
+    Migration(
+        version=9,
+        label="approvals",
+        sql="""
+        CREATE TABLE IF NOT EXISTS approvals (
+            approval_id TEXT PRIMARY KEY,
+            action TEXT NOT NULL,
+            resource TEXT,
+            resource_fingerprint TEXT,
+            principal TEXT,
+            delegation_chain_sanitized TEXT NOT NULL DEFAULT '[]',
+            decision TEXT NOT NULL DEFAULT 'requested',
+            expires_at TEXT,
+            created_at TEXT NOT NULL,
+            decided_at TEXT,
+            consumed_at TEXT,
+            metadata_sanitized TEXT NOT NULL DEFAULT '{}',
+            approval_identity_assurance TEXT NOT NULL DEFAULT 'caller_asserted'
+        );
+        CREATE INDEX IF NOT EXISTS idx_approvals_decision_created_at
+            ON approvals (decision, created_at);
+        """,
+    ),
+    Migration(
+        version=10,
+        label="run_mappings_updated_at_index",
+        sql="""
+        CREATE INDEX IF NOT EXISTS idx_run_mappings_updated_at
+            ON run_mappings (updated_at);
+        """,
+    ),
 ]
 
 
@@ -205,6 +237,8 @@ def apply_migrations(db_path: str | None = None) -> int:
     """Apply pending migrations and return the current schema version."""
     settings = get_settings()
     target_db = db_path or settings.bridge_state_db_path
+    if target_db and not target_db.startswith(":memory:"):
+        Path(target_db).expanduser().resolve().parent.mkdir(parents=True, exist_ok=True)
     connection = _open_connection(target_db)
     try:
         connection.execute("PRAGMA journal_mode=WAL")
@@ -240,6 +274,7 @@ def reset_migrations(db_path: str | None = None) -> None:
         try:
             tables = [
                 "schema_migrations",
+                "approvals",
                 "quota_profiles",
                 "resource_locks",
                 "sagas",
