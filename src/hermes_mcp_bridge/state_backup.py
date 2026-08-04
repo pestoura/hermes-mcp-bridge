@@ -2,9 +2,15 @@
 
 Design guarantees (audit scope):
 - backup uses the sqlite3 online backup API (consistent under WAL writers)
-- restore is fail-closed: blocks on any active/unknown writer, prevents stale
-  -wal/-shm sidecars from attaching to the restored database, and keeps an
-  internal rollback bundle of the previous target (db + sidecars)
+- backup/restore paths are canonical absolute realpaths; symlinks in sensitive
+  components are rejected and an optional configurable allowed root restricts the
+  namespace (prevents symlink/escape paths)
+- retention only deletes backup names produced by this module (regex-validated);
+  external files are never deleted
+- restore is fail-closed: blocks on any active/unknown writer unless force=True,
+  keeps a writer-exclusion lock over the whole bundle/replace operation (M2),
+  prevents stale -wal/-shm sidecars from attaching to the restored DB, and keeps
+  an internal rollback bundle of the previous target (db + sidecars)
 - all backup paths are absolute/canonical; default backups are unique
   (timestamp + nonce) and never overwrite silently
 - metadata is sanitized (no rows, no secrets); includes online_backup flag
@@ -14,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import sqlite3
 import tempfile
 import uuid
@@ -23,12 +30,20 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from ._file_lock import FileLockError, exclusive_file_lock
 from .config import get_settings
+
+ALLOWED_ROOT_ENV = "HERMES_BRIDGE_BACKUP_ROOT"
+BACKUP_NAME_RE = re.compile(
+    r"^.*\.backup-\d{8}T\d{6}Z-[0-9a-f]{8}(\.sqlite3)?(\.meta\.json)?$"
+)
+LOCK_PATH = os.path.join(
+    os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir(),
+    "hermes-bridge-state-backup.lock",
+)
 
 
 class WriterState(StrEnum):
-    """Deterministic classification of writer presence on a SQLite file."""
-
     CLEAR = "clear"
     ACTIVE = "active"
     UNKNOWN = "unknown"
@@ -36,8 +51,6 @@ class WriterState(StrEnum):
 
 @dataclass(frozen=True)
 class BackupMetadata:
-    """Sanitized metadata for a state database backup."""
-
     timestamp_utc: str
     schema_migrations_count: int
     schema_migrations_version: int
@@ -79,7 +92,7 @@ def _sha256_file(path: str, chunk_size: int = 65536) -> str:
     return h.hexdigest()
 
 
-def _prefix(value: str, length: int = 16) -> str:
+def _prefix(value: str, length: int = 32) -> str:
     return value[:length]
 
 
@@ -128,20 +141,6 @@ def _integrity_check(connection: sqlite3.Connection) -> bool:
         return False
 
 
-def _source_checks(path: str) -> None:
-    if not path or path.startswith(":memory:"):
-        raise ValueError(":memory: databases cannot be backed up online")
-    if not Path(path).exists():
-        raise FileNotFoundError(path)
-    conn = sqlite3.connect(path, check_same_thread=False)
-    conn.isolation_level = None
-    try:
-        if not _integrity_check(conn):
-            raise RuntimeError(f"source integrity_check failed for {path}")
-    finally:
-        conn.close()
-
-
 def _fsync_file(path: str) -> None:
     fd = os.open(path, os.O_RDONLY)
     try:
@@ -156,6 +155,28 @@ def _fsync_dir(path: Path) -> None:
         os.fsync(fd)
     finally:
         os.close(fd)
+
+
+def _canonical_db_path(path: str, *, allowed_root: str | None) -> str:
+    """Canonicalize a DB path with path-safety checks (M1).
+
+    - reject empty / :memory:
+    - reject symlinks in the resolved path
+    - require the realpath to stay within allowed_root when provided
+    """
+    path = os.fspath(path)
+    if not path or path.startswith(":memory:"):
+        raise ValueError(":memory: databases cannot be processed")
+    if os.path.islink(path):
+        raise ValueError(f"path is a symlink (rejected): {path}")
+    real = os.path.realpath(path)
+    if os.path.islink(real):
+        raise ValueError(f"resolved path is a symlink (rejected): {real}")
+    if allowed_root:
+        root_real = os.path.realpath(allowed_root)
+        if not (real == root_real or real.startswith(root_real.rstrip("/") + "/")):
+            raise ValueError(f"path escapes allowed root: {real} not under {root_real}")
+    return real
 
 
 def _detect_writer_state(path: str) -> WriterState:
@@ -233,13 +254,16 @@ def _preview_metadata(source: str) -> BackupMetadata:
 
 
 def _enforce_retention(source: str, retention_count: int) -> list[str]:
+    """Delete only this module's own backup names (regex-validated)."""
+    parent = Path(source).parent
     candidates = sorted(
-        [str(p) for p in Path(source).parent.glob(Path(source).name + ".backup-*")],
+        [str(p) for p in parent.glob(Path(source).name + ".backup-*")],
         key=lambda p: Path(p).stat().st_mtime,
         reverse=True,
     )
     removed: list[str] = []
-    for old in candidates[retention_count:]:
+    own = [c for c in candidates if BACKUP_NAME_RE.match(os.path.basename(c))]
+    for old in own[retention_count:]:
         Path(old).unlink(missing_ok=True)
         removed.append(old)
     return removed
@@ -260,13 +284,16 @@ def backup_state_db(
     is fail-closed unless overwrite=True.
     """
     settings = get_settings()
-    source = source_path or settings.bridge_state_db_path
+    allowed_root = os.environ.get(ALLOWED_ROOT_ENV)
+    cfg_path = source_path or settings.bridge_state_db_path
+    source = _canonical_db_path(cfg_path, allowed_root=allowed_root)
     if not source:
         raise RuntimeError("bridge state db path is not configured")
-    source = os.path.abspath(source)
+    if not Path(source).exists():
+        raise FileNotFoundError(source)
 
     if backup_path:
-        base_backup = os.path.abspath(backup_path)
+        base_backup = _canonical_db_path(backup_path, allowed_root=allowed_root)
         if Path(base_backup).exists() and not overwrite:
             raise FileExistsError(
                 f"backup target already exists: {base_backup} (use overwrite=True)"
@@ -275,8 +302,6 @@ def backup_state_db(
         ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         nonce = uuid.uuid4().hex[:8]
         base_backup = f"{source}.backup-{ts}-{nonce}"
-
-    _source_checks(source)
 
     if dry_run:
         return {
@@ -288,9 +313,7 @@ def backup_state_db(
 
     tmp_dir = os.path.dirname(base_backup)
     os.makedirs(tmp_dir, exist_ok=True)
-    tmp_fd, tmp_path = tempfile.mkstemp(
-        dir=tmp_dir, prefix=".backup-", suffix=".sqlite3"
-    )
+    tmp_fd, tmp_path = tempfile.mkstemp(dir=tmp_dir, prefix=".backup-", suffix=".sqlite3")
     os.close(tmp_fd)
     removed: list[str] = []
     try:
@@ -352,22 +375,24 @@ def restore_state_db(
 ) -> dict[str, Any]:
     """Restore a state database from a trusted backup.
 
-    Fail-closed: blocks on any active/unknown writer unless force=True. Prevents
-    stale -wal/-shm sidecars from attaching to the restored DB, preserves an
-    internal rollback bundle of the previous target (db + sidecars), and restores
-    it on any failure.
+    Fail-closed: blocks on any active/unknown writer (unless force=True). A
+    writer-exclusion file lock is held for the full bundle/replace operation (M2).
+    force NEVER bypasses path safety or canonicalization; it only overrides the
+    writer/bridge-stopped check. Prevents stale -wal/-shm sidecars from attaching
+    to the restored DB, preserves an internal rollback bundle of the previous
+    target, and restores it on any failure.
     """
     settings = get_settings()
-    target = target_path or settings.bridge_state_db_path
+    allowed_root = os.environ.get(ALLOWED_ROOT_ENV)
+    cfg_path = target_path or settings.bridge_state_db_path
+    target = _canonical_db_path(cfg_path, allowed_root=allowed_root)
     if not target:
         raise RuntimeError("bridge state db path is not configured")
-    target = os.path.abspath(target)
-    backup_path = os.path.abspath(backup_path)
-
+    backup_path = _canonical_db_path(backup_path, allowed_root=allowed_root)
     if not Path(backup_path).exists():
         raise FileNotFoundError(backup_path)
-    if backup_path.startswith(":memory:") or target.startswith(":memory:"):
-        raise ValueError("restore does not support :memory: databases")
+    if backup_path == target:
+        raise ValueError("backup and target are the same path")
 
     writer_state = (
         _detect_writer_state(target) if Path(target).exists() else WriterState.CLEAR
@@ -386,84 +411,94 @@ def restore_state_db(
     bundle_base = _restore_bundle_path(target, ts, nonce)
     bundle: dict[str, str] = {}
 
-    # Move the current target and its sidecars into a rollback bundle.
-    for suffix in _sidecar_suffixes():
-        orig = target + suffix
-        if Path(orig).exists():
-            bk = bundle_base + suffix
-            Path(orig).replace(bk)
-            Path(bk).chmod(0o600)
-            bundle[suffix] = bk
-
-    # Remove any stale sidecars that may have been left without a db.
-    for suffix in ("-wal", "-shm"):
-        stale = target + suffix
-        if Path(stale).exists():
-            Path(stale).unlink(missing_ok=True)
-
-    tmp_dir = os.path.dirname(target)
-    os.makedirs(tmp_dir, exist_ok=True)
-    tmp_fd, tmp_path = tempfile.mkstemp(
-        dir=tmp_dir, prefix=".restore-", suffix=".sqlite3"
-    )
-    os.close(tmp_fd)
     try:
-        bkp_conn = sqlite3.connect(backup_path, check_same_thread=False)
-        bkp_conn.isolation_level = None
-        try:
-            if not _integrity_check(bkp_conn):
-                raise RuntimeError(f"backup integrity_check failed for {backup_path}")
-            dst_conn = sqlite3.connect(tmp_path, check_same_thread=False)
-            dst_conn.isolation_level = None
-            dst_conn.execute("PRAGMA journal_mode=WAL")
-            dst_conn.execute("PRAGMA synchronous=NORMAL")
-            try:
-                bkp_conn.backup(dst_conn)
-                dst_conn.execute("PRAGMA wal_checkpoint=FULL")
-                dst_conn.execute("PRAGMA journal_mode=DELETE")
-            finally:
-                dst_conn.close()
-        finally:
-            bkp_conn.close()
+        with exclusive_file_lock(LOCK_PATH):
+            # Move the current target and its sidecars into a rollback bundle.
+            for suffix in _sidecar_suffixes():
+                orig = target + suffix
+                if Path(orig).exists():
+                    bk = bundle_base + suffix
+                    Path(orig).replace(bk)
+                    Path(bk).chmod(0o600)
+                    bundle[suffix] = bk
 
-        _fsync_file(tmp_path)
-        Path(tmp_path).chmod(0o600)
-        os.replace(tmp_path, target)
-        Path(target).chmod(0o600)
-        # Ensure no stale sidecars attach to the freshly restored DB.
-        for suffix in ("-wal", "-shm"):
-            stale = target + suffix
-            if Path(stale).exists():
-                Path(stale).unlink(missing_ok=True)
-        _fsync_file(target)
-        _fsync_dir(Path(target).parent)
-        return {
-            "status": "ok",
-            "backup": backup_path,
-            "target": target,
-            "previous_target_backup": bundle_base,
-            "metadata": _build_metadata(target, backup_path).as_dict(),
-        }
-    except BaseException:
-        # Internal rollback: restore the previous target bundle.
-        if Path(tmp_path).exists():
-            Path(tmp_path).unlink(missing_ok=True)
-        for suffix in _sidecar_suffixes():
-            bk = bundle.get(suffix)
-            orig = target + suffix
-            if bk and Path(bk).exists():
-                Path(orig).unlink(missing_ok=True)
-                Path(bk).replace(orig)
-                Path(orig).chmod(0o600)
-        raise
+            # Remove any stale sidecars that may have been left without a db.
+            for suffix in ("-wal", "-shm"):
+                stale = target + suffix
+                if Path(stale).exists():
+                    Path(stale).unlink(missing_ok=True)
+
+            tmp_dir = os.path.dirname(target)
+            os.makedirs(tmp_dir, exist_ok=True)
+            tmp_fd, tmp_path = tempfile.mkstemp(
+                dir=tmp_dir, prefix=".restore-", suffix=".sqlite3"
+            )
+            os.close(tmp_fd)
+            try:
+                bkp_conn = sqlite3.connect(backup_path, check_same_thread=False)
+                bkp_conn.isolation_level = None
+                try:
+                    if not _integrity_check(bkp_conn):
+                        raise RuntimeError(f"backup integrity_check failed for {backup_path}")
+                    dst_conn = sqlite3.connect(tmp_path, check_same_thread=False)
+                    dst_conn.isolation_level = None
+                    dst_conn.execute("PRAGMA journal_mode=WAL")
+                    dst_conn.execute("PRAGMA synchronous=NORMAL")
+                    try:
+                        bkp_conn.backup(dst_conn)
+                        dst_conn.execute("PRAGMA wal_checkpoint=FULL")
+                        dst_conn.execute("PRAGMA journal_mode=DELETE")
+                    finally:
+                        dst_conn.close()
+                finally:
+                    bkp_conn.close()
+
+                _fsync_file(tmp_path)
+                Path(tmp_path).chmod(0o600)
+                os.replace(tmp_path, target)
+                Path(target).chmod(0o600)
+                # Ensure no stale sidecars attach to the freshly restored DB.
+                for suffix in ("-wal", "-shm"):
+                    stale = target + suffix
+                    if Path(stale).exists():
+                        Path(stale).unlink(missing_ok=True)
+                _fsync_file(target)
+                _fsync_dir(Path(target).parent)
+                return {
+                    "status": "ok",
+                    "backup": backup_path,
+                    "target": target,
+                    "previous_target_backup": bundle_base,
+                    "restored_from": backup_path,
+                    "metadata": _build_metadata(target, backup_path).as_dict(),
+                }
+            except BaseException:
+                # Internal rollback: restore the previous target bundle.
+                if Path(tmp_path).exists():
+                    Path(tmp_path).unlink(missing_ok=True)
+                for suffix in _sidecar_suffixes():
+                    bk = bundle.get(suffix)
+                    orig = target + suffix
+                    if bk and Path(bk).exists():
+                        if Path(orig).exists():
+                            Path(orig).unlink(missing_ok=True)
+                        Path(bk).replace(orig)
+                        Path(orig).chmod(0o600)
+                raise
+    except FileLockError as exc:
+        raise RuntimeError(f"state backup lock unavailable: {exc}") from exc
 
 
 def verify_backup(backup_path: str, source_path: str | None = None) -> dict[str, Any]:
     """Verify backup integrity and compatibility without restoring."""
     settings = get_settings()
-    source = source_path or settings.bridge_state_db_path
-    if source:
-        source = os.path.abspath(source)
+    source = None
+    if source_path or settings.bridge_state_db_path:
+        candidate = source_path or settings.bridge_state_db_path
+        try:
+            source = _canonical_db_path(candidate, allowed_root=os.environ.get(ALLOWED_ROOT_ENV))
+        except ValueError:
+            source = None
     if not Path(backup_path).exists():
         raise FileNotFoundError(backup_path)
     bkp_conn = sqlite3.connect(backup_path, check_same_thread=False)
