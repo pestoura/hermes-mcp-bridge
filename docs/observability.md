@@ -1,9 +1,12 @@
 # Observability (Block 2)
 
-> Contract version **0.8.0** (additive over 0.6.1). Production remains on 0.6.1
-> until a later rollout. No existing tool request/response contract changes;
-> a 27th read-only tool (`hermes_readiness`) is added and the capability
-> manifest `bridge_version`/`manifest_version` move to 0.8.0.
+> Contract version **0.8.1** (patch over 0.8.0; the 0.8.x line is additive over
+> 0.6.1). No tool request/response contract changes in 0.8.1. The 0.8.x tool set
+> is 27 tools including the read-only `hermes_readiness`; the capability
+> manifest `bridge_version`/`manifest_version` are `0.8.1` and the wire schema
+> stays `0.6.1`. The required tool set per version is declared in
+> `src/hermes_mcp_bridge/contracts.py`; validators check the mandatory set and a
+> derived count, never a blind constant.
 
 Structured logging, exportable metrics, health/readiness and optional tracing
 for `hermes-mcp-bridge`. Everything here is **off or loopback-only by default**
@@ -143,7 +146,7 @@ swallowed and the tool call proceeds normally.
 state and bind scope, registry status, tracing implementation). No paths,
 tokens or keys are present.
 
-`hermes_readiness` is a new read-only tool reporting each component separately:
+`hermes_readiness` is a read-only tool reporting each component separately:
 
 | Component | Ready when |
 | --- | --- |
@@ -157,6 +160,34 @@ tokens or keys are present.
 
 Overall status is `ready`, `degraded` (upstream/tracing only) or `not_ready`.
 Readiness performs no `PRAGMA integrity_check` and no full table scans.
+
+### Tool contract component (0.8.1)
+
+`hermes_readiness` includes a `tool_contract` component and top-level
+`contract_version` / `schema_version` fields:
+
+```json
+{
+  "status": "ready",
+  "contract_version": "0.8.1",
+  "schema_version": "0.6.1",
+  "components": {
+    "tool_contract": {
+      "status": "ready",
+      "contract_version": "0.8.1",
+      "schema_version": "0.6.1",
+      "count": 27,
+      "expected_count": 27,
+      "missing": [],
+      "extra": []
+    }
+  }
+}
+```
+
+`missing` non-empty means the deployment does not satisfy its declared contract
+and readiness reports `not_ready`. `extra` is informational: additive tools are
+allowed within a contract line. No paths, keys or prompts are exposed.
 
 ## Tracing
 

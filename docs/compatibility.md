@@ -1,5 +1,46 @@
 # Compatibility
 
+## 0.8.0 → 0.8.1
+
+### Client compatibility
+
+- No breaking change. The 0.8.x tool set is unchanged: 27 tools, including
+  `hermes_readiness`.
+- Wire schema stays `0.6.1`. No envelope, event or payload field is renamed or
+  removed.
+- `hermes_health` and `hermes_capabilities` report `bridge_version` and
+  `manifest_version` `0.8.1`; `manifest_hash` changes accordingly and clients
+  that cache manifests must refresh.
+- `hermes_readiness` gains additive fields: `contract_version`,
+  `schema_version` and the `components.tool_contract` block. Old clients ignore
+  unknown fields.
+
+### Tool contract policy
+
+- The mandatory tool set per version is declared in
+  `src/hermes_mcp_bridge/contracts.py` (`TOOL_CONTRACTS`).
+- Validation rule: a deployment is valid when **no mandatory tool is missing**.
+  Missing tools are a hard failure. Extra (undeclared) tools are reported as a
+  warning, because additive tools are permitted within a contract line.
+- Counts are always derived from the required set; no caller hard-codes 26 or 27.
+
+| Contract | Tools | Adds |
+| --- | --- | --- |
+| 0.6.0 / 0.6.1 | 26 | — |
+| 0.8.0 / 0.8.1 | 27 | `hermes_readiness` |
+
+### Upgrade path
+
+1. Build and tag the 0.8.1 candidate image with the release SHA in
+   `org.opencontainers.image.revision`.
+2. Run `deploy/0.8.1/preflight.sh` (read-only).
+3. Run `deploy/0.8.1/deploy.sh` in dry-run and review the printed plan.
+4. Re-run with `EXECUTE_DEPLOYMENT=YES EXPECTED_SHA=<sha>` to apply.
+5. `deploy/0.8.1/validate.sh` asserts 27 tools, `hermes_readiness` present,
+   `bridge_version` 0.8.1 and `schema_version` 0.6.1.
+6. Roll back with `deploy/0.8.1/rollback.sh` (same two gates). No state
+   migration is reversed.
+
 ## 0.3.0 → 0.4.0
 
 ### Client compatibility

@@ -25,6 +25,7 @@ from .approvals import (
 from .checkpoints import CheckpointRegistry
 from .client import HermesAPIError, HermesClient
 from .config import get_settings
+from .contracts import CURRENT_CONTRACT_VERSION, SCHEMA_VERSION, validate_tools
 from .locks import LockError, LockRegistry, LockType, ResourceLock
 from .migrations import apply_migrations
 from .models import (
@@ -1513,8 +1514,8 @@ async def _build_capability_manifest() -> CapabilityManifest:
     ]
 
     return CapabilityManifest.build(
-        bridge_version="0.8.0",
-        manifest_version="0.8.0",
+        bridge_version=CURRENT_CONTRACT_VERSION,
+        manifest_version=CURRENT_CONTRACT_VERSION,
         tools=tools,
         orchestration_modes=["auto", "explicit"],
         limits={
@@ -1617,6 +1618,17 @@ async def hermes_readiness() -> dict[str, Any]:
         "api_key_configured": bool(settings.hermes_api_key.get_secret_value()),
     }
 
+    contract = validate_tools(server_tool_names(), version=CURRENT_CONTRACT_VERSION)
+    components["tool_contract"] = {
+        "status": "ready" if contract["ok"] else "not_ready",
+        "contract_version": CURRENT_CONTRACT_VERSION,
+        "schema_version": SCHEMA_VERSION,
+        "count": contract["count"],
+        "expected_count": contract["expected_count"],
+        "missing": contract["missing"],
+        "extra": contract["extra"],
+    }
+
     overall = "ready"
     for name, component in components.items():
         if component.get("status") != "ready":
@@ -1627,6 +1639,8 @@ async def hermes_readiness() -> dict[str, Any]:
         "status": overall,
         "version_added": "0.8.0",
         "bridge_version": settings.bridge_version,
+        "contract_version": CURRENT_CONTRACT_VERSION,
+        "schema_version": SCHEMA_VERSION,
         "components": components,
     }
 

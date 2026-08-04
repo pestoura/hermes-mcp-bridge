@@ -51,27 +51,19 @@ def test_compose_user_volume_healthcheck_hardening() -> None:
     assert "python -m hermes_mcp_bridge.healthcheck" in healthcheck["test"][-1]
 
 
-def test_smoke_expected_tools_exact() -> None:
+def test_smoke_expected_tools_derives_from_contract() -> None:
+    """The smoke script must not hard-code a tool list or a blind count."""
+
     script = Path("scripts/smoke_test.py").read_text(encoding="utf-8")
-    assert "EXPECTED_TOOLS = {" in script
-    expected = {
-        '"hermes_prompt"',
-        '"hermes_submit"',
-        '"hermes_wait"',
-        '"hermes_status"',
-        '"hermes_stop"',
-        '"hermes_health"',
-        '"hermes_recent_runs"',
-        '"hermes_capabilities"',
-        '"hermes_agent_card"',
-        '"hermes_policy_evaluate"',
-        '"hermes_approval_create"',
-        '"hermes_approval_respond"',
-        '"hermes_approval_status"',
-        '"hermes_result_manifest"',
-    }
-    for tool in expected:
-        assert tool in script
+    assert "EXPECTED_TOOLS = set(required_tools(CURRENT_CONTRACT_VERSION))" in script
+    assert "validate_tools(names, version=CURRENT_CONTRACT_VERSION)" in script
+    assert '"hermes_quota_status",' not in script
+
+    from hermes_mcp_bridge.contracts import CURRENT_CONTRACT_VERSION, required_tools
+
+    tools = required_tools(CURRENT_CONTRACT_VERSION)
+    assert len(tools) == 27
+    assert "hermes_readiness" in tools
 
 
 def test_execution_envelope_optional_fields_default_none() -> None:

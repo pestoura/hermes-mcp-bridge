@@ -104,9 +104,11 @@ The bridge does not possess SSH credentials, cloud tokens, Kanban credentials or
 
 ## Tool inventory
 
-Bridge version 0.8.0 (contract), built on the 0.6.1 runtime surface plus the
-Block 2 observability slice, exposes **27** tools (the 26 pre-existing tools and
-the read-only `hermes_readiness`):
+Bridge contract version 0.8.1 (wire schema 0.6.1), built on the 0.6.1 runtime
+surface plus the Block 2 observability slice, exposes **27** tools: the 26 tools
+of the 0.6.x contract plus the read-only `hermes_readiness`. The authoritative
+per-version tool set lives in `src/hermes_mcp_bridge/contracts.py`; the count is
+derived from it rather than hard-coded.
 
 - `hermes_submit`
 - `hermes_prompt`

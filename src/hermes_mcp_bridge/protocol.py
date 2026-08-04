@@ -10,6 +10,12 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from .contracts import (
+    CURRENT_CONTRACT_VERSION,
+    required_tools,
+    validate_tools,
+)
+
 
 class SchemaVersion(StrEnum):
     V0_4_0 = "0.4.0"
@@ -634,7 +640,7 @@ def canonical_capability_fallback(bridge_version: str) -> CapabilityManifest:
     }
     return CapabilityManifest.build(
         bridge_version=bridge_version,
-        manifest_version="0.8.0",
+        manifest_version=CURRENT_CONTRACT_VERSION,
         tools=tools,
         orchestration_modes=orchestration_modes,
         limits=limits,
@@ -643,38 +649,24 @@ def canonical_capability_fallback(bridge_version: str) -> CapabilityManifest:
     )
 
 
-_MANIFEST_TOOL_NAMES = {
-    "hermes_submit",
-    "hermes_prompt",
-    "hermes_wait",
-    "hermes_status",
-    "hermes_stop",
-    "hermes_health",
-    "hermes_recent_runs",
-    "hermes_capabilities",
-    "hermes_agent_card",
-    "hermes_policy_evaluate",
-    "hermes_approval_create",
-    "hermes_approval_respond",
-    "hermes_approval_status",
-    "hermes_result_manifest",
-    "hermes_plan",
-    "hermes_execute_approved_plan",
-    "hermes_checkpoint_create",
-    "hermes_checkpoint_status",
-    "hermes_continue",
-    "hermes_saga_start",
-    "hermes_saga_status",
-    "hermes_saga_compensate",
-    "hermes_lock_acquire",
-    "hermes_lock_status",
-    "hermes_lock_release",
-    "hermes_quota_status",
-}
+#: Known tool names for the current contract line. Derived from
+#: :mod:`hermes_mcp_bridge.contracts` so there is a single source of truth and
+#: no hard-coded 26/27 assumptions live here.
+_MANIFEST_TOOL_NAMES = set(required_tools(CURRENT_CONTRACT_VERSION))
 
 
 def validate_manifest_tools(manifest: CapabilityManifest) -> list[str]:
+    """Return manifest tools that are not part of the known contract set."""
+
     mismatched = [
         tool.name for tool in manifest.tools if tool.name not in _MANIFEST_TOOL_NAMES
     ]
     return sorted(mismatched)
+
+
+def validate_manifest_contract(
+    manifest: CapabilityManifest, version: str = CURRENT_CONTRACT_VERSION
+) -> dict[str, object]:
+    """Validate a manifest against the required tool set of ``version``."""
+
+    return validate_tools([tool.name for tool in manifest.tools], version=version)
