@@ -242,6 +242,26 @@ python -m ruff check .
 python -m pytest -q
 ```
 
+## Operational hardening (backup/restore and secret rotation)
+
+This branch adds canonical, testable operational utilities. They do not change
+the running bridge, `.env` files, or deployment behavior; they are tools and
+runbooks for operators.
+
+- State database backup/restore: `src/hermes_mcp_bridge/state_backup.py`.
+  Online SQLite `backup` API, `integrity_check`, atomic `0600` output, nested
+  paths, retention, dry-run, and fail-closed restore. See
+  [docs/state-backup.md](docs/state-backup.md).
+- Secret discovery/rotation: `src/hermes_mcp_bridge/secret_rotation.py`.
+  Discovers the effective `API_SERVER_KEY`/`HERMES_API_KEY` source, compares
+  only by SHA-256 prefix/length, supports inspect/plan/apply/verify/rollback,
+  and never restarts the gateway inside the agent process. See
+  [docs/secret-rotation.md](docs/secret-rotation.md).
+
+Both modules are covered by `tests/test_state_backup.py` and
+`tests/test_secret_rotation.py`. No secret values, full hashes, or `.env`
+contents appear in logs, tests, or the diff.
+
 ## Scope boundaries
 
 - No shell implementation in the bridge.
