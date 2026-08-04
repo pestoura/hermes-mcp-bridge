@@ -44,6 +44,10 @@ export HEALTH_FALLBACK_START_PERIOD="${HEALTH_FALLBACK_START_PERIOD:-10}"
 export HEALTH_FALLBACK_INTERVAL="${HEALTH_FALLBACK_INTERVAL:-30}"
 export HEALTH_FALLBACK_TIMEOUT="${HEALTH_FALLBACK_TIMEOUT:-5}"
 export HEALTH_FALLBACK_RETRIES="${HEALTH_FALLBACK_RETRIES:-3}"
+# When the container declares NO healthcheck there is nothing to verify. On the
+# deploy/rollback path that is a silent hole (a green result proving nothing),
+# so those callers set HEALTH_REQUIRE_HEALTHCHECK=1 and fail closed instead.
+export HEALTH_REQUIRE_HEALTHCHECK="${HEALTH_REQUIRE_HEALTHCHECK:-0}"
 
 log()  { printf '%s\n' "$*"; }
 ok()   { printf 'OK: %s\n' "$*"; }
@@ -195,6 +199,10 @@ wait_for_health() {
         return 1
         ;;
       none)
+        if [ "$HEALTH_REQUIRE_HEALTHCHECK" = "1" ]; then
+          warn "container sem healthcheck declarado: exigido para este caminho"
+          return 1
+        fi
         warn "container sem healthcheck declarado: estabilizacao nao verificavel"
         return 0
         ;;

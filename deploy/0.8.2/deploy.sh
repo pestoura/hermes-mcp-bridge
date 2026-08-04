@@ -79,6 +79,9 @@ PY
 
   compose "$COMPOSE_FILE" up -d
 
+  # Fail closed: a container with no declared healthcheck cannot prove it is
+  # ready, so it must not be accepted as a successful deployment.
+  export HEALTH_REQUIRE_HEALTHCHECK=1
   if ! wait_for_health "$CONTAINER_NAME" "$HEALTH_SETTLE_SECONDS"; then
     log "HEALTH NAO ESTABILIZOU -> executar rollback.sh"
     exit 1

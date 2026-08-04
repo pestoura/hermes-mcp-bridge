@@ -55,6 +55,7 @@ if [ "$current_image" = "$ROLLBACK_IMAGE" ]; then
   ok "container ja na imagem de rollback; nao recria (idempotente)"
 else
   compose "$COMPOSE_FILE" up -d
+  export HEALTH_REQUIRE_HEALTHCHECK=1
   wait_for_health "$CONTAINER_NAME" "$HEALTH_SETTLE_SECONDS" \
     || fail "health nao estabilizou apos rollback"
 fi
