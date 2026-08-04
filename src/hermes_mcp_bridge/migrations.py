@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
+from pathlib import Path
 
 from .config import get_settings
 
@@ -189,6 +190,14 @@ _MIGRATIONS: list[Migration] = [
             ON approvals (decision, created_at);
         """,
     ),
+    Migration(
+        version=10,
+        label="run_mappings_updated_at_index",
+        sql="""
+        CREATE INDEX IF NOT EXISTS idx_run_mappings_updated_at
+            ON run_mappings (updated_at);
+        """,
+    ),
 ]
 
 
@@ -228,6 +237,8 @@ def apply_migrations(db_path: str | None = None) -> int:
     """Apply pending migrations and return the current schema version."""
     settings = get_settings()
     target_db = db_path or settings.bridge_state_db_path
+    if target_db and not target_db.startswith(":memory:"):
+        Path(target_db).expanduser().resolve().parent.mkdir(parents=True, exist_ok=True)
     connection = _open_connection(target_db)
     try:
         connection.execute("PRAGMA journal_mode=WAL")
