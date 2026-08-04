@@ -7,15 +7,24 @@ Implementation: `src/hermes_mcp_bridge/secret_rotation.py`.
 
 - Secrets are **never** printed or logged. Comparison is by SHA-256 prefix,
   sanitized identity and length only.
+- All paths used by a rotation plan are **absolute, canonical, and derived from
+  the effectively discovered sources**. Relative paths and symlinks are rejected
+  (`plan_rotation`/`apply_rotation` validate this). The plan transports the
+  resolved paths, so `apply`/`rollback` cannot operate on unexpected files.
 - `API_SERVER_KEY` effective source is discovered from the gateway
   systemd unit `Environment`/`EnvironmentFile`, the unit's `WorkingDirectory`
   `.env`, and `/proc/<pid>/environ` (digest comparison only). We do **not**
   assume `EnvironmentFile` contains the key.
 - `HERMES_API_KEY` is discovered from `compose/.env` and the working-dir `.env`.
+- Source status is one of `consistent`, `mismatch`, `insufficient`,
+  `unknown`. A single present source is `insufficient` (gateway-memory vs
+  files comparison requires >=2 present sources). Rotation verification only
+  reports `verified` when status is `consistent`.
 - Modes: `inspect`, `plan`, `apply`, `finalize`, `rollback`, `verify`.
 - Rotation never restarts the gateway inside the agent process. It emits a
-  short external script and a `systemd-run --user` unit with a name <=55
-  chars, absolute path, timeout, and sanitized evidence.
+  short external script and a `systemd-run --user` **transient** unit whose
+  name (<=55 chars) is separate from the real target service. The real service
+  name is never truncated or altered.
 - If active API runs exist, planning aborts by default unless `--force`.
 - `docker restart` does **not** re-read `EnvironmentFile`/`.env` for the
   bridge; use `compose ... force-recreate` (or recreate the bridge container)
@@ -31,16 +40,23 @@ print(json.dumps(inspect_secrets(), indent=2))
 PY
 ```
 
-`comparable=True` means every present source agrees by digest.
+`comparable=True` means every present source agrees by digest and status is
+`consistent`.
 
 ## Plan / apply / verify / rollback
 
-- `plan_rotation(key, new_value=..., force=...)` -> dry plan; aborts if
-  active runs or health unknown (fail-closed).
-- `apply_rotation(plan)` writes atomically, preserves owner/mode, keeps
-  `*.pre-rotation` backups at `0600`. Requires `dry_run=False`.
+- `plan_rotation(key, new_value=..., force=..., target_service=...)` -> dry
+  plan with absolute discovered paths and a `plan_token` fingerprint of the
+  intended change. Aborts if active runs or health unknown (fail-closed).
+- `apply_rotation(plan)` re-validates active runs/health at apply time
+  (reduces TOCTOU), checks the `plan_token` to reject manually built/tampered
+  plans, writes atomically, preserves owner/mode, keeps `*.pre-rotation`
+  backups at `0600`. Requires `dry_run=False`.
 - `verify_rotation(key)` reports `verified`/`inconclusive` by digest only.
-- `rollback_rotation(plan)` restores both sides from `*.pre-rotation`.
+- `rollback_rotation(plan)` restores both sides from the operation's own
+  `*.pre-rotation` backups (unique per operation) and returns an explicit
+  external step for restart/verify. It does **not** declare operational
+  success while the in-memory process is not yet reconciled.
 
 ## Window with active runs
 
@@ -57,8 +73,9 @@ drain window or use `force=True` only with explicit operator authorization.
 
 ## Pre-checklist
 
-- [ ] `inspect_secrets()` shows `comparable=True` (or you accept mismatch).
+- [ ] `inspect_secrets()` shows `status=consistent` (or you accept mismatch).
 - [ ] No active API runs, or `force=True` authorized.
+- [ ] Plan paths are absolute/canonical and match discovered sources.
 - [ ] External restart script/unit prepared (not executed inside agent).
 - [ ] `*.pre-rotation` backup paths known.
 
@@ -77,11 +94,14 @@ drain window or use `force=True` only with explicit operator authorization.
 
 ## Incident regression coverage
 
-- Wrong source `n8n.env`: effective gateway source empty -> not comparable.
+- Wrong source `n8n.env`: effective gateway source empty -> `insufficient`.
 - Empty value hash: empty value yields empty digest, `comparable=False`.
 - `docker restart` not re-reading env: runbook mandates force-recreate.
-- systemd unit name too long: `_short_unit_name` enforces <=55 chars.
+- systemd unit name too long: transient unit name enforced <=55 chars and is
+  separate from the real target service name.
 - `set -e` in interactive shell: external script uses `set -euo pipefail`
   only in non-interactive context.
-- Gateway in-memory value differs from files: `verify` compares digests and
-  reports `inconclusive` on mismatch.
+- Gateway in-memory value differs from files: `verify` classifies `mismatch`
+  and reports `inconclusive`.
+- Relative/symlink paths: rejected by plan/apply validation (CWD-independent).
+- Manually built plan: rejected by `plan_token` check at apply time.

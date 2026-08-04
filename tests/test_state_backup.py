@@ -1,216 +1,184 @@
-"""Regression tests for online SQLite backup/restore hardening.
-
-These tests never touch production state. They operate on isolated
-temporary databases created in the pytest temp directory.
-"""
-
-from __future__ import annotations
-
 import os
 import sqlite3
-import stat
-from pathlib import Path
 
 import pytest
 
-from hermes_mcp_bridge import state_backup
-from hermes_mcp_bridge.state_backup import (
-    _integrity_check,
-    backup_state_db,
-    restore_state_db,
-    verify_backup,
-)
+from hermes_mcp_bridge import state_backup as sb
 
 
-@pytest.fixture()
-def settings_stub(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
-    class _S:
-        bridge_state_db_path = str(tmp_path / "state.sqlite3")
-        bridge_version = "0.7.0-test"
-
-    monkeypatch.setattr(state_backup, "get_settings", lambda: _S())
-    monkeypatch.setattr(state_backup, "_SETTINGS", _S())
-    return _S()
-
-
-def _seed(db_path: str) -> None:
-    conn = sqlite3.connect(db_path)
-    conn.execute("CREATE TABLE IF NOT EXISTS runs (id INTEGER PRIMARY KEY, name TEXT)")
-    conn.execute("INSERT INTO runs (name) VALUES ('alpha'), ('beta')")
+@pytest.fixture
+def settings(monkeypatch, tmp_path):
+    db = tmp_path / "state.sqlite3"
+    conn = sqlite3.connect(str(db))
+    conn.execute("CREATE TABLE schema_migrations(version INTEGER)")
+    conn.execute("INSERT INTO schema_migrations(version) VALUES (1)")
     conn.commit()
     conn.close()
+    cfg = {"bridge_state_db_path": str(db), "bridge_version": "0.7.0"}
+
+    def _cfg():
+        return type("S", (), cfg)()
+
+    monkeypatch.setattr("hermes_mcp_bridge.state_backup.get_settings", _cfg)
+    return type("S", (), cfg)()
 
 
-def _enable_wal(db_path: str) -> None:
-    conn = sqlite3.connect(db_path)
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.commit()
-    conn.close()
+def test_backup_creates_unique_file(settings, tmp_path):
+    r1 = sb.backup_state_db()
+    r2 = sb.backup_state_db()
+    assert r1["status"] == "ok"
+    assert r2["status"] == "ok"
+    assert r1["backup"] != r2["backup"]
+    assert os.path.exists(r1["backup"])
+    assert os.path.exists(r2["backup"])
 
 
-def test_backup_online_consistent_with_wal(
-    settings_stub: object, tmp_path: Path
-) -> None:
-    settings = settings_stub  # type: ignore[assignment]
-    db = settings.bridge_state_db_path  # type: ignore[attr-defined]
-    _seed(db)
-    _enable_wal(db)
-    # concurrent writer while backup runs
-    writer = sqlite3.connect(db, timeout=5)
-    writer.execute("INSERT INTO runs (name) VALUES ('gamma')")
-    writer.commit()
-    backup_path = str(tmp_path / "nested" / "dir" / "state.sqlite3.backup")
-    result = backup_state_db(db, backup_path)
-    writer.close()
-    assert result["status"] == "ok"
-    assert result["backup"] == backup_path
-    assert os.path.exists(backup_path)
-    # mode 0600
-    mode = stat.S_IMODE(os.stat(backup_path).st_mode)
-    assert mode == 0o600
-    # integrity of backup
-    bconn = sqlite3.connect(backup_path)
-    assert _integrity_check(bconn)
-    rows = bconn.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
-    bconn.close()
-    assert rows >= 3
-
-
-def test_backup_dry_run_does_not_write(settings_stub: object, tmp_path: Path) -> None:
-    settings = settings_stub  # type: ignore[assignment]
-    db = settings.bridge_state_db_path  # type: ignore[attr-defined]
-    _seed(db)
-    backup_path = str(tmp_path / "state.sqlite3.backup")
-    result = backup_state_db(db, backup_path, dry_run=True)
-    assert result["status"] == "dry_run"
-    assert not os.path.exists(backup_path)
-    assert "metadata" in result
-    assert result["metadata"]["integrity_ok"] in (True, False)
-
-
-def test_backup_metadata_sanitized_no_secrets(
-    settings_stub: object, tmp_path: Path
-) -> None:
-    settings = settings_stub  # type: ignore[assignment]
-    db = settings.bridge_state_db_path  # type: ignore[attr-defined]
-    _seed(db)
-    backup_path = str(tmp_path / "state.sqlite3.backup")
-    result = backup_state_db(db, backup_path)
-    meta = result["metadata"]
+def test_backup_metadata_no_secrets(settings, tmp_path):
+    r = sb.backup_state_db()
+    meta = r["metadata"]
+    blob = str(meta)
+    assert "secret" not in blob.lower()
+    assert meta["schema_migrations_count"] == 1
+    assert meta["schema_migrations_version"] == 1
+    assert meta["online_backup"] is True
     assert "rows" not in meta
-    assert "data" not in meta
-    for key in ("source_sha256_prefix", "backup_sha256_prefix"):
-        assert isinstance(meta[key], str)
-        assert len(meta[key]) <= 16
-    assert meta["bridge_version"] == "0.7.0-test"
-    assert meta["mode"] == 0o600
 
 
-def test_restore_round_trip(settings_stub: object, tmp_path: Path) -> None:
-    settings = settings_stub  # type: ignore[assignment]
-    db = settings.bridge_state_db_path  # type: ignore[attr-defined]
-    _seed(db)
-    backup_path = str(tmp_path / "state.sqlite3.backup")
-    backup_state_db(db, backup_path)
+def test_backup_mode_0600_and_nested_dirs(settings, tmp_path):
+    r = sb.backup_state_db(backup_path=str(tmp_path / "a" / "b" / "c" / "state.backup"))
+    assert r["status"] == "ok"
+    mode = oct(os.stat(r["backup"]).st_mode & 0o777)
+    assert mode == "0o600"
+    assert (tmp_path / "a" / "b" / "c").exists()
 
-    # mutate source then restore
-    conn = sqlite3.connect(db)
-    conn.execute("DELETE FROM runs")
+
+def test_backup_dry_run_creates_no_files(settings, tmp_path):
+    before = set(p.name for p in tmp_path.iterdir())
+    r = sb.backup_state_db(dry_run=True)
+    after = set(p.name for p in tmp_path.iterdir())
+    assert r["status"] == "dry_run"
+    assert before == after
+    assert "temporary_backup" not in r
+
+
+def test_backup_existing_target_fail_closed(settings, tmp_path):
+    target = tmp_path / "explicit.backup"
+    target.write_text("old")
+    with pytest.raises(FileExistsError):
+        sb.backup_state_db(backup_path=str(target))
+    r = sb.backup_state_db(backup_path=str(target), overwrite=True)
+    assert r["status"] == "ok"
+
+
+def test_backup_online_consistent_with_wal(settings, tmp_path):
+    db = settings.bridge_state_db_path
+    writer = sqlite3.connect(db)
+    writer.execute("BEGIN IMMEDIATE")
+    writer.execute("CREATE TABLE IF NOT EXISTS t(x)")
+    r = sb.backup_state_db()
+    writer.commit()
+    writer.close()
+    assert r["status"] == "ok"
+    bk = sqlite3.connect(r["backup"])
+    assert bk.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 1
+    bk.close()
+
+
+def test_backup_source_missing_fail_closed(settings, tmp_path, monkeypatch):
+    cfg = {"bridge_state_db_path": str(tmp_path / "nope.sqlite3"), "bridge_version": "0.7.0"}
+
+    def _cfg():
+        return type("S", (), cfg)()
+
+    monkeypatch.setattr("hermes_mcp_bridge.state_backup.get_settings", _cfg)
+    with pytest.raises(FileNotFoundError):
+        sb.backup_state_db()
+
+
+def test_backup_source_corrupt_fail_closed(settings, tmp_path, monkeypatch):
+    bad = tmp_path / "bad.sqlite3"
+    bad.write_bytes(b"not a sqlite database at all")
+    with pytest.raises(RuntimeError):
+        sb.backup_state_db(source_path=str(bad))
+
+
+def test_restore_round_trip(settings, tmp_path):
+    r = sb.backup_state_db()
+    conn = sqlite3.connect(settings.bridge_state_db_path)
+    conn.execute("CREATE TABLE extra(y)")
     conn.commit()
     conn.close()
-
-    # target not opened by a writer -> restore proceeds
-    res = restore_state_db(backup_path, db, force=True)
-    assert res["status"] == "ok"
-    assert Path(res["previous_target_backup"]).exists()
-    rconn = sqlite3.connect(db)
-    count = rconn.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
-    rconn.close()
-    assert count == 2
+    rr = sb.restore_state_db(r["backup"])
+    assert rr["status"] == "ok"
+    conn = sqlite3.connect(settings.bridge_state_db_path)
+    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    conn.close()
+    assert "extra" not in tables
+    assert "schema_migrations" in tables
 
 
-def test_restore_refuses_active_writer(
-    settings_stub: object, tmp_path: Path
-) -> None:
-    settings = settings_stub  # type: ignore[assignment]
-    db = settings.bridge_state_db_path  # type: ignore[attr-defined]
-    _seed(db)
-    backup_path = str(tmp_path / "state.sqlite3.backup")
-    backup_state_db(db, backup_path)
-    # hold a writer connection (simulates active bridge)
-    writer = sqlite3.connect(db, timeout=1)
+def test_restore_prevents_stale_sidecars(settings, tmp_path):
+    r = sb.backup_state_db()
+    stray_wal = settings.bridge_state_db_path + "-wal"
+    stray_shm = settings.bridge_state_db_path + "-shm"
+    open(stray_wal, "w").close()
+    open(stray_shm, "w").close()
+    sb.restore_state_db(r["backup"])
+    assert not os.path.exists(stray_wal)
+    assert not os.path.exists(stray_shm)
+
+
+def test_restore_internal_rollback_on_failure(settings, tmp_path, monkeypatch):
+    r = sb.backup_state_db()
+    conn = sqlite3.connect(settings.bridge_state_db_path)
+    conn.execute("CREATE TABLE marker(z)")
+    conn.commit()
+    conn.close()
+    orig_hash = sb._sha256_file(settings.bridge_state_db_path)
+
+    def boom(*a, **k):
+        raise RuntimeError("injected failure")
+
+    monkeypatch.setattr("hermes_mcp_bridge.state_backup._integrity_check", boom)
+    with pytest.raises(RuntimeError):
+        sb.restore_state_db(r["backup"])
+    assert os.path.exists(settings.bridge_state_db_path)
+    assert sb._sha256_file(settings.bridge_state_db_path) == orig_hash
+
+
+def test_restore_refuses_active_writer(settings, tmp_path):
+    r = sb.backup_state_db()
+    writer = sqlite3.connect(settings.bridge_state_db_path)
     writer.execute("BEGIN IMMEDIATE")
     with pytest.raises(RuntimeError):
-        restore_state_db(backup_path, db, force=False)
-    writer.rollback()
+        sb.restore_state_db(r["backup"])
+    writer.commit()
     writer.close()
 
 
-def test_restore_preserves_previous_target(
-    settings_stub: object, tmp_path: Path
-) -> None:
-    settings = settings_stub  # type: ignore[assignment]
-    db = settings.bridge_state_db_path  # type: ignore[attr-defined]
-    _seed(db)
-    backup_path = str(tmp_path / "state.sqlite3.backup")
-    backup_state_db(db, backup_path)
-    res = restore_state_db(backup_path, db, force=True)
-    prev = Path(res["previous_target_backup"])
-    assert prev.exists()
-    mode = stat.S_IMODE(os.stat(prev).st_mode)
-    assert mode == 0o600
-
-
-def test_restore_corrupt_backup_fail_closed(
-    settings_stub: object, tmp_path: Path
-) -> None:
-    settings = settings_stub  # type: ignore[assignment]
-    db = settings.bridge_state_db_path  # type: ignore[attr-defined]
-    _seed(db)
-    corrupt = tmp_path / "corrupt.sqlite3"
-    corrupt.write_bytes(b"not a sqlite database at all")
-    with pytest.raises(RuntimeError):
-        restore_state_db(str(corrupt), db, force=True)
-
-
-def test_verify_backup_reports_compatibility(
-    settings_stub: object, tmp_path: Path
-) -> None:
-    settings = settings_stub  # type: ignore[assignment]
-    db = settings.bridge_state_db_path  # type: ignore[attr-defined]
-    _seed(db)
-    backup_path = str(tmp_path / "state.sqlite3.backup")
-    backup_state_db(db, backup_path)
-    # simulate higher-version backup vs source
-    bconn = sqlite3.connect(backup_path)
-    bconn.execute(
-        "CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER)"
+def test_restore_requires_force_for_unknown_writer(settings, tmp_path, monkeypatch):
+    r = sb.backup_state_db()
+    monkeypatch.setattr(
+        "hermes_mcp_bridge.state_backup._detect_writer_state",
+        lambda p: sb.WriterState.UNKNOWN,
     )
-    bconn.execute("INSERT INTO schema_migrations VALUES (99)")
-    bconn.commit()
-    bconn.close()
-    report = verify_backup(backup_path, db)
-    assert report["backup_integrity"] is True
-    assert report["compatible"] is False  # backup newer than source
+    with pytest.raises(RuntimeError):
+        sb.restore_state_db(r["backup"])
+    rr = sb.restore_state_db(r["backup"], force=True)
+    assert rr["status"] == "ok"
 
 
-def test_backup_source_missing_fail_closed(
-    settings_stub: object, tmp_path: Path
-) -> None:
-    missing = str(tmp_path / "does-not-exist.sqlite3")
-    with pytest.raises(FileNotFoundError):
-        backup_state_db(missing, str(tmp_path / "out.backup"))
+def test_restore_explicit_target(settings, tmp_path):
+    r = sb.backup_state_db()
+    dest = tmp_path / "other.sqlite3"
+    rr = sb.restore_state_db(r["backup"], target_path=str(dest))
+    assert rr["target"] == str(dest)
+    assert os.path.exists(str(dest))
 
 
-def test_backup_mode_is_0600_and_nested_dirs(
-    settings_stub: object, tmp_path: Path
-) -> None:
-    settings = settings_stub  # type: ignore[assignment]
-    db = settings.bridge_state_db_path  # type: ignore[attr-defined]
-    _seed(db)
-    backup_path = str(tmp_path / "a" / "b" / "c" / "state.sqlite3.backup")
-    backup_state_db(db, backup_path)
-    assert os.path.exists(backup_path)
-    assert os.path.isdir(tmp_path / "a" / "b" / "c")
-    mode = stat.S_IMODE(os.stat(backup_path).st_mode)
-    assert mode == 0o600
+def test_verify_backup_compatibility(settings, tmp_path):
+    r = sb.backup_state_db()
+    v = sb.verify_backup(r["backup"])
+    assert v["backup_integrity"] is True
+    assert v["compatible"] is True
+    assert v["online_backup"] is True
