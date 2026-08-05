@@ -157,6 +157,7 @@ tokens or keys are present.
 | `logging` | handler installed |
 | `tracing` | always ready (no-op is a valid implementation) |
 | `config` | settings loaded, API key present (boolean only) |
+| `security_posture` | policy loaded+valid, HMAC requirement satisfied, approval registry up |
 
 Overall status is `ready`, `degraded` (upstream/tracing only) or `not_ready`.
 Readiness performs no `PRAGMA integrity_check` and no full table scans.
@@ -188,6 +189,47 @@ Readiness performs no `PRAGMA integrity_check` and no full table scans.
 `missing` non-empty means the deployment does not satisfy its declared contract
 and readiness reports `not_ready`. `extra` is informational: additive tools are
 allowed within a contract line. No paths, keys or prompts are exposed.
+
+### Security posture component (0.9.0)
+
+`hermes_health` no longer emits the misleading
+`policy.default_policy_source=env/file/empty` declaration. Both `hermes_health`
+and `hermes_readiness` now carry a `security_posture` component reporting the
+*actual* state:
+
+```json
+{
+  "security_posture": {
+    "status": "ready",
+    "policy": {
+      "loaded": true,
+      "valid": true,
+      "source": "file",
+      "name": "production",
+      "policy_hash": "<sha256>",
+      "security_mode": "production",
+      "error": null
+    },
+    "hmac": {
+      "required": true,
+      "configured": true,
+      "source_type": "file",
+      "key_id": "2026-08-key1",
+      "previous_verifier": true,
+      "previous_key_id": "2026-05-key0",
+      "security_mode": "production",
+      "error": null
+    },
+    "approval_registry": {"status": "ready"},
+    "failing": []
+  }
+}
+```
+
+`source` is one of `inline` / `file` / `builtin` and reflects what was really
+loaded. `status` is `not_ready` when the policy is invalid or missing, when a
+signing key is required but absent or too short, or when the approval registry
+is down. No key material, no secret file paths, no policy contents are exposed.
 
 ## Tracing
 

@@ -422,8 +422,8 @@ class ExtendedToolManifest(ToolManifest):
 
 def _canonical_json_hash(payload: Any) -> str:
     if isinstance(payload, dict):
-        if "__canonical__" in payload:
-            return str(payload["__canonical__"])
+        # No caller-supplied digest override: the hash is always computed from
+        # the payload itself (the "__canonical__" bypass was removed in 0.9.0).
         canonical = _normalize(payload)
         encoded = json.dumps(canonical, separators=(",", ":"), ensure_ascii=False)
         return hashlib.sha256(encoded.encode("utf-8")).hexdigest()

@@ -116,7 +116,7 @@ def test_policy_deny_explicit_action() -> None:
 def test_policy_require_approval_high_risk_mutation() -> None:
     result = evaluate_policy(
         PolicyEvaluationInput(
-            action="write",
+            action="hermes_saga_start",
             trust_label=TrustLabel.UNTRUSTED_CONTENT,
             mutation_class=MutationClass.WRITE,
         )
@@ -124,9 +124,23 @@ def test_policy_require_approval_high_risk_mutation() -> None:
     assert result.decision == DecisionType.REQUIRE_APPROVAL
 
 
-def test_result_manifest_unsigned_by_default() -> None:
-    if os.environ.get("HERMES_BRIDGE_HMAC_SECRET"):
-        del os.environ["HERMES_BRIDGE_HMAC_SECRET"]
+def test_policy_denies_action_unknown_to_the_active_policy() -> None:
+    """0.9.0: an action the policy does not declare is DENY, not WRITE."""
+
+    result = evaluate_policy(
+        PolicyEvaluationInput(
+            action="write",
+            trust_label=TrustLabel.UNTRUSTED_CONTENT,
+            mutation_class=MutationClass.WRITE,
+        )
+    )
+    assert result.decision == DecisionType.DENY
+
+
+def test_result_manifest_unsigned_by_default(monkeypatch) -> None:
+    monkeypatch.delenv("HERMES_BRIDGE_HMAC_SECRET", raising=False)
+    monkeypatch.delenv("HERMES_BRIDGE_HMAC_SECRET_FILE", raising=False)
+    monkeypatch.setenv("BRIDGE_SECURITY_MODE", "test")
     manifest = build_result_manifest(
         execution_id="exec-1",
         session_id="session-1",

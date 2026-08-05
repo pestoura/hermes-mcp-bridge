@@ -9,8 +9,18 @@ services:
     user: "${BRIDGE_UID:-1000}:${BRIDGE_GID:-1000}"
     volumes:
       - "${BRIDGE_STATE_DIR:-./data}:/var/lib/hermes-mcp-bridge"
+      - "./config/policies:/etc/hermes-mcp-bridge/policies:ro"
     env_file:
       - .env
+    # Docker secrets: mounted read-only at /run/secrets/<name>. The *_FILE env
+    # vars below take precedence over the plain env values, so a local .env
+    # setup keeps working unchanged when no secrets are declared.
+    secrets:
+      - hermes_api_key
+      - hermes_bridge_hmac_secret
+      - hermes_bridge_hmac_secret_previous
+    # Note: the *_FILE env vars below stay empty unless you opt in, so an
+    # env-only deployment is unaffected by the presence of these mounts.
     read_only: true
     security_opt:
       - no-new-privileges:true
@@ -31,6 +41,18 @@ services:
       BRIDGE_METRICS_PORT: "${BRIDGE_METRICS_PORT:-9464}"
       BRIDGE_TRACING_ENABLED: "${BRIDGE_TRACING_ENABLED:-}"
       BRIDGE_TRACING_EXPORT: "${BRIDGE_TRACING_EXPORT:-}"
+      # Security posture (Block 6B). Non-secret values only.
+      BRIDGE_SECURITY_MODE: "${BRIDGE_SECURITY_MODE:-production}"
+      BRIDGE_POLICY_PATH: "${BRIDGE_POLICY_PATH:-/etc/hermes-mcp-bridge/policies/production.json}"
+      HERMES_BRIDGE_HMAC_KEY_ID: "${HERMES_BRIDGE_HMAC_KEY_ID:-}"
+      HERMES_BRIDGE_HMAC_PREVIOUS_KEY_ID: "${HERMES_BRIDGE_HMAC_PREVIOUS_KEY_ID:-}"
+      # File-backed secrets win over env values; the referenced files are the
+      # Docker secrets declared above.
+      # Empty by default so a plain .env deployment keeps working; set them
+      # (typically to /run/secrets/<name>) to switch to file-backed secrets.
+      HERMES_API_KEY_FILE: "${HERMES_API_KEY_FILE:-}"
+      HERMES_BRIDGE_HMAC_SECRET_FILE: "${HERMES_BRIDGE_HMAC_SECRET_FILE:-}"
+      HERMES_BRIDGE_HMAC_SECRET_PREVIOUS_FILE: "${HERMES_BRIDGE_HMAC_SECRET_PREVIOUS_FILE:-}"
     healthcheck:
       test:
         - CMD-SHELL
@@ -41,3 +63,14 @@ services:
       retries: 3
       start_period: 10s
     stop_grace_period: 20s
+
+# Secret files are provided by the operator and are never committed. Keep them
+# outside the repository (the paths below are the documented convention) with
+# 0400 permissions owned by the bridge UID.
+secrets:
+  hermes_api_key:
+    file: ${BRIDGE_SECRETS_DIR:-./secrets}/hermes_api_key
+  hermes_bridge_hmac_secret:
+    file: ${BRIDGE_SECRETS_DIR:-./secrets}/hermes_bridge_hmac_secret
+  hermes_bridge_hmac_secret_previous:
+    file: ${BRIDGE_SECRETS_DIR:-./secrets}/hermes_bridge_hmac_secret_previous
