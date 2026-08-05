@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     mcp_path: str = "/mcp"
     log_level: str = "INFO"
     bridge_state_db_path: str = "/var/lib/hermes-mcp-bridge/state.sqlite3"
-    bridge_version: str = "0.9.0"
+    bridge_version: str = "1.0.0"
 
     # Resilience remains disabled by default. Enabling it is an explicit
     # operator decision and therefore does not change request behaviour during
