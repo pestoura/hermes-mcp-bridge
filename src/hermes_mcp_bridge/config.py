@@ -41,6 +41,21 @@ class Settings(BaseSettings):
     bridge_state_db_path: str = "/var/lib/hermes-mcp-bridge/state.sqlite3"
     bridge_version: str = "0.9.0"
 
+    # Resilience remains disabled by default. Enabling it is an explicit
+    # operator decision and therefore does not change request behaviour during
+    # an upgrade.
+    bridge_retry_enabled: bool = False
+    bridge_retry_max_attempts: int = Field(default=3, ge=1, le=10)
+    bridge_retry_base_seconds: float = Field(default=0.5, gt=0, le=60.0)
+    bridge_retry_max_seconds: float = Field(default=10.0, gt=0, le=300.0)
+    bridge_retry_jitter_ratio: float = Field(default=0.1, ge=0.0, le=1.0)
+
+    bridge_circuit_enabled: bool = False
+    bridge_circuit_failure_threshold: int = Field(default=5, ge=1, le=1000)
+    bridge_circuit_recovery_seconds: float = Field(default=30.0, gt=0, le=3600.0)
+    bridge_circuit_half_open_max_calls: int = Field(default=1, ge=1, le=100)
+    bridge_circuit_success_threshold: int = Field(default=1, ge=1, le=100)
+
     @model_validator(mode="after")
     def _resolve_file_backed_secrets(self) -> "Settings":
         """Apply ``HERMES_API_KEY_FILE`` precedence and require a key."""
