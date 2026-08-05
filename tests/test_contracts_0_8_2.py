@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import json
 import types
 from pathlib import Path
 
@@ -25,6 +26,11 @@ from hermes_mcp_bridge.contracts import (
 from hermes_mcp_bridge.protocol import (
     validate_manifest_contract,
     validate_manifest_tools,
+)
+
+SNAPSHOT_PATH = Path("contracts/1.0.0.json")
+EXPECTED_1_0_0_DIGEST = (
+    "543213dedc2928466e5ec8ed9e2d4f9a464c7204cef737584a2a7e774c378e2d"
 )
 
 
@@ -83,10 +89,16 @@ def test_contract_snapshot_is_canonical() -> None:
     assert len(tools) == 27
 
 
-def test_contract_digest_is_deterministic_and_versioned() -> None:
+def test_versioned_snapshot_file_matches_generated_contract() -> None:
+    persisted = json.loads(SNAPSHOT_PATH.read_text(encoding="utf-8"))
+    assert persisted == contract_snapshot("1.0.0")
+
+
+def test_contract_digest_is_deterministic_and_pinned() -> None:
     first = contract_digest("1.0.0")
     second = contract_digest("1.0.0")
     assert first == second
+    assert first == EXPECTED_1_0_0_DIGEST
     assert len(first) == 64
     assert first != contract_digest("0.9.0")
 
