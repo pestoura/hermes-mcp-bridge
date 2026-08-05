@@ -180,7 +180,9 @@ def test_validate_requires_full_0_9_security_posture() -> None:
 
 def test_rollback_is_idempotent_and_never_reverts_sqlite() -> None:
     text = _read("rollback.sh")
-    assert 'if [ "$current_image" = "$ROLLBACK_IMAGE" ]; then' in text
+    assert 'if [ "$current_image_id" = "$ROLLBACK_IMAGE_ID" ]; then' in text
+    assert "--force-recreate" in text
+    assert "running_image_id" in text
     assert "sqlite3" not in text
     assert " rm " not in text
     assert "REQUIRE_0_9_SECURITY=0" in text
@@ -191,6 +193,9 @@ def test_deploy_backs_up_state_and_requires_security_validation() -> None:
     assert 'python3 - "$STATE_DB" "$backup_path"' in text
     assert "src.backup(dst)" in text
     assert "REQUIRE_0_9_SECURITY=1" in text
+    assert "candidate_image_id" in text
+    assert "running_image_id" in text
+    assert "--force-recreate" in text
     dry_index = text.index("DRY_RUN: nenhuma accao mutavel executada.")
     exit_index = text.index("exit 0", dry_index)
     mutation_index = text.index('compose "$COMPOSE_FILE" up -d')
