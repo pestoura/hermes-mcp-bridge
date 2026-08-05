@@ -395,14 +395,16 @@ def test_shell_tool_count_matches_the_python_contract() -> None:
     """The shell constant and contracts.py must never drift apart."""
 
     from hermes_mcp_bridge.contracts import (
-        CURRENT_CONTRACT_VERSION,
         SCHEMA_VERSION,
         expected_tool_count,
     )
 
+    # The 0.8.2 rollout bundle is a frozen release artefact: BRIDGE_VERSION stays
+    # pinned to "0.8.2" (see test_rollout_scripts_0_8_2.py). What must never drift
+    # is the tool count and the wire schema, which are identical for 0.8.2/0.9.0.
     lib = (DEPLOY_DIR / "lib.sh").read_text(encoding="utf-8")
-    assert f'export EXPECTED_TOOL_COUNT="{expected_tool_count()}"' in lib
-    assert f'export BRIDGE_VERSION="{CURRENT_CONTRACT_VERSION}"' in lib
+    assert f'export EXPECTED_TOOL_COUNT="{expected_tool_count("0.8.2")}"' in lib
+    assert 'export BRIDGE_VERSION="0.8.2"' in lib
     assert f'export SCHEMA_VERSION="{SCHEMA_VERSION}"' in lib
 
 

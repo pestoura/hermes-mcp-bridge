@@ -5,6 +5,47 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.9.0 — Base image security (Python 3.12 slim Trixie, digest-pinned)
+
+### Changed
+
+- **Container base image** moves from the floating tag
+  `python:3.11-slim-bookworm` to
+  `python:3.12-slim-trixie@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de`,
+  pinned by digest and referenced from a single `ARG BASE_IMAGE` so the builder
+  and runtime stages cannot drift apart. Scanned with identical Trivy flags and
+  **without** `--ignore-unfixed`, this takes the image from 6 CRITICAL / 20 HIGH
+  (0.8.2 baseline) to 4 CRITICAL / 19 HIGH.
+- Package, bridge and manifest version bumped to `0.9.0`. The wire schema stays
+  `0.6.1`, the tool set stays at 27 with `hermes_readiness` mandatory, and there
+  is no new SQLite migration. Clients caching the capability manifest must
+  refresh because `bridge_version`/`manifest_version`/`manifest_hash` move.
+
+### Security
+
+- Runtime stage now installs `ca-certificates` and runs `update-ca-certificates`
+  explicitly, so outbound TLS validation does not depend on base-image defaults.
+- `apt-get clean` added alongside `--no-install-recommends` and the apt-list
+  cleanup in every installing layer; `__pycache__` and `/root/.cache` are removed
+  from the final layer.
+- systemd, dbus and init-system-helpers remain deliberately absent. The three
+  known failing tests on 3.11/3.12/3.13 alike are host-only `systemctl` /
+  `systemd-run` cases from the secret-rotation flow; they are reported in the
+  normal host gates rather than papered over by installing systemd in the image.
+
+### Added
+
+- `docs/base-image-security-0.9.0.md`: the decision, the CVE matrix, the test
+  matrix across 3.11/3.12/3.13, and the rejection rationale for
+  3.11-slim-bookworm, 3.13-slim-trixie, Alpine and distroless.
+- `tests/test_base_image_0_9_0.py`: static contract tests requiring a
+  digest-pinned Python 3.12 Trixie base shared by both stages, no floating
+  `python:` reference anywhere, non-root `bridge:bridge` as the last transition
+  before `CMD`, minimal/cleaned apt usage, CA certificates present, no build
+  toolchain in the runtime stage, the SQLite state directory owned by the bridge
+  user, compose privilege-drop preserved, and the 27-tool / `0.6.1` contract
+  unchanged.
+
 ## 0.8.2 — Health-settle correctness (false-rollback fix)
 
 ### Fixed
