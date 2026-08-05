@@ -6,11 +6,15 @@ hard-coded ``26``) from scripts, docs and tests: callers validate against an
 explicit required set for a given version, and the count is always derived
 from that set.
 
-No secrets, paths or runtime values are stored here.
+The 1.0 contract also exposes a canonical snapshot and digest. They allow CI,
+release evidence and clients to detect silent removals or renames without
+storing secrets, paths or runtime values.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 from types import MappingProxyType
 
 #: Tools that exist since the 0.6.x contract line.
@@ -58,13 +62,15 @@ TOOL_CONTRACTS: MappingProxyType[str, frozenset[str]] = MappingProxyType(
         "0.8.2": _TOOLS_0_6 | _TOOLS_ADDED_0_8,
         # 0.9.0 is a base-image/security release: identical tool surface.
         "0.9.0": _TOOLS_0_6 | _TOOLS_ADDED_0_8,
+        # 1.0.0 freezes the existing 27-tool surface as the stable baseline.
+        "1.0.0": _TOOLS_0_6 | _TOOLS_ADDED_0_8,
     }
 )
 
 #: Contract version implemented by this build.
-CURRENT_CONTRACT_VERSION = "0.9.0"
+CURRENT_CONTRACT_VERSION = "1.0.0"
 
-#: Wire schema version. Intentionally unchanged across 0.8.x and 0.9.0.
+#: Wire schema version. Intentionally unchanged from the 0.6.1 baseline.
 SCHEMA_VERSION = "0.6.1"
 
 
@@ -85,6 +91,28 @@ def expected_tool_count(version: str = CURRENT_CONTRACT_VERSION) -> int:
     """Return the expected tool count derived from the required set."""
 
     return len(required_tools(version))
+
+
+def contract_snapshot(version: str = CURRENT_CONTRACT_VERSION) -> dict[str, object]:
+    """Return the canonical, non-sensitive public contract snapshot."""
+
+    return {
+        "contract_version": version,
+        "schema_version": SCHEMA_VERSION,
+        "tools": sorted(required_tools(version)),
+    }
+
+
+def contract_digest(version: str = CURRENT_CONTRACT_VERSION) -> str:
+    """Return a deterministic SHA-256 digest of the public contract snapshot."""
+
+    payload = json.dumps(
+        contract_snapshot(version),
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def diff_tools(
@@ -118,4 +146,5 @@ def validate_tools(
         "expected_count": expected_tool_count(version),
         "missing": diff["missing"],
         "extra": diff["extra"],
+        "contract_digest": contract_digest(version),
     }
