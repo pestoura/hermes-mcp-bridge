@@ -27,7 +27,29 @@
 | Contract | Tools | Adds |
 | --- | --- | --- |
 | 0.6.0 / 0.6.1 | 26 | — |
-| 0.8.0 / 0.8.1 / 0.8.2 | 27 | `hermes_readiness` |
+| 0.8.0 / 0.8.1 / 0.8.2 / 0.9.0 | 27 | `hermes_readiness` |
+
+## 0.8.2 -> 0.9.0
+
+0.9.0 is a **base-image security release**. It changes no client-visible
+contract: 27 tools, schema `0.6.1`, no new SQLite migration, `hermes_readiness`
+still mandatory. Only `bridge_version`/`manifest_version`/`contract_version`
+move to `0.9.0`, which also changes `manifest_hash` — clients that cache the
+capability manifest must refresh.
+
+The container base moves from the floating `python:3.11-slim-bookworm` tag to
+`python:3.12-slim-trixie` pinned by digest
+(`sha256:57cd7c3a...710de`), taking the image from 6 CRITICAL / 20 HIGH to
+4 CRITICAL / 19 HIGH under identical scan flags. Rationale, CVE matrix and
+rejected alternatives: `docs/base-image-security-0.9.0.md`.
+
+Operational notes:
+
+- The interpreter inside the image is now Python 3.12. `requires-python` stays
+  `>=3.11`, so nothing about local development changes.
+- systemd is still not installed in the image; the `systemctl`/`systemd-run`
+  secret-rotation tests remain host-only and continue to be reported as
+  failures in host gates rather than silenced.
 
 ## 0.8.1 -> 0.8.2
 

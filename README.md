@@ -18,12 +18,22 @@ The bridge does **not** execute shell commands or manage infrastructure itself. 
 
 ## Version and contract
 
-Bridge contract version: **0.8.2**. Wire schema version: **0.6.1** (intentionally
-unchanged across the 0.8.x line).
+Bridge contract version: **0.9.0**. Wire schema version: **0.6.1** (intentionally
+unchanged across the 0.8.x line and 0.9.0).
 
 Compatibility:
 
-- 0.8.2 is a patch release over 0.8.1. It changes no tool request/response
+- 0.9.0 is a base-image security release over 0.8.2. It changes no tool
+  request/response contract: still **27 tools**, schema `0.6.1`, no new SQLite
+  migration. The container base is now
+  `python:3.12-slim-trixie` **pinned by digest**
+  (`sha256:57cd7c3a...710de`), replacing the floating
+  `python:3.11-slim-bookworm` tag and reducing the image from 6 CRITICAL /
+  20 HIGH to 4 CRITICAL / 19 HIGH under identical scan flags. Decision, CVE
+  matrix and rejected alternatives: `docs/base-image-security-0.9.0.md`.
+  Clients caching the capability manifest must refresh:
+  `bridge_version`/`manifest_version`/`manifest_hash` move to 0.9.0.
+- 0.8.2 was a patch release over 0.8.1. It changes no tool request/response
   contract: the 0.8.x tool set stays at **27 tools**, including
   `hermes_readiness`. The change is operational only — the rollout scripts now
   derive their health-settle budget from the container healthcheck instead of

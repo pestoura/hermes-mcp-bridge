@@ -32,13 +32,13 @@ def _server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> types.ModuleType
     return importlib.import_module("hermes_mcp_bridge.server")
 
 
-def test_current_contract_is_0_8_2() -> None:
-    assert CURRENT_CONTRACT_VERSION == "0.8.2"
-    assert __version__ == "0.8.2"
+def test_current_contract_is_0_9_0() -> None:
+    assert CURRENT_CONTRACT_VERSION == "0.9.0"
+    assert __version__ == "0.9.0"
     assert __version__ == CURRENT_CONTRACT_VERSION
 
 
-def test_schema_version_unchanged_in_0_8_x() -> None:
+def test_schema_version_unchanged_in_0_8_x_and_0_9_0() -> None:
     assert SCHEMA_VERSION == "0.6.1"
 
 
@@ -63,6 +63,14 @@ def test_0_8_2_is_additive_over_0_6_1() -> None:
 def test_all_0_8_x_share_the_same_tool_set() -> None:
     assert required_tools("0.8.0") == required_tools("0.8.1")
     assert required_tools("0.8.1") == required_tools("0.8.2")
+
+
+def test_0_9_0_keeps_the_0_8_x_tool_set() -> None:
+    """0.9.0 is a base-image/security release: no contract movement."""
+
+    assert required_tools("0.9.0") == required_tools("0.8.2")
+    assert expected_tool_count("0.9.0") == 27
+    assert "hermes_readiness" in required_tools("0.9.0")
 
 
 def test_unknown_contract_version_raises() -> None:

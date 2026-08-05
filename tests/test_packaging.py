@@ -15,8 +15,16 @@ from hermes_mcp_bridge.protocol import (
     parse_event,
 )
 
+#: 0.9.0: the base image is pinned by digest through a single ARG, so both
+#: stages are guaranteed to use the very same immutable image.
+BASE_IMAGE_DIGEST = (
+    "sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de"
+)
+BASE_IMAGE_REF = f"python:3.12-slim-trixie@{BASE_IMAGE_DIGEST}"
 REQUIRED_DOCKERFILE_TOKENS = (
-    "FROM python:3.11-slim-bookworm",
+    f"ARG BASE_IMAGE={BASE_IMAGE_REF}",
+    "FROM ${BASE_IMAGE} AS builder",
+    "FROM ${BASE_IMAGE} AS runtime",
     "USER bridge:bridge",
     'CMD ["python", "-m", "hermes_mcp_bridge.server"]',
 )
@@ -32,7 +40,10 @@ def test_version_aligned() -> None:
 
 def test_dockerfile_multi_stage_and_nonroot() -> None:
     dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
-    assert dockerfile.count("FROM") == 2
+    from_lines = [
+        line for line in dockerfile.splitlines() if line.startswith("FROM ")
+    ]
+    assert len(from_lines) == 2
     assert "USER bridge:bridge" in dockerfile
     for token in REQUIRED_DOCKERFILE_TOKENS:
         assert token in dockerfile
