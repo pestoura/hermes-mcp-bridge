@@ -36,6 +36,8 @@ services:
     environment:
       BRIDGE_LOG_FORMAT: "${BRIDGE_LOG_FORMAT:-json}"
       BRIDGE_LOG_LEVEL: "${BRIDGE_LOG_LEVEL:-INFO}"
+      BRIDGE_LOG_THIRD_PARTY_LEVEL: "${BRIDGE_LOG_THIRD_PARTY_LEVEL:-WARNING}"
+      BRIDGE_LOG_CAPTURE_THIRD_PARTY: "${BRIDGE_LOG_CAPTURE_THIRD_PARTY:-1}"
       BRIDGE_METRICS_ENABLED: "${BRIDGE_METRICS_ENABLED:-}"
       BRIDGE_METRICS_HOST: "${BRIDGE_METRICS_HOST:-127.0.0.1}"
       BRIDGE_METRICS_PORT: "${BRIDGE_METRICS_PORT:-9464}"
@@ -63,6 +65,14 @@ services:
       retries: 3
       start_period: 10s
     stop_grace_period: 20s
+    # Log rotation: the bridge writes one JSON event per line to stderr, so an
+    # unbounded json-file driver is a disk-exhaustion vector on a long-lived
+    # host. 10m x 5 files caps the service at ~50MiB of logs.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
 
 # Secret files are provided by the operator and are never committed. Keep them
 # outside the repository (the paths below are the documented convention) with

@@ -1,10 +1,10 @@
-# Observability (Block 2)
+# Observability (Block 2, updated for 0.9.0 Block 6C)
 
-> Contract version **0.8.1** (patch over 0.8.0; the 0.8.x line is additive over
-> 0.6.1). No tool request/response contract changes in 0.8.1. The 0.8.x tool set
-> is 27 tools including the read-only `hermes_readiness`; the capability
-> manifest `bridge_version`/`manifest_version` are `0.8.1` and the wire schema
-> stays `0.6.1`. The required tool set per version is declared in
+> Contract version **0.9.0** (the 0.8.x/0.9.0 line is additive over 0.6.1). No
+> tool request/response contract changes in 0.9.0: the tool set is still 27
+> tools including the read-only `hermes_readiness`; the capability manifest
+> `bridge_version`/`manifest_version` are `0.9.0` and the wire schema stays
+> `0.6.1`. The required tool set per version is declared in
 > `src/hermes_mcp_bridge/contracts.py`; validators check the mandatory set and a
 > derived count, never a blind constant.
 
@@ -18,6 +18,9 @@ and passes through central, fail-closed redaction.
 - [Cardinality policy](#cardinality-policy)
 - [Privacy and redaction](#privacy-and-redaction)
 - [Health and readiness](#health-and-readiness)
+- [Log hygiene (0.9.0, Block 6C)](#log-hygiene-090-block-6c)
+- [Exporter bind scopes (0.9.0)](#exporter-bind-scopes-090)
+- [Deploy assets](#deploy-assets)
 - [Tracing](#tracing)
 - [Dashboards and minimum alerts](#dashboards-and-minimum-alerts)
 - [Runbook](#runbook)
@@ -29,6 +32,8 @@ and passes through central, fail-closed redaction.
 | `BRIDGE_LOG_FORMAT` | `json` | `json` (safe default, used in production/containers) or `text` for local debugging. Any other value falls back to `json`. |
 | `BRIDGE_LOG_LEVEL` | `INFO` | Level of the `hermes_mcp_bridge` logger. Falls back to `LOG_LEVEL`. |
 | `BRIDGE_LOG_REDACT_FIELDS` | *(empty)* | Comma-separated extra field names to always redact. |
+| `BRIDGE_LOG_CAPTURE_THIRD_PARTY` | `1` (on) | Routes third-party library records through the bridge's redacting formatter. `0` opts out when an embedding application owns the root logger. |
+| `BRIDGE_LOG_THIRD_PARTY_LEVEL` | `WARNING` | Level applied to third-party loggers that did not set one explicitly. |
 | `BRIDGE_METRICS_ENABLED` | *(unset = off)* | `1` enables the Prometheus exporter. |
 | `BRIDGE_METRICS_HOST` | `127.0.0.1` | Exporter bind address. Non-loopback requires explicit opt-in. |
 | `BRIDGE_METRICS_PORT` | `9464` | Exporter port. |
@@ -162,7 +167,7 @@ tokens or keys are present.
 Overall status is `ready`, `degraded` (upstream/tracing only) or `not_ready`.
 Readiness performs no `PRAGMA integrity_check` and no full table scans.
 
-### Tool contract component (0.8.1)
+### Tool contract component (added in 0.8.1)
 
 `hermes_readiness` includes a `tool_contract` component and top-level
 `contract_version` / `schema_version` fields:
@@ -170,12 +175,12 @@ Readiness performs no `PRAGMA integrity_check` and no full table scans.
 ```json
 {
   "status": "ready",
-  "contract_version": "0.8.1",
+  "contract_version": "0.9.0",
   "schema_version": "0.6.1",
   "components": {
     "tool_contract": {
       "status": "ready",
-      "contract_version": "0.8.1",
+      "contract_version": "0.9.0",
       "schema_version": "0.6.1",
       "count": 27,
       "expected_count": 27,
@@ -231,6 +236,68 @@ loaded. `status` is `not_ready` when the policy is invalid or missing, when a
 signing key is required but absent or too short, or when the approval registry
 is down. No key material, no secret file paths, no policy contents are exposed.
 
+## Log hygiene (0.9.0, Block 6C)
+
+The stream is a *single* machine-readable stream: every line on stderr parses
+as JSON, and every fact appears exactly once.
+
+- The bridge logger owns exactly one handler. Propagation stays **enabled** so
+  embedding applications and `pytest`'s `caplog` still observe records; the
+  root handler installed by the bridge carries a `BridgeTreeFilter` that drops
+  `hermes_mcp_bridge*` records, so nothing is written twice.
+- Third-party loggers (`httpx`, `httpcore`, `uvicorn*`, `mcp`, `starlette`,
+  `anyio`, `urllib3`, …) lose their own handlers, propagate to root and are
+  re-emitted through the same redacting formatter. Their messages are therefore
+  redacted like bridge events — a URL with a token in the query string does not
+  reach the stream in the clear.
+- Loggers that set a level explicitly (a library, or an operator running a
+  support session at `DEBUG`) keep it. Hygiene never hides warnings or errors.
+- `warnings.warn()` is captured into logging (`py.warnings`), so deprecations
+  are JSON events rather than raw stderr text.
+- Applying the policy is idempotent and never raises: a failure to quiet a
+  library must not break the bridge.
+- `observability_status()["hygiene"]` reports the posture (captured yes/no,
+  level, handler counts, `duplicate_suppression`) and contains no secrets.
+
+Container-side, `compose.yml` caps the driver at `json-file`, `max-size=10m`,
+`max-file=5` (~50 MiB per service) so a chatty dependency cannot exhaust the
+host disk.
+
+## Exporter bind scopes (0.9.0)
+
+`bind_scope(host)` classifies the exporter bind address into three values,
+surfaced by `exporter_status()`:
+
+| Scope | Examples | Gate |
+| --- | --- | --- |
+| `loopback` | `127.0.0.1`, `::1`, `localhost` | no opt-in required |
+| `docker-gateway` | `172.17.0.1`, `host.docker.internal` | `BRIDGE_METRICS_ALLOW_REMOTE=1` **and** `BRIDGE_METRICS_TOKEN` |
+| `remote` | `0.0.0.0`, LAN/public addresses | `BRIDGE_METRICS_ALLOW_REMOTE=1` **and** `BRIDGE_METRICS_TOKEN` |
+
+`docker-gateway` is **not** an exemption: it is reported separately only so an
+operator can distinguish "scrapeable from the docker network" from "scrapeable
+from anywhere". Authorization is unchanged and is enforced per request
+(`Authorization: Bearer <token>`; a bare token without the scheme is rejected).
+
+## Deploy assets
+
+`deploy/observability/` holds snippets for an **existing** monitoring stack —
+they never start a second Prometheus/Alertmanager and never publish a port:
+
+- `prometheus-scrape.snippet.yml` — one `hermes-mcp-bridge` job, bearer token
+  read from `authorization.credentials_file` (never inline).
+- `hermes-bridge.rules.yml` — alerting rules using only allow-listed,
+  low-cardinality labels; every alert carries `summary` and `runbook`.
+- `alertmanager.example.yml` — loopback receiver by default.
+
+Validate them offline before enabling anything:
+
+```
+python scripts/observability_smoke.py --check-config --check-logging
+```
+
+Rollout order is documented in `docs/observability-rollout-0.9.0.md`.
+
 ## Tracing
 
 - No-op by default; spans always exist so call sites need no conditionals.
@@ -241,6 +308,14 @@ is down. No key material, no secret file paths, no policy contents are exposed.
 - OpenTelemetry is used only when installed **and** both `BRIDGE_TRACING_ENABLED`
   and `BRIDGE_TRACING_EXPORT` are on. Failures are fail-open — never for auth
   or policy.
+- Since 0.9.0 the canonical module is
+  `hermes_mcp_bridge.observability.tracing`. The former root module
+  `hermes_mcp_bridge.tracing` is a thin re-export kept for compatibility and
+  emits a `DeprecationWarning` on import (captured into the JSON log stream,
+  never raw stderr). It will be removed in a future major release. The
+  canonical `parse_traceparent` is stricter than the old root one: it also
+  rejects version `ff`, an all-zero trace id and an all-zero span id — a
+  fail-closed tightening, since real traceparents parse identically.
 
 ## Dashboards and minimum alerts
 

@@ -23,6 +23,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from .context import get_context
+from .quiet import apply_quiet_policy, quiet_status
 from .redaction import enforce_total_size, sanitize
 
 ENV_FORMAT = "BRIDGE_LOG_FORMAT"
@@ -56,6 +57,7 @@ _RESERVED = frozenset(
 )
 
 _configured = False
+_quiet_summary: dict[str, Any] = {}
 
 
 def log_mode() -> str:
@@ -134,7 +136,7 @@ class SafeHandler(logging.StreamHandler):
 def configure_logging(*, force: bool = False) -> logging.Logger:
     """Install the bridge root handler once (idempotent)."""
 
-    global _configured
+    global _configured, _quiet_summary
     root = logging.getLogger("hermes_mcp_bridge")
     if _configured and not force:
         return root
@@ -148,6 +150,10 @@ def configure_logging(*, force: bool = False) -> logging.Logger:
     # Propagation stays enabled so embedding applications (and pytest's caplog)
     # can still observe bridge records; the handler above owns formatting.
     root.propagate = True
+    # Single-stream hygiene: third-party records go through the same redacting
+    # formatter, and the root handler filters out the bridge tree so a bridge
+    # record is never written twice. Idempotent and never raises.
+    _quiet_summary = apply_quiet_policy(handler)
     _configured = True
     return root
 
@@ -203,4 +209,5 @@ def observability_status() -> dict[str, Any]:
         "logging_configured": _configured,
         "level": logging.getLogger("hermes_mcp_bridge").getEffectiveLevel(),
         "redaction": "fail-closed",
+        "hygiene": quiet_status(),
     }

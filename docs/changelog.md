@@ -5,6 +5,61 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.9.0 — Observability operational hardening (BLOCO 6C, phase 1)
+
+No tool-contract change: still 27 tools, wire schema `0.6.1`, no SQLite
+migration. Metrics remain off by default and no port is published.
+
+### Added
+
+- **Single-stream log hygiene** (`observability/quiet.py`). Third-party loggers
+  (`httpx`, `httpcore`, `uvicorn*`, `mcp`, `starlette`, `anyio`, `urllib3`, …)
+  lose their own handlers and are re-emitted through the bridge's redacting
+  JSON formatter, so every line on the stream parses as JSON and library
+  messages are redacted like bridge events. `warnings.warn()` is captured into
+  logging instead of raw stderr. Configurable via
+  `BRIDGE_LOG_CAPTURE_THIRD_PARTY` (default on) and
+  `BRIDGE_LOG_THIRD_PARTY_LEVEL` (default `WARNING`). Applying the policy is
+  idempotent and never raises.
+- **Exporter bind-scope classification**: `bind_scope()` now returns
+  `loopback`, `docker-gateway` (`172.17.0.1`, `host.docker.internal`) or
+  `remote`, and `exporter_status()` reports `remote_exposure_allowed`.
+- `deploy/observability/`: Prometheus scrape snippet (single job, bearer token
+  via `credentials_file`), alerting rules with `summary`+`runbook` annotations
+  and allow-listed low-cardinality labels only, an Alertmanager example with a
+  loopback receiver, and a README with the security preconditions. These are
+  snippets for an existing stack — they start no second Prometheus/Alertmanager
+  and publish no port.
+- `scripts/observability_smoke.py`: offline validation of the deploy assets and
+  of the log pipeline (valid JSON, no duplicates, no secrets), plus an optional
+  authenticated `--probe` of a running exporter. Tokens are read from the
+  environment or a file and never echoed.
+- `docs/observability-rollout-0.9.0.md`: rollout order, verification matrix,
+  rollback and known limitations.
+- `tests/test_observability_block6c_0_9_0.py`: 46 directed tests covering log
+  hygiene, bind scope and unchanged exporter authorization, deploy-asset
+  parsing/credential/cardinality checks, compose rotation, the tracing shim and
+  the smoke-script contract.
+
+### Changed
+
+- `compose.yml` caps container logs at `json-file`, `max-size=10m`,
+  `max-file=5` (~50 MiB per service) so a chatty dependency cannot exhaust the
+  host disk, and passes the two new log-hygiene variables through.
+- Bridge log propagation stays **enabled** (embedders and `pytest`'s `caplog`
+  keep seeing records); duplicates are prevented by a `BridgeTreeFilter` on the
+  bridge-installed root handler rather than by disabling propagation.
+
+### Deprecated
+
+- `hermes_mcp_bridge.tracing` is now a thin re-export of
+  `hermes_mcp_bridge.observability.tracing` and emits a `DeprecationWarning` on
+  import (captured into the JSON log stream). It will be removed in a future
+  major release. The canonical `parse_traceparent` is stricter than the old root
+  implementation — it additionally rejects version `ff`, an all-zero trace id
+  and an all-zero span id. This is a fail-closed tightening; valid traceparents
+  parse identically.
+
 ## 0.9.0 — Base image security (Python 3.12 slim Trixie, digest-pinned)
 
 ### Changed

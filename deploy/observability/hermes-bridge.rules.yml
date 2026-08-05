@@ -1,0 +1,150 @@
+# Alerting/recording rules for hermes-mcp-bridge (0.9.0).
+#
+# Load into the EXISTING Prometheus instance via rule_files:
+#   rule_files:
+#     - /etc/prometheus/rules/hermes-bridge.rules.yml
+#
+# Every expression uses only metrics and labels the bridge actually exports
+# (see docs/observability.md, metric catalogue). Labels used here are limited to
+# the allow-listed low-cardinality set: tool, outcome, endpoint_class,
+# status_class, decision, reason, mode, version, kind — plus the target labels
+# (job, instance, service, env) added by Prometheus itself.
+
+groups:
+  - name: hermes-bridge.availability
+    interval: 30s
+    rules:
+      - alert: HermesBridgeMetricsDown
+        expr: up{job="hermes-mcp-bridge"} == 0
+        for: 5m
+        labels:
+          severity: warning
+          service: hermes-mcp-bridge
+        annotations:
+          summary: "Bridge metrics endpoint unreachable"
+          description: >-
+            Prometheus cannot scrape the bridge exporter for 5m. This alerts on
+            observability loss, not necessarily on bridge unavailability: the
+            exporter is a separate socket from the MCP endpoint.
+          runbook: docs/observability.md#runbook
+
+      - alert: HermesBridgeRestarted
+        expr: changes(bridge_migrations_version[15m]) > 0
+        for: 0m
+        labels:
+          severity: info
+          service: hermes-mcp-bridge
+        annotations:
+          summary: "Bridge schema version changed"
+          description: >-
+            The reported migrations version moved, which happens on a restart
+            that applied a migration. Expected during a deploy; unexpected
+            otherwise.
+          runbook: docs/observability.md#runbook
+
+  - name: hermes-bridge.errors
+    interval: 30s
+    rules:
+      - alert: HermesBridgeToolErrorRateHigh
+        expr: >-
+          sum by (job) (rate(bridge_tool_calls_total{outcome="error"}[5m]))
+            /
+          clamp_min(sum by (job) (rate(bridge_tool_calls_total[5m])), 1e-9)
+            > 0.10
+        for: 10m
+        labels:
+          severity: warning
+          service: hermes-mcp-bridge
+        annotations:
+          summary: "Tool error ratio above 10%"
+          description: >-
+            More than 10% of tool calls have failed over the last 5m, sustained
+            for 10m. Check bridge.tool.call events with outcome=error.
+          runbook: docs/observability.md#runbook
+
+      - alert: HermesBridgeUpstream5xx
+        expr: >-
+          sum by (job) (rate(bridge_upstream_requests_total{status_class="5xx"}[5m])) > 0.2
+        for: 10m
+        labels:
+          severity: warning
+          service: hermes-mcp-bridge
+        annotations:
+          summary: "Sustained 5xx from the Hermes API"
+          description: >-
+            The upstream Hermes API is returning server errors. The bridge is
+            likely healthy; the dependency is not.
+          runbook: docs/observability.md#runbook
+
+      - alert: HermesBridgeSqliteErrors
+        expr: increase(bridge_sqlite_errors_total[10m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          service: hermes-mcp-bridge
+        annotations:
+          summary: "SQLite errors on the bridge state store"
+          description: >-
+            Any SQLite error is a durability signal (state, approvals, locks or
+            migrations). Investigate before the next deploy.
+          runbook: docs/observability.md#runbook
+
+      - alert: HermesBridgeObservabilityDegraded
+        expr: increase(bridge_observability_errors_total[30m]) > 0
+        for: 0m
+        labels:
+          severity: info
+          service: hermes-mcp-bridge
+        annotations:
+          summary: "Observability pipeline reported internal errors"
+          description: >-
+            Telemetry is fail-open, so this does not affect request handling,
+            but metrics/logs may be incomplete.
+          runbook: docs/observability.md#runbook
+
+  - name: hermes-bridge.saturation
+    interval: 30s
+    rules:
+      - alert: HermesBridgeToolLatencyHigh
+        expr: >-
+          histogram_quantile(
+            0.95,
+            sum by (job, le) (rate(bridge_tool_duration_seconds_bucket[10m]))
+          ) > 30
+        for: 15m
+        labels:
+          severity: warning
+          service: hermes-mcp-bridge
+        annotations:
+          summary: "p95 tool latency above 30s"
+          description: >-
+            Long-running runs are expected to be slow; a sustained p95 above 30s
+            across all tools usually means upstream saturation instead.
+          runbook: docs/observability.md#runbook
+
+      - alert: HermesBridgeSseFallbacks
+        expr: >-
+          sum by (job) (rate(bridge_sse_fallbacks_total[10m])) > 0.1
+        for: 15m
+        labels:
+          severity: info
+          service: hermes-mcp-bridge
+        annotations:
+          summary: "Event stream repeatedly falling back to polling"
+          description: >-
+            Functionally degraded but correct: results still arrive via polling.
+            Check network/proxy handling of the SSE connection.
+          runbook: docs/observability.md#runbook
+
+      - alert: HermesBridgeLockContention
+        expr: increase(bridge_sqlite_lock_contention_total[10m]) > 20
+        for: 10m
+        labels:
+          severity: warning
+          service: hermes-mcp-bridge
+        annotations:
+          summary: "Sustained SQLite lock contention"
+          description: >-
+            Concurrent writers are backing off frequently. Verify no second
+            bridge instance shares the same state database.
+          runbook: docs/observability.md#runbook

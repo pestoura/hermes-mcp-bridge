@@ -1,0 +1,47 @@
+# Prometheus scrape job for hermes-mcp-bridge (0.9.0)
+#
+# This is a SNIPPET, not a full Prometheus configuration. Merge the job below
+# into the `scrape_configs` list of your EXISTING Prometheus instance. Do not
+# start a second Prometheus for this — duplicating the server duplicates the
+# series and the alert evaluation.
+#
+# Preconditions on the bridge side (all explicit, none of them defaults):
+#   BRIDGE_METRICS_ENABLED=1
+#   BRIDGE_METRICS_HOST=172.17.0.1      # docker-gateway scope, NOT loopback
+#   BRIDGE_METRICS_ALLOW_REMOTE=1       # still required for 172.17.0.1
+#   BRIDGE_METRICS_TOKEN=<random>       # still required; never inline it here
+#
+# 172.17.0.1 is the Docker bridge gateway: reachable from containers on the
+# default bridge network, and NOT reachable from outside the host as long as no
+# port is published and the host firewall does not forward to it. It is treated
+# as a remote bind by the exporter, so the bearer token is mandatory.
+#
+# The token lives in a file readable only by the Prometheus user; it is never
+# committed and never placed in this snippet.
+
+scrape_configs:
+  - job_name: hermes-mcp-bridge
+    scheme: http
+    metrics_path: /metrics
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    # Bearer token read from disk at scrape time. Create it with:
+    #   install -m 0600 -o prometheus -g prometheus /dev/null \
+    #     /etc/prometheus/secrets/hermes_bridge_metrics_token
+    # and write the same value as BRIDGE_METRICS_TOKEN into it (no newline
+    # required; Prometheus strips trailing whitespace).
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/secrets/hermes_bridge_metrics_token
+    static_configs:
+      - targets:
+          - "172.17.0.1:9464"
+        labels:
+          service: hermes-mcp-bridge
+          env: production
+    # Keep cardinality bounded: the bridge already emits low-cardinality
+    # labels, but drop anything unexpected that a future version might add.
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: "bridge_.*"
+        action: keep
