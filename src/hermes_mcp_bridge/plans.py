@@ -222,13 +222,80 @@ def validate_approval(approval: PlanApproval, plan: Plan) -> list[str]:
         errors.append("approval plan_hash is invalid")
     if approval.plan_hash != plan.plan_hash:
         errors.append("approval plan_hash does not match current plan hash")
-    if approval.status != "pending":
-        errors.append("approval is not pending")
+    if approval.plan_id and approval.plan_id != plan.plan_id:
+        errors.append("approval plan_id does not match plan")
+    if approval.status not in _CONSUMABLE_APPROVAL_STATUSES:
+        errors.append(f"approval status is not usable: {approval.status}")
+    if approval.consumed_at:
+        errors.append("approval already consumed")
     if approval.expires_at:
         try:
             expires = datetime.fromisoformat(approval.expires_at)
-            if expires < datetime.now(UTC):
+            if expires.tzinfo is None:
+                expires = expires.replace(tzinfo=UTC)
+            if expires <= datetime.now(UTC):
                 errors.append("approval is expired")
         except ValueError:
             errors.append("approval expires_at is invalid")
     return errors
+
+
+#: Statuses from which a plan approval may still be consumed.
+_CONSUMABLE_APPROVAL_STATUSES = frozenset({"pending", "requested", "approved"})
+
+
+class ApprovalAdapterError(ValueError):
+    """An ApprovalRecord cannot be interpreted as a PlanApproval."""
+
+    def __init__(self, reason: str, *, approval_id: str | None = None) -> None:
+        super().__init__(reason)
+        self.reason = reason
+        self.approval_id = approval_id
+
+    def as_error_payload(self) -> dict[str, Any]:
+        return {
+            "error": "approval_binding_invalid",
+            "reason": self.reason,
+            "approval_id": self.approval_id,
+        }
+
+
+def plan_approval_from_record(record: Any) -> PlanApproval:
+    """Adapt an :class:`ApprovalRecord` into a :class:`PlanApproval`.
+
+    ``ApprovalRecord`` (registry/protocol model) and ``PlanApproval`` (plan
+    model) are different shapes: the registry has ``decision``/``resource``/
+    ``metadata_sanitized`` while the plan layer expects ``status``/``plan_id``/
+    ``plan_hash``. The plan binding must be recorded explicitly in
+    ``metadata_sanitized`` at approval-creation time; nothing is invented here.
+    """
+
+    approval_id = str(getattr(record, "approval_id", "") or "")
+    metadata = getattr(record, "metadata_sanitized", None)
+    if not isinstance(metadata, dict):
+        raise ApprovalAdapterError("approval metadata is missing", approval_id=approval_id)
+
+    plan_id = metadata.get("plan_id") or getattr(record, "resource", None)
+    plan_hash = metadata.get("plan_hash")
+    if not plan_id:
+        raise ApprovalAdapterError(
+            "approval is not bound to a plan_id", approval_id=approval_id
+        )
+    if not plan_hash:
+        raise ApprovalAdapterError(
+            "approval is not bound to a plan_hash", approval_id=approval_id
+        )
+
+    decision = getattr(record, "decision", None)
+    status = str(getattr(decision, "value", decision) or "requested")
+
+    return PlanApproval(
+        approval_id=approval_id,
+        plan_id=str(plan_id),
+        plan_hash=str(plan_hash),
+        status=status,
+        approver=getattr(record, "principal", None),
+        expires_at=getattr(record, "expires_at", None),
+        consumed_at=getattr(record, "consumed_at", None),
+        metadata={"approval_source": "registry"},
+    )

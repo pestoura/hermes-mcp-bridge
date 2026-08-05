@@ -30,6 +30,41 @@ Implementation: `src/hermes_mcp_bridge/secret_rotation.py`.
   bridge; use `compose ... force-recreate` (or recreate the bridge container)
   when the bridge must re-read env. Only recreate the bridge when needed.
 
+## File-backed secrets and HMAC rotation (0.9.0)
+
+Every secret-bearing variable supports a `<NAME>_FILE` companion. **The file
+wins over the environment value.** Values are read on demand and never cached,
+so replacing the file content rotates the key without a restart.
+
+| Purpose | Env | File variant |
+| --- | --- | --- |
+| Hermes API key | `HERMES_API_KEY` | `HERMES_API_KEY_FILE` |
+| Current HMAC key | `HERMES_BRIDGE_HMAC_SECRET` | `HERMES_BRIDGE_HMAC_SECRET_FILE` |
+| Previous HMAC key (verify-only) | `HERMES_BRIDGE_HMAC_SECRET_PREVIOUS` | `HERMES_BRIDGE_HMAC_SECRET_PREVIOUS_FILE` |
+
+Non-secret identifiers `HERMES_BRIDGE_HMAC_KEY_ID` and
+`HERMES_BRIDGE_HMAC_PREVIOUS_KEY_ID` are surfaced in health/readiness so an
+operator can tell which key is active without ever seeing key material.
+
+Minimum key length is `BRIDGE_MIN_SECRET_LENGTH` (default 32). Shorter keys are
+rejected and make `security_posture` `not_ready`.
+
+Rotation with grace period:
+
+1. write the new key to the current secret file, and copy the outgoing key to
+   the previous secret file;
+2. set `HERMES_BRIDGE_HMAC_KEY_ID` / `HERMES_BRIDGE_HMAC_PREVIOUS_KEY_ID`;
+3. new signatures use the current key only — the previous key is **verification
+   only**, never used to sign;
+4. once no in-flight manifest predates the swap, remove the previous key file
+   and its key id. Verification of old signatures then correctly fails.
+
+Compose mounts these as Docker secrets (`secrets:` block in `compose.yml`).
+The `*_FILE` variables default to empty, so an env-only deployment is
+unchanged. Keep secret files outside the repository, mode `0400`, owned by the
+bridge UID. Health/readiness expose only `configured`, `required`,
+`source_type` and `key_id` — never values, never full paths.
+
 ## Inspect (safe, read-only)
 
 ```

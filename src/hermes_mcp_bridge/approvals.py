@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import re
 import sqlite3
@@ -229,15 +230,31 @@ class ApprovalRegistry:
                 connection.close()
         return self.get(approval_id)
 
-    def consume(self, approval_id: str, resource_fingerprint: str | None) -> ApprovalRecord:
+    def consume(
+        self,
+        approval_id: str,
+        resource_fingerprint: str | None,
+        *,
+        require_fingerprint: bool = False,
+        expected_action: str | None = None,
+    ) -> ApprovalRecord:
+        """Atomically consume an approval.
+
+        All checks (status, expiry, consumption, fingerprint binding, action
+        binding) happen inside a single ``BEGIN IMMEDIATE`` transaction so two
+        concurrent callers can never both succeed.
+        """
+
         _validate_approval_id(approval_id)
-        now = _utcnow().isoformat()
+        now_dt = _utcnow()
+        now = now_dt.isoformat()
         connection = None
         try:
             connection = _open_connection(self._db_path)
             connection.execute("BEGIN IMMEDIATE")
             cursor = connection.execute(
-                "SELECT decision, resource_fingerprint, consumed_at, created_at"
+                "SELECT decision, resource_fingerprint, consumed_at, created_at,"
+                " expires_at, action"
                 " FROM approvals WHERE approval_id = ?",
                 (approval_id,),
             )
@@ -245,26 +262,63 @@ class ApprovalRegistry:
             if row is None:
                 raise ApprovalNotFound(f"approval not found: {approval_id}")
             decision = ApprovalStatus(row[0])
-            if decision == ApprovalStatus.CONSUMED:
+            if decision == ApprovalStatus.CONSUMED or row[2] is not None:
                 raise ApprovalConsumedError("approval already consumed")
+            if decision == ApprovalStatus.EXPIRED:
+                raise ApprovalExpiredError("approval expired")
             if decision != ApprovalStatus.APPROVED:
                 raise ApprovalStatusError(f"approval not approved: {decision.value}")
-            if row[2] is not None:
-                raise ApprovalConsumedError("approval already consumed")
+
+            expires_at = row[4]
+            if expires_at is not None:
+                try:
+                    expiry = datetime.fromisoformat(str(expires_at))
+                except ValueError as exc:
+                    raise ApprovalExpiredError("approval expires_at is invalid") from exc
+                if expiry.tzinfo is None:
+                    expiry = expiry.replace(tzinfo=UTC)
+                if expiry <= now_dt:
+                    connection.execute(
+                        "UPDATE approvals SET decision = ?, decided_at = ?"
+                        " WHERE approval_id = ?",
+                        (ApprovalStatus.EXPIRED.value, now, approval_id),
+                    )
+                    connection.execute("COMMIT")
+                    raise ApprovalExpiredError("approval expired")
+
             if row[3] is not None and row[3] > now:
                 raise ApprovalExpiredError("approval created in the future")
+
+            if expected_action is not None and str(row[5]) != expected_action:
+                raise ApprovalStaleError("approval action does not match the requested action")
+
+            stored_fp = row[1]
+            if require_fingerprint and not resource_fingerprint:
+                raise ApprovalStaleError(
+                    "mutating consumption requires a resource fingerprint"
+                )
+            if require_fingerprint and not stored_fp:
+                raise ApprovalStaleError("approval has no fingerprint binding")
             if (
                 resource_fingerprint is not None
-                and row[1] is not None
-                and resource_fingerprint != row[1]
+                and stored_fp is not None
+                and not hmac.compare_digest(str(resource_fingerprint), str(stored_fp))
             ):
                 raise ApprovalStaleError("resource fingerprint differs from approved fingerprint")
-            if row[1] is not None and resource_fingerprint is None:
+            if stored_fp is not None and resource_fingerprint is None:
                 raise ApprovalStaleError("approval requires resource fingerprint for consumption")
             connection.execute(
-                "UPDATE approvals SET consumed_at = ?, decision = ? WHERE approval_id = ?",
-                (now, ApprovalStatus.CONSUMED.value, approval_id),
+                "UPDATE approvals SET consumed_at = ?, decision = ?"
+                " WHERE approval_id = ? AND consumed_at IS NULL AND decision = ?",
+                (
+                    now,
+                    ApprovalStatus.CONSUMED.value,
+                    approval_id,
+                    ApprovalStatus.APPROVED.value,
+                ),
             )
+            if connection.total_changes == 0:  # pragma: no cover - defensive
+                raise ApprovalConsumedError("approval already consumed")
             connection.execute("COMMIT")
         except Exception as exc:
             with suppress(Exception):

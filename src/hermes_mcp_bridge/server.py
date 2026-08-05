@@ -17,8 +17,10 @@ from typing import Any
 from mcp.server.fastmcp import Context, FastMCP
 
 from .approvals import (
+    ApprovalConsumedError,
     ApprovalExpiredError,
     ApprovalNotFound,
+    ApprovalStaleError,
     ApprovalStatusError,
     get_approval_registry,
 )
@@ -55,7 +57,12 @@ from .observability import (
     set_migrations_version,
     start_exporter_if_enabled,
 )
-from .policy import PolicyEvaluationInput, evaluate_policy
+from .policy import (
+    PolicyError,
+    classify_action,
+    evaluate_policy,
+    get_active_policy,
+)
 from .protocol import (
     AgentCard,
     ApprovalRecord,
@@ -63,6 +70,7 @@ from .protocol import (
     CapabilityManifest,
     MutationClass,
     OrchestrationPolicy,
+    PolicyEvaluationInput,
     ProvenanceClaimType,
     ToolManifest,
     TrustLabel,
@@ -73,6 +81,7 @@ from .provenance import ProvenanceClaim, build_result_manifest
 from .quotas import get_quota_registry
 from .registry import RegistryError, compute_fingerprint, get_registry
 from .sagas import SagaRegistry
+from .signing import signing_posture
 from .tracing import build_trace_metadata
 
 settings = get_settings()
@@ -205,11 +214,17 @@ def _policy_decision_from_inputs(
             if trust_label
             else TrustLabel.UNKNOWN
         )
-        mutation_enum = mutation_class or _mutation_from_action(action)
+    except ValueError:
+        # An unparseable trust label is untrusted input, not a free pass.
+        trust_enum = TrustLabel.UNTRUSTED_CONTENT
+    try:
         evaluation = PolicyEvaluationInput(
             action=action,
+            resource=resource,
             trust_label=trust_enum,
-            mutation_class=mutation_enum,
+            mutation_class=(
+                mutation_class or _mutation_from_action(action) or MutationClass.NONE
+            ),
             principal=principal,
         )
         result = evaluate_policy(evaluation)
@@ -226,6 +241,12 @@ def _enforce_policy(
     principal: str | None = None,
     resource: str | None = None,
 ) -> dict[str, Any] | None:
+    """Return a blocking payload, or ``None`` when the call may proceed.
+
+    Fail-closed: anything that is not an explicit ALLOW blocks. Evaluation
+    errors and unrecognised decisions are treated as DENY.
+    """
+
     decision, reason = _policy_decision_from_inputs(
         action,
         mutation_class=mutation_class,
@@ -233,11 +254,8 @@ def _enforce_policy(
         principal=principal,
         resource=resource,
     )
-    if decision == "DENY":
-        return _error_result(
-            f"policy denied: {reason or 'deny_actions'}",
-            execution_id="not-created",
-        )
+    if decision == "ALLOW":
+        return None
     if decision == "REQUIRE_APPROVAL":
         return _structured_error(
             {
@@ -249,7 +267,16 @@ def _enforce_policy(
             },
             execution_id="not-created",
         )
-    return None
+    if decision == "DENY":
+        return _error_result(
+            f"policy denied: {reason or 'deny_actions'}",
+            execution_id="not-created",
+        )
+    # decision == "error" or anything unknown: fail closed.
+    return _error_result(
+        "policy denied: evaluation failed or returned an unknown decision",
+        execution_id="not-created",
+    )
 
 
 async def _persist_mapping(
@@ -688,18 +715,13 @@ async def hermes_health(detailed: bool = False) -> dict[str, Any]:
     registry_health = await asyncio.to_thread(registry.health)
     approval_registry = get_approval_registry()
     approval_registry_health = await asyncio.to_thread(approval_registry.health)
-    signing_configured = "yes" if os.environ.get("HERMES_BRIDGE_HMAC_SECRET") else "no"
     bridge: dict[str, Any] = {
         "default_wait_seconds": settings.hermes_run_default_wait_seconds,
         "max_wait_seconds": settings.hermes_run_max_wait_seconds,
         "state_registry": registry_health,
         "approval_registry": approval_registry_health,
         "bridge_version": settings.bridge_version,
-        "policy": {
-            "status": "loaded",
-            "default_policy_source": "env/file/empty",
-            "hmac_signing_configured": signing_configured,
-        },
+        "security_posture": _security_posture(approval_registry_health),
         "observability": observability_health(),
     }
     upstream_payload = upstream if isinstance(upstream, dict) else {}
@@ -774,9 +796,9 @@ async def hermes_policy_evaluate(
             MutationClass(mutation_class)
             if mutation_class
             else _mutation_from_action(action)
-        )
+        ) or MutationClass.NONE
     except ValueError:
-        mutation_enum = _mutation_from_action(action)
+        mutation_enum = _mutation_from_action(action) or MutationClass.NONE
 
     evaluation = PolicyEvaluationInput(
         action=action,
@@ -962,17 +984,35 @@ async def hermes_execute_approved_plan(
     principal: str | None = None,
     trust_label: str | None = None,
 ) -> dict[str, Any]:
-    """Execute a previously approved plan with policy gating."""
+    """Execute a previously approved plan, consuming the approval atomically.
 
-    policy_block = _enforce_policy(
+    The approval is consumed inside the authorized execution path itself: there
+    is no separate ``hermes_approval_consume`` tool and the approval can never
+    be replayed.
+    """
+
+    # Policy gate: a DENY still blocks. A REQUIRE_APPROVAL is *satisfied* by
+    # this call, because the approval supplied here is verified and consumed
+    # atomically below -- that is exactly the authorized execution path.
+    decision, reason = _policy_decision_from_inputs(
         "hermes_execute_approved_plan",
         trust_label=trust_label,
         principal=principal,
+        resource=plan_id,
     )
-    if policy_block is not None:
-        return policy_block
+    if decision not in {"ALLOW", "REQUIRE_APPROVAL"}:
+        return _error_result(
+            f"policy denied: {reason or 'evaluation failed'}",
+            execution_id="not-created",
+        )
 
-    from .plans import PlanStore, validate_approval
+    from .plans import (
+        ApprovalAdapterError,
+        PlanStore,
+        plan_approval_from_record,
+        validate_approval,
+    )
+
     store = PlanStore(settings.bridge_state_db_path)
     store.initialize()
     plan = store.get(plan_id)
@@ -980,23 +1020,57 @@ async def hermes_execute_approved_plan(
         return {"plan_id": plan_id, "error": "plan not found"}
     if plan.status not in {PlanStatus.APPROVED, PlanStatus.PENDING_APPROVAL}:
         return {"plan_id": plan_id, "status": plan.status.value, "error": "plan not approved"}
+
     approval_registry = get_approval_registry()
     try:
-        approval = approval_registry.get(approval_id)
+        record = approval_registry.get(approval_id)
     except ApprovalNotFound as exc:
         return {"approval_id": approval_id, "error": str(exc)}
-    errors = validate_approval(approval, plan)
+
+    try:
+        plan_approval = plan_approval_from_record(record)
+    except ApprovalAdapterError as exc:
+        payload = exc.as_error_payload()
+        payload["plan_id"] = plan_id
+        return payload
+
+    errors = validate_approval(plan_approval, plan)
     if errors:
         return {"approval_id": approval_id, "plan_id": plan_id, "error": "; ".join(errors)}
-    if approval.status != ApprovalStatus.APPROVED:
+    if record.decision != ApprovalStatus.APPROVED:
         return {
             "approval_id": approval_id,
             "plan_id": plan_id,
-            "error": f"approval status is {approval.status.value}",
+            "error": f"approval status is {record.decision.value}",
         }
+
+    # Bind the consumption to the exact plan revision that was approved.
+    fingerprint = record.resource_fingerprint
+    try:
+        consumed = await asyncio.to_thread(
+            approval_registry.consume,
+            approval_id,
+            fingerprint,
+            require_fingerprint=True,
+            expected_action=record.action,
+        )
+    except (
+        ApprovalExpiredError,
+        ApprovalConsumedError,
+        ApprovalStaleError,
+        ApprovalStatusError,
+    ) as exc:
+        return {
+            "approval_id": approval_id,
+            "plan_id": plan_id,
+            "error": f"approval not consumable: {exc}",
+        }
+
+    record_approval(consumed.decision.value)
     return {
         "plan_id": plan_id,
         "approval_id": approval_id,
+        "approval_consumed_at": consumed.consumed_at,
         "status": "execution_delegated",
     }
 
@@ -1533,22 +1607,49 @@ async def _build_capability_manifest() -> CapabilityManifest:
     )
 
 
-def _mutation_from_action(action: str) -> MutationClass:
-    read_actions = {
-        "status",
-        "health",
-        "list",
-        "manifest",
-        "read",
-        "hermes_checkpoint_status",
-        "hermes_saga_status",
-        "hermes_lock_status",
-        "hermes_quota_status",
-        "hermes_plan",
+def _security_posture(approval_health: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Non-sensitive security posture: policy, signing keys, approval registry.
+
+    Never returns key material, secret file paths or policy contents. Only
+    ``configured``/``required``/``source_type``/``key_id`` and a policy hash.
+    """
+
+    loaded = get_active_policy(refresh=True)
+    posture = signing_posture()
+    approvals_ready = str((approval_health or {}).get("status", "down")) == "up"
+
+    policy_block = loaded.summary()
+    signing_block = posture.summary()
+
+    problems: list[str] = []
+    if not loaded.valid:
+        problems.append("policy")
+    if not posture.ok:
+        problems.append("hmac")
+    if not approvals_ready:
+        problems.append("approval_registry")
+
+    return {
+        "status": "ready" if not problems else "not_ready",
+        "policy": policy_block,
+        "hmac": signing_block,
+        "approval_registry": {"status": "ready" if approvals_ready else "not_ready"},
+        "failing": problems,
     }
-    if action in read_actions:
-        return MutationClass.NONE
-    return MutationClass.WRITE
+
+
+def _mutation_from_action(action: str) -> MutationClass | None:
+    """Classify an action using the single policy source of truth.
+
+    Returns ``None`` when the active policy does not know the action; the
+    policy engine then applies ``unknown_action_decision`` (DENY by default).
+    """
+
+    try:
+        return classify_action(action)
+    except PolicyError:
+        # Fail closed: an unusable policy must not yield a permissive class.
+        return MutationClass.ADMIN
 
 
 def _card_hash(card: AgentCard) -> str:
@@ -1588,12 +1689,15 @@ async def hermes_readiness() -> dict[str, Any]:
     except Exception:
         components["state_db"] = {"status": "not_ready", "reason": "error"}
 
+    approvals_health: dict[str, Any] = {}
     try:
         approvals_health = await asyncio.to_thread(get_approval_registry().health)
         ready = str(approvals_health.get("status", "down")) == "up"
         components["approval_registry"] = {"status": "ready" if ready else "not_ready"}
     except Exception:
         components["approval_registry"] = {"status": "not_ready", "reason": "error"}
+
+    components["security_posture"] = _security_posture(approvals_health)
 
     observability = observability_health()
     components["metrics_registry"] = {
