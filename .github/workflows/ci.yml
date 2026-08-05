@@ -49,19 +49,25 @@ jobs:
       - name: Test
         run: python -m pytest -q
 
+      # Build and security artefacts are architecture/runtime gates, not Python
+      # compatibility gates. Run them once on the production interpreter to
+      # avoid duplicate images and duplicate SBOM uploads from the matrix.
       - name: Build runtime image
+        if: matrix.python-version == '3.12'
         run: docker build --tag hermes-mcp-bridge:ci .
 
       - name: Scan runtime image (Trivy)
+        if: matrix.python-version == '3.12'
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: hermes-mcp-bridge:ci
           format: table
           severity: CRITICAL,HIGH
-          exit-code: '0'
+          exit-code: '1'
           ignore-unfixed: true
 
       - name: Generate SBOM (CycloneDX)
+        if: matrix.python-version == '3.12'
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: hermes-mcp-bridge:ci
@@ -69,13 +75,34 @@ jobs:
           format: cyclonedx
           output: sbom-cyclonedx.json
 
-      # Non-blocking: artifact upload can fail on an account-level storage
-      # quota that has nothing to do with this repository's correctness. The
-      # SBOM is still generated and scanned in the previous steps.
+      - name: Validate generated SBOM
+        if: matrix.python-version == '3.12'
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path("sbom-cyclonedx.json")
+          if not path.is_file() or path.stat().st_size == 0:
+              raise SystemExit("SBOM was not generated")
+          payload = json.loads(path.read_text(encoding="utf-8"))
+          if payload.get("bomFormat") != "CycloneDX":
+              raise SystemExit("unexpected SBOM format")
+          if not isinstance(payload.get("components"), list) or not payload["components"]:
+              raise SystemExit("SBOM contains no components")
+          print(f"validated CycloneDX SBOM with {len(payload['components'])} components")
+          PY
+
+      # Retention is non-blocking because account-level storage quota is an
+      # external operational constraint. Generation and structural validation
+      # above remain mandatory release evidence.
       - name: Upload SBOM
+        if: matrix.python-version == '3.12'
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          name: sbom-cyclonedx
+          name: sbom-cyclonedx-${{ github.sha }}
           path: sbom-cyclonedx.json
           if-no-files-found: error
+          retention-days: 7
+          compression-level: 9
