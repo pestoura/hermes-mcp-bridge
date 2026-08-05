@@ -33,19 +33,24 @@ if ! is_execute_mode "$REQUIRED_SHA"; then
   exit 0
 fi
 
-current_image=""
+current_image_id=""
 if docker inspect "$CONTAINER_NAME" >/dev/null 2>&1; then
-  current_image="$(docker inspect "$CONTAINER_NAME" --format '{{.Config.Image}}')"
+  current_image_id="$(docker inspect "$CONTAINER_NAME" --format '{{.Image}}')"
 fi
 
-if [ "$current_image" = "$ROLLBACK_IMAGE" ]; then
-  ok "container ja na imagem de rollback; apenas revalidar"
+if [ "$current_image_id" = "$ROLLBACK_IMAGE_ID" ]; then
+  ok "container ja no ID imutavel de rollback; apenas revalidar"
 else
-  compose "$COMPOSE_FILE" up -d
+  compose "$COMPOSE_FILE" up -d --force-recreate
   export HEALTH_REQUIRE_HEALTHCHECK=1
   wait_for_health "$CONTAINER_NAME" "$HEALTH_SETTLE_SECONDS" \
     || fail "health nao estabilizou apos rollback"
 fi
+
+running_image_id="$(docker inspect "$CONTAINER_NAME" --format '{{.Image}}')"
+[ "$running_image_id" = "$ROLLBACK_IMAGE_ID" ] \
+  || fail "contentor nao esta no ID imutavel de rollback"
+ok "ID imutavel de rollback confirmado no contentor"
 
 MCP_PORT="${MCP_PORT:-8765}" \
 EXPECT_BRIDGE_VERSION="$ROLLBACK_BRIDGE_VERSION" \
