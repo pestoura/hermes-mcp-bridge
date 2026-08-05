@@ -1,0 +1,52 @@
+# Alertmanager routing example for hermes-mcp-bridge (0.9.0).
+#
+# EXAMPLE ONLY — no real credentials, no public port, no webhook to a third
+# party. The default receiver writes nowhere off-host: it posts to a local
+# receiver on loopback. Replace it deliberately, and keep any credential in a
+# *_file option, never inline.
+#
+# Alertmanager itself must stay bound to loopback:
+#   alertmanager --web.listen-address=127.0.0.1:9093
+#
+# Merge the route/receiver below into an existing Alertmanager configuration if
+# one already exists; do not run a second Alertmanager for this service.
+
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: hermes-bridge-local
+  group_by: ["alertname", "service"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 12h
+  routes:
+    - matchers:
+        - service = "hermes-mcp-bridge"
+        - severity = "critical"
+      receiver: hermes-bridge-local
+      group_wait: 10s
+      repeat_interval: 1h
+    - matchers:
+        - service = "hermes-mcp-bridge"
+        - severity = "info"
+      receiver: hermes-bridge-local
+      repeat_interval: 24h
+
+inhibit_rules:
+  # A dead exporter makes every derived bridge alert unreliable; suppress them.
+  - source_matchers:
+      - alertname = "HermesBridgeMetricsDown"
+    target_matchers:
+      - service = "hermes-mcp-bridge"
+    equal: ["job", "instance"]
+
+receivers:
+  # Loopback-only sink. Point this at a local notifier you control; if you
+  # switch to email/Slack/PagerDuty, use the *_file credential options
+  # (auth_password_file, api_url_file, routing_key_file) with 0600 files.
+  - name: hermes-bridge-local
+    webhook_configs:
+      - url: http://127.0.0.1:9099/alerts
+        send_resolved: true
+        max_alerts: 50

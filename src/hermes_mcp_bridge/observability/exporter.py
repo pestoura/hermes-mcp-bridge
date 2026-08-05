@@ -32,6 +32,13 @@ ENV_TOKEN = "BRIDGE_METRICS_TOKEN"
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 9464
 
+#: Well-known default Docker bridge gateway address. It is *not* loopback: a
+#: container-visible bind is a remote bind for authorization purposes and keeps
+#: requiring BRIDGE_METRICS_ALLOW_REMOTE=1 plus BRIDGE_METRICS_TOKEN. The
+#: distinction exists only so operators can tell "scrapeable from the docker
+#: network" apart from "scrapeable from anywhere" in status output.
+DOCKER_GATEWAY_HOSTS: frozenset[str] = frozenset({"172.17.0.1", "host.docker.internal"})
+
 
 class MetricsExporterError(RuntimeError):
     """Raised when the exporter configuration is unsafe."""
@@ -65,10 +72,31 @@ def is_loopback(host: str) -> bool:
         return host in {"localhost", "localhost.localdomain"}
 
 
+def is_docker_gateway(host: str) -> bool:
+    """Whether ``host`` is the Docker bridge gateway (never loopback)."""
+
+    return host.strip() in DOCKER_GATEWAY_HOSTS
+
+
+def bind_scope(host: str) -> str:
+    """Classify a bind address: ``loopback``, ``docker-gateway`` or ``remote``.
+
+    Only ``loopback`` is exempt from the remote-exposure gate; the other two
+    scopes require explicit opt-in plus a bearer token.
+    """
+
+    host = (host or "").strip()
+    if is_loopback(host):
+        return "loopback"
+    if is_docker_gateway(host):
+        return "docker-gateway"
+    return "remote"
+
+
 def validate_binding(host: str) -> None:
     """Fail closed when a remote binding is not explicitly and safely enabled."""
 
-    if is_loopback(host):
+    if bind_scope(host) == "loopback":
         return
     if not _truthy(ENV_ALLOW_REMOTE):
         raise MetricsExporterError(
@@ -186,11 +214,13 @@ def exporter_status() -> dict[str, Any]:
     """Non-sensitive exporter status for health output."""
 
     host = exporter_host()
+    scope = bind_scope(host)
     return {
         "enabled": metrics_enabled(),
         "running": _exporter is not None and _exporter.running,
         "exporter": "prometheus-text",
-        "bind_scope": "loopback" if is_loopback(host) else "remote",
+        "bind_scope": scope,
+        "remote_exposure_allowed": _truthy(ENV_ALLOW_REMOTE),
         "auth_required": bool(os.environ.get(ENV_TOKEN, "").strip()),
         "path": "/metrics",
     }

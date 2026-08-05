@@ -57,6 +57,7 @@ from .observability import (
     set_migrations_version,
     start_exporter_if_enabled,
 )
+from .observability.tracing import build_trace_metadata
 from .policy import (
     PolicyError,
     classify_action,
@@ -82,7 +83,6 @@ from .quotas import get_quota_registry
 from .registry import RegistryError, compute_fingerprint, get_registry
 from .sagas import SagaRegistry
 from .signing import signing_posture
-from .tracing import build_trace_metadata
 
 settings = get_settings()
 configure_logging()

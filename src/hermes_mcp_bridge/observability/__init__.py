@@ -66,9 +66,12 @@ from .metrics import (
 from .redaction import REDACTED, redact_text, sanitize
 from .tracing import (
     NoOpSpan,
+    build_trace_metadata,
     format_traceparent,
     parse_traceparent,
+    sanitize_trace_context,
     start_span,
+    tracing_readiness,
     tracing_status,
 )
 
@@ -81,6 +84,7 @@ __all__ = [
     "MetricsExporterError",
     "MetricsRegistry",
     "NoOpSpan",
+    "build_trace_metadata",
     "clear_context",
     "configure_logging",
     "correlation_scope",
@@ -110,6 +114,7 @@ __all__ = [
     "redact_text",
     "render_prometheus",
     "sanitize",
+    "sanitize_trace_context",
     "set_active_runs",
     "set_bridge_info",
     "set_field",
@@ -118,6 +123,7 @@ __all__ = [
     "start_span",
     "status_class",
     "timed_event",
+    "tracing_readiness",
     "tracing_status",
 ]
 

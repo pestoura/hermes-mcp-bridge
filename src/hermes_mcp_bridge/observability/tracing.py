@@ -31,6 +31,30 @@ TRACEPARENT_RE = re.compile(
 _INVALID_TRACE_ID = "0" * 32
 _INVALID_SPAN_ID = "0" * 16
 
+#: Trace-context fields that may cross the bridge boundary. Anything else
+#: (prompts, outputs, lease tokens, secrets) is dropped, never redacted-in-place.
+TRACE_ALLOWED_FIELDS: frozenset[str] = frozenset(
+    {
+        "traceparent",
+        "tracestate",
+        "correlation_id",
+        "causation_id",
+    }
+)
+
+#: Field names that must never appear in exported trace metadata, even if a
+#: future edit widens the allowlist above.
+TRACE_FORBIDDEN_FIELDS: frozenset[str] = frozenset(
+    {"prompt", "output", "tokens", "leaseToken", "lease_token", "secret"}
+)
+
+
+def sanitize_trace_context(context: dict[str, Any] | None) -> dict[str, Any]:
+    """Keep only allowlisted trace-context fields, as strings."""
+
+    items = {str(k): str(v) for k, v in (context or {}).items() if k and v is not None}
+    return {k: v for k, v in items.items() if k in TRACE_ALLOWED_FIELDS}
+
 
 def parse_traceparent(value: Any) -> dict[str, str] | None:
     """Parse a W3C traceparent header; return ``None`` when invalid."""
@@ -168,4 +192,50 @@ def tracing_status() -> dict[str, Any]:
         "export_enabled": export_enabled(),
         "implementation": "opentelemetry" if otel_tracer_cached() is not None else "noop",
         "propagation": "w3c-traceparent",
+    }
+
+
+def build_trace_metadata(
+    trace_context: dict[str, Any] | None,
+    upstream_supported: bool,
+) -> dict[str, Any]:
+    """Build sanitized, advisory trace metadata for tool results.
+
+    ``upstream_supported`` reflects whether the upstream Hermes API propagates
+    trace context natively; when it does not, the metadata is explicitly marked
+    advisory (``bridge_only``) so consumers do not read it as a real distributed
+    trace.
+    """
+
+    sanitized = sanitize_trace_context(trace_context)
+    metadata: dict[str, Any] = {
+        "effective_support": "native" if upstream_supported else "bridge_only",
+        "upstream_supported": upstream_supported,
+        "advisory": not upstream_supported,
+    }
+    traceparent = sanitized.get("traceparent")
+    if traceparent:
+        parsed = parse_traceparent(traceparent)
+        if parsed:
+            metadata["trace_id"] = parsed["trace_id"]
+            metadata["span_id"] = parsed["span_id"]
+            metadata["parent"] = parsed["trace_flags"]
+    if "correlation_id" in sanitized:
+        metadata["correlation"] = sanitized["correlation_id"]
+    if "causation_id" in sanitized:
+        metadata["causation"] = sanitized["causation_id"]
+    for forbidden in TRACE_FORBIDDEN_FIELDS:
+        sanitized.pop(forbidden, None)
+    metadata["context"] = sanitized
+    return metadata
+
+
+def tracing_readiness() -> dict[str, Any]:
+    """Non-sensitive tracing readiness view for health/readiness output."""
+
+    return {
+        "tracing_ready": True,
+        "sanitization_ready": True,
+        "bridge_only_default": True,
+        "allowed_context_fields": sorted(TRACE_ALLOWED_FIELDS),
     }
