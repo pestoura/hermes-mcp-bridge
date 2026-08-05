@@ -557,7 +557,7 @@ async def test_readiness_includes_security_posture() -> None:
     payload = await server.hermes_readiness()
     assert "security_posture" in payload["components"]
     assert payload["schema_version"] == "0.6.1"
-    assert payload["contract_version"] == "0.9.0"
+    assert payload["contract_version"] == CURRENT_CONTRACT_VERSION
 
 
 def test_tool_surface_stays_at_27_without_approval_consume() -> None:
