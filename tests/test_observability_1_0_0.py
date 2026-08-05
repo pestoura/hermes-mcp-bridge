@@ -132,13 +132,13 @@ def test_alert_rules_use_real_restart_signal_and_have_runbooks() -> None:
 
 def test_runbook_defines_security_invariants_slos_and_lease_boundary() -> None:
     text = RUNBOOK.read_text(encoding="utf-8")
-    lowered = text.lower()
+    normalized = " ".join(text.lower().split())
     assert "BRIDGE_METRICS_HOST=127.0.0.1" in text
     assert "BRIDGE_TRACING_EXPORT=0" in text
     assert "HERMES_BRIDGE_1_0_0_METRICS_GATE_PASS" in text
     assert "Minimum SLOs and indicators" in text
     assert "RITMO lease table" in text
-    assert "cannot prove the lease slo" in lowered
+    assert "cannot prove the lease slo" in normalized
 
     # Documentation and deploy assets must remain safe to serialize as evidence.
     json.dumps({"runbook": text, "alloy": ALLOY_PROFILE.read_text(encoding="utf-8")})
