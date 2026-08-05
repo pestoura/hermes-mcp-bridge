@@ -59,8 +59,11 @@ cleanup or through an approved alternative repository.
   `EXPECTED_SHA=<REQUIRED_SHA>`.
 - `REQUIRED_SHA` is mandatory even for dry-run, so the plan always refers to a
   concrete candidate.
-- Candidate image revision and version labels must match the release.
-- Rollback requires an explicit tag and exact immutable Docker image ID.
+- Candidate image revision and version labels must match the release; the
+  running container image ID must match the locally inspected immutable
+  candidate ID.
+- Rollback requires an explicit tag and exact immutable Docker image ID, and the
+  running container must match that ID after rollback.
 - SQLite is backed up through the Python `sqlite3` backup API before recreation.
 - Rollback does not alter SQLite because schema `0.6.1` is unchanged.
 - The candidate mounts only the current Hermes API key and HMAC key. Previous
@@ -197,8 +200,8 @@ The script:
 
 1. repeats the full preflight;
 2. creates a restricted SQLite backup;
-3. recreates the fixed Compose service only when the candidate is not already
-   running;
+3. compares immutable image IDs and force-recreates the fixed Compose service
+   only when the exact candidate ID is not already running;
 4. waits using the healthcheck-derived bounded budget;
 5. checks initialize and the 27-tool contract;
 6. checks `hermes_health`;
