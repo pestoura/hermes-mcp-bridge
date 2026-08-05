@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Observability smoke check for hermes-mcp-bridge 0.9.0.
+"""Observability smoke check for hermes-mcp-bridge 1.0.0.
 
 Read-only by design: it never writes to the state database, never mutates the
 environment of a running bridge and never prints secret material.
@@ -8,10 +8,10 @@ Checks
 ------
 
 ``--check-config`` (default, offline)
-    Validates the deploy assets: the Prometheus scrape snippet, the alerting
-    rules and the Alertmanager example are parseable YAML, reference only
-    allow-listed low-cardinality labels, carry no inline credential, and point
-    at a bearer *token file* rather than a literal token.
+    Validates the canonical Grafana Alloy profile and the legacy Prometheus /
+    Alertmanager deploy assets. The assets must contain no inline credential,
+    use only allow-listed low-cardinality labels and keep the 1.0.0 Grafana
+    Cloud profile bound to the loopback exporter.
 
 ``--check-logging`` (offline)
     Emits a handful of events through the real logging pipeline into a buffer
@@ -42,6 +42,7 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEPLOY_DIR = REPO_ROOT / "deploy" / "observability"
+ALLOY_PROFILE = DEPLOY_DIR / "grafana-cloud-loopback.alloy"
 SCRAPE_SNIPPET = DEPLOY_DIR / "prometheus-scrape.snippet.yml"
 RULES_FILE = DEPLOY_DIR / "hermes-bridge.rules.yml"
 ALERTMANAGER_FILE = DEPLOY_DIR / "alertmanager.example.yml"
@@ -51,13 +52,15 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 #: Substrings that must never appear in a committed deploy asset.
 _SECRET_MARKERS = (
     re.compile(r"(?i)\bbearer[ \t]+[A-Za-z0-9._\-]{8,}"),
-    # Literal credential bound to a secret-ish key. ``*_file`` keys and values
-    # that are filesystem paths are the *correct* pattern and must not trip it.
+    # Literal credential bound to a secret-ish YAML key. ``*_file`` keys and
+    # values that are filesystem paths are the correct pattern and must not
+    # trip this expression.
     re.compile(
         r"(?i)(?<![\w-])(credentials|password|api_key|apikey|token|secret)"
         r"(?!_file)\s*:\s*[\"']?(?![/.])[A-Za-z0-9._\-]{12,}"
     ),
     re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
+    re.compile(r"(?i)\b(?:glc|glsa)_[A-Za-z0-9._\-]{8,}"),
 )
 
 
@@ -88,6 +91,80 @@ def _assert_no_inline_secret(path: Path) -> None:
             )
 
 
+def check_alloy_profile() -> list[str]:
+    """Validate the canonical loopback-only Grafana Cloud profile statically.
+
+    The installed Alloy binary remains the authoritative syntax validator. This
+    check protects the security shape before an operator reaches that runtime
+    gate: one loopback target, environment-backed credentials, bridge namespace
+    filtering, forbidden-label removal and no tracing pipeline.
+    """
+
+    if not ALLOY_PROFILE.is_file():
+        raise CheckFailure(
+            f"missing deploy asset: {ALLOY_PROFILE.relative_to(REPO_ROOT)}"
+        )
+    _assert_no_inline_secret(ALLOY_PROFILE)
+    text = ALLOY_PROFILE.read_text(encoding="utf-8")
+    lowered = text.lower()
+
+    required_components = (
+        'prometheus.scrape "hermes_bridge"',
+        'prometheus.relabel "hermes_bridge"',
+        'prometheus.remote_write "grafana_cloud"',
+    )
+    missing = [component for component in required_components if component not in text]
+    if missing:
+        raise CheckFailure(f"Alloy profile missing components: {missing}")
+
+    if text.count('"__address__" = "127.0.0.1:9464"') != 1:
+        raise CheckFailure("Alloy profile must define exactly one loopback exporter target")
+    for forbidden_bind in ("0.0.0.0:9464", "172.17.0.1:9464", "host.docker.internal:9464"):
+        if forbidden_bind in text:
+            raise CheckFailure(f"Alloy profile contains a non-loopback target: {forbidden_bind}")
+
+    required_environment = (
+        "GRAFANA_CLOUD_PROMETHEUS_URL",
+        "GRAFANA_CLOUD_PROMETHEUS_USERNAME",
+        "GRAFANA_CLOUD_PROMETHEUS_PASSWORD",
+        "HERMES_ENVIRONMENT",
+    )
+    for variable in required_environment:
+        if f'sys.env("{variable}")' not in text:
+            raise CheckFailure(f"Alloy profile does not read {variable} from the environment")
+
+    if 'source_labels = ["__name__"]' not in text:
+        raise CheckFailure("Alloy profile does not filter by metric name")
+    if 'regex         = "bridge_.*"' not in text or 'action        = "keep"' not in text:
+        raise CheckFailure("Alloy profile does not keep only the bridge metric namespace")
+    if 'action = "labeldrop"' not in text:
+        raise CheckFailure("Alloy profile does not remove forbidden labels defensively")
+
+    for forbidden_label in (
+        "run_id",
+        "session_id",
+        "execution_id",
+        "client_request_id",
+        "prompt",
+        "output",
+        "token",
+        "api_key",
+        "password",
+        "cookie",
+        "authorization",
+    ):
+        if forbidden_label not in text:
+            raise CheckFailure(f"Alloy labeldrop omits forbidden label: {forbidden_label}")
+
+    if "otelcol." in lowered or "loki." in lowered:
+        raise CheckFailure("metrics-only Alloy profile must not configure traces or logs")
+
+    return [
+        "Alloy profile ok: one loopback scrape, environment-backed remote_write, "
+        "bridge namespace only"
+    ]
+
+
 def check_scrape_snippet() -> list[str]:
     notes: list[str] = []
     _assert_no_inline_secret(SCRAPE_SNIPPET)
@@ -105,10 +182,10 @@ def check_scrape_snippet() -> list[str]:
         raise CheckFailure("scrape job must use authorization.credentials_file")
     if auth.get("credentials"):
         raise CheckFailure("scrape job must not inline authorization.credentials")
-    targets = [t for sc in job.get("static_configs", []) for t in sc.get("targets", [])]
+    targets = [target for config in job.get("static_configs", []) for target in config.get("targets", [])]
     if "172.17.0.1:9464" not in targets:
         raise CheckFailure("scrape job does not target the docker gateway 172.17.0.1:9464")
-    notes.append(f"scrape job ok: targets={targets}, bearer via file")
+    notes.append(f"legacy scrape job ok: targets={targets}, bearer via file")
     return notes
 
 
@@ -138,7 +215,14 @@ def check_rules() -> list[str]:
     for forbidden in FORBIDDEN_LABELS:
         if re.search(rf"\b{re.escape(forbidden)}\s*=", text):
             raise CheckFailure(f"rules reference forbidden high-cardinality label: {forbidden}")
-    used = set(re.findall(r"\{([a-z_]+)=", text)) - {"job", "instance", "service", "env", "le"}
+    used = set(re.findall(r"\{([a-z_]+)=", text)) - {
+        "job",
+        "instance",
+        "service",
+        "env",
+        "environment",
+        "le",
+    }
     unknown = used - set(ALLOWED_LABELS)
     if unknown:
         raise CheckFailure(f"rules use non-allow-listed labels: {sorted(unknown)}")
@@ -244,7 +328,7 @@ def probe(url: str, token_file: str | None) -> list[str]:
         for line in body.splitlines()
         if line and not line.startswith("#")
     }
-    bridge_series = sorted(s for s in series if s.startswith("bridge_"))
+    bridge_series = sorted(series_name for series_name in series if series_name.startswith("bridge_"))
     if not bridge_series:
         raise CheckFailure("exporter responded but exposed no bridge_* series")
     return [f"probe ok: HTTP {status}, {len(bridge_series)} bridge_* series"]
@@ -266,7 +350,12 @@ def main(argv: list[str] | None = None) -> int:
     failures: list[str] = []
     notes: list[str] = []
     if args.check_config:
-        for check in (check_scrape_snippet, check_rules, check_alertmanager):
+        for check in (
+            check_alloy_profile,
+            check_scrape_snippet,
+            check_rules,
+            check_alertmanager,
+        ):
             try:
                 notes.extend(check())
             except CheckFailure as exc:
