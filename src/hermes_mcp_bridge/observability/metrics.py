@@ -3,16 +3,19 @@
 Cardinality policy (enforced, not advisory):
 
 * Only label names in :data:`ALLOWED_LABELS` may be used.
-* Identifiers such as ``run_id``, ``session_id``, ``execution_id``,
-  ``client_request_id``, paths and secrets are rejected as label names, and
-  label *values* are bounded per metric to avoid unbounded series growth.
+* Every allowed label has an explicit finite value domain.
+* Unknown values are folded into ``other`` before a series is created.
+* Identifiers, paths, prompts, output and secret-bearing labels are rejected.
 """
 
 from __future__ import annotations
 
 import threading
+import time
 from contextlib import suppress
 from typing import Any
+
+from ..contracts import CURRENT_CONTRACT_VERSION, TOOL_CONTRACTS, required_tools
 
 CONTENT_TYPE = "text/plain; version=0.0.4; charset=utf-8"
 
@@ -28,7 +31,6 @@ ALLOWED_LABELS: frozenset[str] = frozenset(
         "mode",
         "version",
         "kind",
-        # Block 3 resilience labels (bounded, allow-listed).
         "state",
         "source",
         "upstream",
@@ -52,18 +54,127 @@ FORBIDDEN_LABELS: frozenset[str] = frozenset(
         "url",
         "token",
         "api_key",
+        "password",
+        "cookie",
+        "authorization",
     }
 )
 
 MAX_SERIES_PER_METRIC = 200
 
-#: Bounded value domains for the resilience labels introduced in 0.9.
-#: A value outside the domain is folded into ``other`` instead of creating a
-#: new series, so cardinality stays provably finite.
+_TOOL_VALUES = frozenset(required_tools(CURRENT_CONTRACT_VERSION)) | {"other"}
+_VERSION_VALUES = frozenset(TOOL_CONTRACTS) | {"other"}
+
+#: Every label value is normalized into one of these finite domains. This is
+#: deliberately stricter than a global series cap: user-controlled strings can
+#: never create a new time series merely by changing their content.
 BOUNDED_LABEL_VALUES: dict[str, frozenset[str]] = {
+    "tool": _TOOL_VALUES,
+    "outcome": frozenset(
+        {
+            "success",
+            "ok",
+            "error",
+            "upstream_error",
+            "cancelled",
+            "timeout",
+            "timed_out",
+            "open",
+            "closed",
+            "connected",
+            "disconnected",
+            "fallback",
+            "retry",
+            "rejected",
+            "transition",
+            "approved",
+            "denied",
+            "expired",
+            "consumed",
+            "pending",
+            "partial",
+            "failed",
+            "blocked",
+            "skipped",
+            "stopped",
+            "unknown",
+            "other",
+        }
+    ),
+    "endpoint_class": frozenset(
+        {"runs", "run_events", "run_stop", "sessions", "health", "other"}
+    ),
+    "status_class": frozenset({"1xx", "2xx", "3xx", "4xx", "5xx", "error", "other"}),
+    "decision": frozenset(
+        {
+            "allow",
+            "deny",
+            "require_approval",
+            "pending",
+            "approved",
+            "rejected",
+            "expired",
+            "consumed",
+            "unknown",
+            "other",
+        }
+    ),
+    "reason": frozenset(
+        {
+            "stream_ended",
+            "stream_closed",
+            "connect_error",
+            "read_error",
+            "http_error",
+            "parse_error",
+            "timeout",
+            "cancelled",
+            "unknown",
+            "other",
+        }
+    ),
+    "mode": frozenset(
+        {
+            "json",
+            "text",
+            "noop",
+            "otel",
+            "auto",
+            "explicit",
+            "advisory",
+            "production",
+            "development",
+            "test",
+            "unknown",
+            "other",
+        }
+    ),
+    "version": _VERSION_VALUES,
+    "kind": frozenset(
+        {
+            "state",
+            "approvals",
+            "locks",
+            "migrations",
+            "quota",
+            "sagas",
+            "checkpoints",
+            "registry",
+            "contention",
+            "instrumentation",
+            "logging",
+            "metrics",
+            "tracing",
+            "exporter",
+            "unknown",
+            "other",
+        }
+    ),
     "state": frozenset({"closed", "open", "half_open", "other"}),
     "source": frozenset({"sse", "polling", "recovery", "unknown", "other"}),
-    "upstream": frozenset({"runs", "run_events", "run_stop", "sessions", "health", "other"}),
+    "upstream": frozenset(
+        {"runs", "run_events", "run_stop", "sessions", "health", "other"}
+    ),
 }
 
 DEFAULT_BUCKETS: tuple[float, ...] = (
@@ -86,6 +197,14 @@ class CardinalityError(ValueError):
     """Raised when a metric would introduce forbidden/high-cardinality labels."""
 
 
+def _normalize_label_value(key: str, raw_value: object) -> str:
+    value = str(raw_value).strip().lower()
+    if key in {"reason", "kind", "state", "source", "upstream"}:
+        value = value.replace("-", "_").replace(" ", "_")
+    allowed_values = BOUNDED_LABEL_VALUES[key]
+    return value if value in allowed_values else "other"
+
+
 def _validate_labels(labels: dict[str, str] | None) -> tuple[tuple[str, str], ...]:
     if not labels:
         return ()
@@ -96,13 +215,7 @@ def _validate_labels(labels: dict[str, str] | None) -> tuple[tuple[str, str], ..
             raise CardinalityError(f"forbidden label: {key}")
         if key not in ALLOWED_LABELS:
             raise CardinalityError(f"label not allow-listed: {key}")
-        value = str(raw_value)
-        allowed_values = BOUNDED_LABEL_VALUES.get(key)
-        if allowed_values is not None and value not in allowed_values:
-            value = "other"
-        if len(value) > 64:
-            value = value[:64]
-        normalized.append((key, value))
+        normalized.append((key, _normalize_label_value(key, raw_value)))
     return tuple(sorted(normalized))
 
 
@@ -129,7 +242,6 @@ def _render_value(value: float) -> str:
         return "+Inf"
     if value == float("-inf"):
         return "-Inf"
-    # Keep integer-valued floats clean; otherwise full repr.
     if value == int(value):
         return str(int(value))
     return repr(value)
@@ -255,12 +367,19 @@ class Histogram(_Metric):
             }
 
     def render(self) -> list[str]:
-        lines = [f"# HELP {self.name} {self.help}", f"# TYPE {self.name} histogram"]
+        lines = [
+            f"# HELP {self.name} {_escape_help(self.help)}",
+            f"# TYPE {self.name} histogram",
+        ]
         with self._lock:
             keys = sorted(self._counts)
             snapshot = {
-                k: (list(self._counts[k]), self._sums.get(k, 0.0), self._totals.get(k, 0))
-                for k in keys
+                key: (
+                    list(self._counts[key]),
+                    self._sums.get(key, 0.0),
+                    self._totals.get(key, 0),
+                )
+                for key in keys
             }
         for key, (counts, total_sum, total) in snapshot.items():
             for index, bound in enumerate(self.buckets):
@@ -320,7 +439,7 @@ class MetricsRegistry:
                 store = getattr(metric, attr, None)
                 if isinstance(store, dict):
                     for key in store:
-                        names.update(k for k, _ in key)
+                        names.update(label for label, _ in key)
         return names
 
     def render(self) -> str:
@@ -339,7 +458,13 @@ class MetricsRegistry:
     def health(self) -> dict[str, Any]:
         with self._lock:
             count = len(self._metrics)
-        return {"status": "up", "metrics": count, "max_series_per_metric": MAX_SERIES_PER_METRIC}
+        return {
+            "status": "up",
+            "metrics": count,
+            "max_series_per_metric": MAX_SERIES_PER_METRIC,
+            "label_domains": len(BOUNDED_LABEL_VALUES),
+            "unbounded_labels": sorted(ALLOWED_LABELS - BOUNDED_LABEL_VALUES.keys()),
+        }
 
 
 _registry = MetricsRegistry()
@@ -363,7 +488,8 @@ class _Metrics:
             "Upstream Hermes API requests by endpoint class and status class.",
         )
         self.upstream_duration_seconds = registry.histogram(
-            "bridge_upstream_duration_seconds", "Upstream Hermes API request duration in seconds."
+            "bridge_upstream_duration_seconds",
+            "Upstream Hermes API request duration in seconds.",
         )
         self.sse_connections_total = registry.counter(
             "bridge_sse_connections_total", "SSE event-stream connection attempts by outcome."
@@ -393,10 +519,14 @@ class _Metrics:
         self.bridge_info = registry.gauge(
             "bridge_info", "Bridge build info (always 1); version carried as a label."
         )
+        self.process_start_time_seconds = registry.gauge(
+            "bridge_process_start_time_seconds",
+            "Unix timestamp when the bridge process initialized its metrics registry.",
+        )
+        self.process_start_time_seconds.set(time.time())
         self.observability_errors_total = registry.counter(
             "bridge_observability_errors_total", "Observability internal failures by kind."
         )
-        # -- Block 3 resilience metrics ---------------------------------
         self.sqlite_retries_total = registry.counter(
             "bridge_sqlite_retries_total",
             "Bounded SQLite retries after transient contention, by operation kind.",
@@ -445,7 +575,7 @@ def get_metrics() -> _Metrics:
 
 def set_bridge_info(version: str) -> None:
     with suppress(CardinalityError):  # pragma: no cover - defensive
-        metrics.bridge_info.set(1.0, version=str(version)[:64])
+        metrics.bridge_info.set(1.0, version=str(version))
 
 
 def render_prometheus() -> str:
