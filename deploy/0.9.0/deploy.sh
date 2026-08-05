@@ -37,13 +37,14 @@ if ! is_execute_mode "$REQUIRED_SHA"; then
   exit 0
 fi
 
-current_image=""
+candidate_image_id="$(docker image inspect "$CANDIDATE_IMAGE" --format '{{.Id}}')"
+current_image_id=""
 if docker inspect "$CONTAINER_NAME" >/dev/null 2>&1; then
-  current_image="$(docker inspect "$CONTAINER_NAME" --format '{{.Config.Image}}')"
+  current_image_id="$(docker inspect "$CONTAINER_NAME" --format '{{.Image}}')"
 fi
 
-if [ "$current_image" = "$CANDIDATE_IMAGE" ]; then
-  ok "container ja na imagem candidata; apenas revalidar"
+if [ "$current_image_id" = "$candidate_image_id" ]; then
+  ok "container ja no ID imutavel da candidata; apenas revalidar"
 else
   mkdir -p "$BACKUP_DIR"
   chmod 700 "$BACKUP_DIR"
@@ -65,11 +66,16 @@ PY
   chmod 600 "$backup_path"
   ok "backup SQLite criado com permissoes 0600"
 
-  compose "$COMPOSE_FILE" up -d
+  compose "$COMPOSE_FILE" up -d --force-recreate
   export HEALTH_REQUIRE_HEALTHCHECK=1
   wait_for_health "$CONTAINER_NAME" "$HEALTH_SETTLE_SECONDS" \
     || fail "health nao estabilizou; executar rollback.sh"
 fi
+
+running_image_id="$(docker inspect "$CONTAINER_NAME" --format '{{.Image}}')"
+[ "$running_image_id" = "$candidate_image_id" ] \
+  || fail "contentor nao esta no ID imutavel da candidata"
+ok "ID imutavel da candidata confirmado no contentor"
 
 MCP_PORT="${MCP_PORT:-8765}" \
 EXPECT_BRIDGE_VERSION="$BRIDGE_VERSION" \
