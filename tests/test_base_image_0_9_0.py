@@ -1,15 +1,13 @@
-"""Base-image contract tests for the 0.9.0 security release.
+"""Base-image contract tests retained from the 0.9.0 security release.
 
-0.9.0 changes only the container base image and the release metadata:
+The 1.0.0 contract baseline deliberately keeps the same hardened runtime:
 
-* the base moves from ``python:3.11-slim-bookworm`` (floating tag) to
-  ``python:3.12-slim-trixie`` **pinned by digest**;
-* the tool contract, the wire schema and the runtime behaviour are unchanged.
+* ``python:3.12-slim-trixie`` remains pinned by digest;
+* the tool surface remains at 27 tools;
+* the wire schema remains ``0.6.1``.
 
-These tests are static (they read the Dockerfile and the compose file) so they
-run on the host without Docker. They are deliberately strict about the digest
-pin: a floating tag would silently reintroduce the CVE drift this release was
-made to remove.
+These tests are static so they run on the host without Docker. They remain
+strict about the digest pin because a floating tag would reintroduce CVE drift.
 """
 
 from __future__ import annotations
@@ -103,7 +101,6 @@ def test_runtime_runs_as_non_root_bridge_user() -> None:
     assert "useradd -u 1000 -g 1000" in text
     assert "groupadd -g 1000 bridge" in text
     assert "USER bridge:bridge" in text
-    # USER must be the last privileged transition before CMD.
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     user_index = lines.index("USER bridge:bridge")
     assert lines[-1].startswith('CMD ["python"')
@@ -111,7 +108,7 @@ def test_runtime_runs_as_non_root_bridge_user() -> None:
 
 
 def _installed_packages(text: str) -> str:
-    """Return only the (lowercased) text of the apt-get install lines."""
+    """Return only the lowercased text of the apt-get install lines."""
 
     return " ".join(
         line.lower() for line in text.splitlines() if "apt-get install" in line
@@ -119,14 +116,6 @@ def _installed_packages(text: str) -> str:
 
 
 def test_systemd_is_not_installed_in_the_image() -> None:
-    """The 3 known container test failures are systemd tooling; it stays out.
-
-    ``systemctl`` / ``systemd-run`` are host-side operational dependencies of
-    the secret-rotation flow. Installing systemd inside the container would add
-    a large attack surface to make three host tests green, so the image
-    deliberately omits it and those tests remain host-only.
-    """
-
     installed = _installed_packages(_dockerfile())
     for token in ("systemd", "systemctl", "dbus", "init-system-helpers"):
         assert token not in installed, f"unexpected package in image: {token}"
@@ -134,9 +123,7 @@ def test_systemd_is_not_installed_in_the_image() -> None:
 
 def test_apt_installs_are_minimal_and_cleaned() -> None:
     text = _dockerfile()
-    install_lines = [
-        line for line in text.splitlines() if "apt-get install" in line
-    ]
+    install_lines = [line for line in text.splitlines() if "apt-get install" in line]
     assert install_lines, "expected at least one apt-get install line"
     for line in install_lines:
         assert "--no-install-recommends" in line
@@ -173,7 +160,7 @@ def test_pycache_and_pip_cache_are_removed() -> None:
 
 
 # --------------------------------------------------------------------------
-# SQLite / compose runtime expectations are unchanged by the base bump
+# SQLite / compose runtime expectations
 # --------------------------------------------------------------------------
 
 
@@ -192,26 +179,24 @@ def test_compose_still_mounts_state_and_drops_privileges() -> None:
     assert service["read_only"] is True
     assert service["cap_drop"] == ["ALL"]
     assert "no-new-privileges:true" in service["security_opt"]
-    assert any(
-        ":/var/lib/hermes-mcp-bridge" in item for item in service["volumes"]
-    )
+    assert any(":/var/lib/hermes-mcp-bridge" in item for item in service["volumes"])
     assert "python -m hermes_mcp_bridge.healthcheck" in service["healthcheck"]["test"][-1]
 
 
 # --------------------------------------------------------------------------
-# Version / contract alignment for 0.9.0
+# Version / contract alignment for 1.0.0
 # --------------------------------------------------------------------------
 
 
-def test_version_is_0_9_0_everywhere() -> None:
-    assert __version__ == "0.9.0"
-    assert CURRENT_CONTRACT_VERSION == "0.9.0"
+def test_version_is_1_0_0_everywhere() -> None:
+    assert __version__ == "1.0.0"
+    assert CURRENT_CONTRACT_VERSION == "1.0.0"
     init = Path("src/hermes_mcp_bridge/__init__.py").read_text(encoding="utf-8")
     pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
     config = Path("src/hermes_mcp_bridge/config.py").read_text(encoding="utf-8")
-    assert '__version__ = "0.9.0"' in init
-    assert 'version = "0.9.0"' in pyproject
-    assert 'bridge_version: str = "0.9.0"' in config
+    assert '__version__ = "1.0.0"' in init
+    assert 'version = "1.0.0"' in pyproject
+    assert 'bridge_version: str = "1.0.0"' in config
 
 
 def test_schema_version_is_still_0_6_1() -> None:
@@ -222,9 +207,9 @@ def test_tool_contract_is_unchanged_at_27_tools() -> None:
     tools = required_tools(CURRENT_CONTRACT_VERSION)
     assert expected_tool_count(CURRENT_CONTRACT_VERSION) == 27
     assert "hermes_readiness" in tools
-    assert tools == required_tools("0.8.2")
+    assert tools == required_tools("0.9.0")
 
 
-def test_python_floor_supports_the_new_base() -> None:
+def test_python_floor_supports_the_runtime_base() -> None:
     pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
     assert 'requires-python = ">=3.11"' in pyproject

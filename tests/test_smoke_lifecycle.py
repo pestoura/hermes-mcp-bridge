@@ -8,6 +8,8 @@ from unittest.mock import patch
 import httpx
 import pytest
 
+from hermes_mcp_bridge.contracts import CURRENT_CONTRACT_VERSION
+
 SMOKE_PATH = Path(__file__).resolve().parents[1] / "scripts" / "smoke_test.py"
 SPEC = importlib.util.spec_from_file_location("smoke_test_repro", SMOKE_PATH)
 smoke_module = importlib.util.module_from_spec(SPEC)
@@ -88,21 +90,22 @@ class _FakeSession:
                 '"bridge":{'
                 '"state_registry":{"status":"up"},'
                 '"schema_version":"0.6.1",'
-                '"manifest_version":"0.9.0","manifest_hash":"abc"}'
+                f'"manifest_version":"{CURRENT_CONTRACT_VERSION}",'
+                '"manifest_hash":"abc"}'
                 '}'
             )
         elif name == "hermes_capabilities":
             payload = (
-                '{"bridge_version":"0.9.0",'
+                f'{{"bridge_version":"{CURRENT_CONTRACT_VERSION}",'
                 '"schema_version":"0.6.1",'
-                '"manifest_version":"0.9.0",'
+                f'"manifest_version":"{CURRENT_CONTRACT_VERSION}",'
                 '"manifest_hash":"abc",'
                 '"upstream_capabilities_source":"upstream"}'
             )
         elif name == "hermes_agent_card":
             payload = (
                 '{"schema_version":"0.6.1",'
-                '"version":"0.9.0",'
+                f'"version":"{CURRENT_CONTRACT_VERSION}",'
                 '"card_hash":"abc"}'
             )
         else:

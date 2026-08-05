@@ -1,9 +1,10 @@
-"""Contract tests for the 0.8.2 tool surface and schema pinning."""
+"""Contract tests for the stable 1.0.0 tool surface and schema pinning."""
 
 from __future__ import annotations
 
 import asyncio
 import importlib
+import json
 import types
 from pathlib import Path
 
@@ -15,6 +16,8 @@ from hermes_mcp_bridge.contracts import (
     SCHEMA_VERSION,
     TOOL_CONTRACTS,
     UnknownContractVersionError,
+    contract_digest,
+    contract_snapshot,
     diff_tools,
     expected_tool_count,
     required_tools,
@@ -25,6 +28,11 @@ from hermes_mcp_bridge.protocol import (
     validate_manifest_tools,
 )
 
+SNAPSHOT_PATH = Path("contracts/1.0.0.json")
+EXPECTED_1_0_0_DIGEST = (
+    "543213dedc2928466e5ec8ed9e2d4f9a464c7204cef737584a2a7e774c378e2d"
+)
+
 
 def _server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> types.ModuleType:
     monkeypatch.setenv("HERMES_API_KEY", "unit-test-key-0123456789")
@@ -32,13 +40,13 @@ def _server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> types.ModuleType
     return importlib.import_module("hermes_mcp_bridge.server")
 
 
-def test_current_contract_is_0_9_0() -> None:
-    assert CURRENT_CONTRACT_VERSION == "0.9.0"
-    assert __version__ == "0.9.0"
+def test_current_contract_is_1_0_0() -> None:
+    assert CURRENT_CONTRACT_VERSION == "1.0.0"
+    assert __version__ == "1.0.0"
     assert __version__ == CURRENT_CONTRACT_VERSION
 
 
-def test_schema_version_unchanged_in_0_8_x_and_0_9_0() -> None:
+def test_schema_version_remains_0_6_1() -> None:
     assert SCHEMA_VERSION == "0.6.1"
 
 
@@ -65,12 +73,34 @@ def test_all_0_8_x_share_the_same_tool_set() -> None:
     assert required_tools("0.8.1") == required_tools("0.8.2")
 
 
-def test_0_9_0_keeps_the_0_8_x_tool_set() -> None:
-    """0.9.0 is a base-image/security release: no contract movement."""
+def test_1_0_0_freezes_the_0_9_0_tool_set() -> None:
+    assert required_tools("1.0.0") == required_tools("0.9.0")
+    assert expected_tool_count("1.0.0") == 27
+    assert "hermes_readiness" in required_tools("1.0.0")
 
-    assert required_tools("0.9.0") == required_tools("0.8.2")
-    assert expected_tool_count("0.9.0") == 27
-    assert "hermes_readiness" in required_tools("0.9.0")
+
+def test_contract_snapshot_is_canonical() -> None:
+    snapshot = contract_snapshot("1.0.0")
+    assert snapshot["contract_version"] == "1.0.0"
+    assert snapshot["schema_version"] == "0.6.1"
+    tools = snapshot["tools"]
+    assert isinstance(tools, list)
+    assert tools == sorted(tools)
+    assert len(tools) == 27
+
+
+def test_versioned_snapshot_file_matches_generated_contract() -> None:
+    persisted = json.loads(SNAPSHOT_PATH.read_text(encoding="utf-8"))
+    assert persisted == contract_snapshot("1.0.0")
+
+
+def test_contract_digest_is_deterministic_and_pinned() -> None:
+    first = contract_digest("1.0.0")
+    second = contract_digest("1.0.0")
+    assert first == second
+    assert first == EXPECTED_1_0_0_DIGEST
+    assert len(first) == 64
+    assert first != contract_digest("0.9.0")
 
 
 def test_unknown_contract_version_raises() -> None:
@@ -79,24 +109,27 @@ def test_unknown_contract_version_raises() -> None:
 
 
 def test_diff_detects_missing_and_extra_tools() -> None:
-    observed = (set(required_tools("0.8.2")) - {"hermes_readiness"}) | {"hermes_bogus"}
-    diff = diff_tools(observed, version="0.8.2")
+    observed = (set(required_tools("1.0.0")) - {"hermes_readiness"}) | {
+        "hermes_bogus"
+    }
+    diff = diff_tools(observed, version="1.0.0")
     assert diff["missing"] == ["hermes_readiness"]
     assert diff["extra"] == ["hermes_bogus"]
 
 
 def test_validate_tools_reports_not_ok_when_missing() -> None:
-    observed = set(required_tools("0.8.2")) - {"hermes_readiness"}
-    result = validate_tools(observed, version="0.8.2")
+    observed = set(required_tools("1.0.0")) - {"hermes_readiness"}
+    result = validate_tools(observed, version="1.0.0")
     assert result["ok"] is False
     assert result["count"] == 26
     assert result["expected_count"] == 27
     assert result["missing"] == ["hermes_readiness"]
+    assert result["contract_digest"] == contract_digest("1.0.0")
 
 
 def test_validate_tools_allows_additive_extra_tools() -> None:
-    observed = set(required_tools("0.8.2")) | {"hermes_future"}
-    result = validate_tools(observed, version="0.8.2")
+    observed = set(required_tools("1.0.0")) | {"hermes_future"}
+    result = validate_tools(observed, version="1.0.0")
     assert result["ok"] is True
     assert result["extra"] == ["hermes_future"]
 
@@ -144,15 +177,15 @@ def test_manifest_matches_contract(
     assert manifest.manifest_version == CURRENT_CONTRACT_VERSION
 
 
-def test_manifest_declares_readiness(
+def test_manifest_preserves_readiness_version_added(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     server = _server(monkeypatch, tmp_path)
     manifest = asyncio.run(server._build_capability_manifest())
-    names = {tool.name for tool in manifest.tools}
-    assert "hermes_readiness" in names
+    readiness = next(tool for tool in manifest.tools if tool.name == "hermes_readiness")
+    assert readiness.version_added == "0.8.0"
 
 
 def test_contract_map_is_read_only() -> None:
     with pytest.raises(TypeError):
-        TOOL_CONTRACTS["0.9.0"] = frozenset()  # type: ignore[index]
+        TOOL_CONTRACTS["1.0.0"] = frozenset()  # type: ignore[index]

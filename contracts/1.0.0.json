@@ -1,0 +1,33 @@
+{
+  "contract_version": "1.0.0",
+  "schema_version": "0.6.1",
+  "tools": [
+    "hermes_agent_card",
+    "hermes_approval_create",
+    "hermes_approval_respond",
+    "hermes_approval_status",
+    "hermes_capabilities",
+    "hermes_checkpoint_create",
+    "hermes_checkpoint_status",
+    "hermes_continue",
+    "hermes_execute_approved_plan",
+    "hermes_health",
+    "hermes_lock_acquire",
+    "hermes_lock_release",
+    "hermes_lock_status",
+    "hermes_plan",
+    "hermes_policy_evaluate",
+    "hermes_prompt",
+    "hermes_quota_status",
+    "hermes_readiness",
+    "hermes_recent_runs",
+    "hermes_result_manifest",
+    "hermes_saga_compensate",
+    "hermes_saga_start",
+    "hermes_saga_status",
+    "hermes_status",
+    "hermes_stop",
+    "hermes_submit",
+    "hermes_wait"
+  ]
+}
