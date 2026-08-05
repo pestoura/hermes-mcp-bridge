@@ -1,46 +1,69 @@
-# Observability deployment assets (0.9.0)
+# Observability deployment assets (1.0.0)
 
-These files are **snippets for an existing monitoring stack**. Nothing here
-starts a new Prometheus, a new Alertmanager or publishes a port.
+These files integrate the bridge with an existing monitoring stack. Nothing in
+this directory starts a second Prometheus or Alertmanager, publishes a port, or
+contains a credential.
 
-| File | Purpose | How to use |
+| File | Purpose | Status |
 | --- | --- | --- |
-| `prometheus-scrape.snippet.yml` | Scrape job for the bridge exporter | Merge the `scrape_configs` entry into your existing `prometheus.yml` |
-| `hermes-bridge.rules.yml` | Alerting rules | Reference from `rule_files:` |
-| `alertmanager.example.yml` | Routing example | Merge route + receiver; replace the loopback receiver deliberately |
+| `grafana-cloud-loopback.alloy` | Canonical 1.0.0 Grafana Cloud metrics profile | Preferred production path |
+| `hermes-bridge.rules.yml` | Alerting rules for the bounded `bridge_*` catalogue | Shared by Alloy/Prometheus-compatible rule evaluators |
+| `prometheus-scrape.snippet.yml` | Legacy scrape job through the Docker gateway | Retained for compatibility; not the preferred 1.0.0 profile |
+| `alertmanager.example.yml` | Local routing example | Optional and intentionally loopback-only |
 
-## Security preconditions
+## Preferred production path
 
-The exporter is **off by default and loopback-only**. Scraping from another
-container requires all four of:
+Run Grafana Alloy on the same host as the bridge and keep the exporter on
+loopback:
 
+```text
+BRIDGE_METRICS_ENABLED=1
+BRIDGE_METRICS_HOST=127.0.0.1
+BRIDGE_METRICS_PORT=9464
+BRIDGE_METRICS_ALLOW_REMOTE=0
+BRIDGE_TRACING_ENABLED=0
+BRIDGE_TRACING_EXPORT=0
 ```
+
+Alloy scrapes `127.0.0.1:9464`, keeps only `bridge_.*`, removes forbidden labels
+defensively and remote-writes metrics to Grafana Cloud. Its URL, tenant and
+metrics-publish token are read from the protected Alloy service environment;
+they are never stored in this directory or in the bridge `.env`.
+
+The canonical runbook is:
+
+```text
+docs/observability-production-1.0.0.md
+```
+
+## Legacy Docker-gateway path
+
+The legacy Prometheus snippet is retained for an existing Prometheus container.
+It requires an explicit non-loopback bind and authentication:
+
+```text
 BRIDGE_METRICS_ENABLED=1
 BRIDGE_METRICS_HOST=172.17.0.1
 BRIDGE_METRICS_ALLOW_REMOTE=1
-BRIDGE_METRICS_TOKEN=<32+ random chars>
+BRIDGE_METRICS_TOKEN=<32+ random characters>
 ```
 
-`172.17.0.1` is classified by the exporter as `docker-gateway`, **not** as
-loopback. It is deliberately *not* exempt from the remote gate: the token stays
-mandatory and `validate_binding()` still refuses the bind without both the
-opt-in and the token. The scope exists only so `bridge_health` can report
-"reachable from the docker network" separately from "reachable from anywhere".
+`172.17.0.1` is classified as `docker-gateway`, not loopback. The exporter still
+requires both the explicit remote opt-in and a token. Do not use this path when
+host-level Alloy is available.
 
-The token is never written into any file in this directory. Prometheus reads it
-from disk:
+## Validation
 
-```
-install -d -m 0700 -o prometheus -g prometheus /etc/prometheus/secrets
-install -m 0600 -o prometheus -g prometheus /dev/null \
-  /etc/prometheus/secrets/hermes_bridge_metrics_token
-# write the same value as BRIDGE_METRICS_TOKEN into that file
+Run the repository-owned read-only checks:
+
+```bash
+python scripts/observability_smoke.py --check-config --check-logging
 ```
 
-## Verifying before enabling alerts
+The smoke validates the Alloy security shape, legacy YAML assets and the JSON
+redaction pipeline. Before reloading Alloy, also validate the file using the
+installed Alloy version as required by the production runbook.
 
-```
-python scripts/observability_smoke.py --check-config
-```
-
-See `docs/observability-rollout-0.9.0.md` for the full rollout order.
+No asset in this directory is authorization to enable metrics in production.
+Activation requires a separate controlled gate and does not replace the
+single-slot Hermes/RITMO acceptance.
