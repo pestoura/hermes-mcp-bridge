@@ -15,6 +15,8 @@ services:
       - hermes_api_key
       - hermes_bridge_hmac_secret
     environment:
+      MCP_HOST: 127.0.0.1
+      MCP_PORT: "${MCP_PORT:-8765}"
       BRIDGE_SECURITY_MODE: production
       BRIDGE_POLICY_JSON: ""
       BRIDGE_POLICY_PATH: /etc/hermes-mcp-bridge/policies/production.json
@@ -22,6 +24,8 @@ services:
       HERMES_API_KEY_FILE: /run/secrets/hermes_api_key
       HERMES_BRIDGE_HMAC_SECRET: ""
       HERMES_BRIDGE_HMAC_SECRET_PREVIOUS: ""
+      HERMES_BRIDGE_HMAC_SECRET_PREVIOUS_FILE: ""
+      HERMES_BRIDGE_HMAC_PREVIOUS_KEY_ID: ""
       HERMES_BRIDGE_HMAC_SECRET_FILE: /run/secrets/hermes_bridge_hmac_secret
       BRIDGE_LOG_FORMAT: "${BRIDGE_LOG_FORMAT:-json}"
       BRIDGE_LOG_LEVEL: "${BRIDGE_LOG_LEVEL:-INFO}"
