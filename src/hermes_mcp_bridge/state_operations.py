@@ -24,7 +24,7 @@ from typing import Any
 
 from ._file_lock import FileLockError, exclusive_file_lock
 from .config import get_settings
-from .models import TERMINAL_STATUSES
+from .models import RunStatus, TERMINAL_STATUSES
 from .state_backup import (
     ALLOWED_ROOT_ENV,
     LOCK_PATH,
@@ -125,12 +125,19 @@ def _row_count(connection: sqlite3.Connection, table: str) -> int:
 
 
 def _status_counts(connection: sqlite3.Connection) -> dict[str, int]:
+    allowed = tuple(status.value for status in RunStatus)
+    counts = {status: 0 for status in allowed}
+    counts["other"] = 0
     if not _table_exists(connection, "run_mappings"):
-        return {}
+        return counts
     rows = connection.execute(
         "SELECT last_status, COUNT(*) FROM run_mappings GROUP BY last_status"
     ).fetchall()
-    return {str(status): int(count) for status, count in rows}
+    for status, count in rows:
+        normalized = str(status or "").lower()
+        bucket = normalized if normalized in counts and normalized != "other" else "other"
+        counts[bucket] += int(count)
+    return counts
 
 
 def _stale_run_counts(
