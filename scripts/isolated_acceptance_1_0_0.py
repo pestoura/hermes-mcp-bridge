@@ -281,7 +281,8 @@ def _inspect_security(container: str, host_port: int) -> dict[str, Any]:
         raise AcceptanceError("candidate root filesystem is not read-only")
     if "ALL" not in (host.get("CapDrop") or []):
         raise AcceptanceError("candidate capabilities are not fully dropped")
-    if not any("no-new-privileges" in item for item in (host.get("SecurityOpt") or [])):
+    security_options = host.get("SecurityOpt") or []
+    if not any("no-new-privileges" in item for item in security_options):
         raise AcceptanceError("candidate lacks no-new-privileges")
     if network == "host":
         raise AcceptanceError("isolated candidate unexpectedly uses host networking")
@@ -354,8 +355,9 @@ print(json.dumps({
 
 def _parse_json_logs(container: str) -> list[dict[str, Any]]:
     result = _docker("logs", container)
+    lines = [*result.stdout.splitlines(), *result.stderr.splitlines()]
     records: list[dict[str, Any]] = []
-    for number, line in enumerate(result.stdout.splitlines(), start=1):
+    for number, line in enumerate(lines, start=1):
         if not line.strip():
             continue
         try:
@@ -436,6 +438,18 @@ def _accept(image: str, repo_root: Path) -> dict[str, Any]:
     port = _free_loopback_port()
     policy = repo_root / "config" / "policies" / "production.json"
     mock_script = repo_root / "tests" / "isolated" / "mock_hermes.py"
+    state_mount = (
+        f"type=volume,src={resources['state_volume']},"
+        "dst=/var/lib/hermes-mcp-bridge"
+    )
+    secrets_mount = (
+        f"type=volume,src={resources['secrets_volume']},"
+        "dst=/run/secrets,readonly"
+    )
+    policy_mount = (
+        f"type=bind,src={policy},"
+        "dst=/etc/hermes-mcp-bridge/policies/production.json,readonly"
+    )
     result: dict[str, Any] | None = None
 
     try:
@@ -596,11 +610,11 @@ root.chmod(0o700)
             "--env",
             "BRIDGE_CIRCUIT_ENABLED=false",
             "--mount",
-            f"type=volume,src={resources['state_volume']},dst=/var/lib/hermes-mcp-bridge",
+            state_mount,
             "--mount",
-            f"type=volume,src={resources['secrets_volume']},dst=/run/secrets,readonly",
+            secrets_mount,
             "--mount",
-            f"type=bind,src={policy},dst=/etc/hermes-mcp-bridge/policies/production.json,readonly",
+            policy_mount,
             image,
         )
         _wait_container_health(resources["bridge"])
@@ -633,7 +647,13 @@ root.chmod(0o700)
         if len(bridge_logs) < len(bridge_logs_before):
             raise AcceptanceError("candidate logs regressed after restart")
         mock_evidence = _validate_mock_logs(resources["mock"])
-        image_id = _docker("image", "inspect", image, "--format", "{{.Id}}").stdout.strip()
+        image_id = _docker(
+            "image",
+            "inspect",
+            "--format",
+            "{{.Id}}",
+            image,
+        ).stdout.strip()
 
         result = {
             "decision": "HERMES_BRIDGE_1_0_0_ISOLATED_ACCEPTANCE_PASS",
