@@ -1,0 +1,72 @@
+services:
+  hermes-mcp-bridge:
+    image: "${CANDIDATE_IMAGE:-hermes-mcp-bridge:1.0.0-candidate}"
+    container_name: hermes-mcp-bridge
+    restart: unless-stopped
+    init: true
+    network_mode: host
+    user: "${BRIDGE_UID:-1000}:${BRIDGE_GID:-1000}"
+    volumes:
+      - "${BRIDGE_STATE_DIR:-/home/estourpm/hermes-mcp-bridge/data}:/var/lib/hermes-mcp-bridge"
+      - "${BRIDGE_POLICY_DIR:-/home/estourpm/hermes-mcp-bridge/config/policies}:/etc/hermes-mcp-bridge/policies:ro"
+    env_file:
+      - "${BRIDGE_ENV_FILE:-/home/estourpm/hermes-mcp-bridge/.env}"
+    secrets:
+      - hermes_api_key
+      - hermes_bridge_hmac_secret
+    environment:
+      MCP_HOST: 127.0.0.1
+      MCP_PORT: "${MCP_PORT:-8765}"
+      HERMES_BRIDGE_COMMIT: "${CANDIDATE_REVISION:-unknown}"
+      BRIDGE_SECURITY_MODE: production
+      BRIDGE_POLICY_JSON: ""
+      BRIDGE_POLICY_PATH: /etc/hermes-mcp-bridge/policies/production.json
+      HERMES_API_KEY: ""
+      HERMES_API_KEY_FILE: /run/secrets/hermes_api_key
+      HERMES_BRIDGE_HMAC_SECRET: ""
+      HERMES_BRIDGE_HMAC_SECRET_FILE: /run/secrets/hermes_bridge_hmac_secret
+      HERMES_BRIDGE_HMAC_SECRET_PREVIOUS: ""
+      HERMES_BRIDGE_HMAC_SECRET_PREVIOUS_FILE: ""
+      HERMES_BRIDGE_HMAC_PREVIOUS_KEY_ID: ""
+      HERMES_BRIDGE_HMAC_PREVIOUS_VALID_FROM: ""
+      HERMES_BRIDGE_HMAC_PREVIOUS_VALID_UNTIL: ""
+      BRIDGE_LOG_FORMAT: "${BRIDGE_LOG_FORMAT:-json}"
+      BRIDGE_LOG_LEVEL: "${BRIDGE_LOG_LEVEL:-INFO}"
+      BRIDGE_LOG_THIRD_PARTY_LEVEL: "${BRIDGE_LOG_THIRD_PARTY_LEVEL:-WARNING}"
+      BRIDGE_LOG_CAPTURE_THIRD_PARTY: "${BRIDGE_LOG_CAPTURE_THIRD_PARTY:-1}"
+      BRIDGE_METRICS_ENABLED: ""
+      BRIDGE_METRICS_HOST: 127.0.0.1
+      BRIDGE_METRICS_PORT: "${BRIDGE_METRICS_PORT:-9464}"
+      BRIDGE_METRICS_ALLOW_REMOTE: ""
+      BRIDGE_METRICS_TOKEN: ""
+      BRIDGE_TRACING_ENABLED: ""
+      BRIDGE_TRACING_EXPORT: ""
+      BRIDGE_RETRY_ENABLED: "false"
+      BRIDGE_CIRCUIT_ENABLED: "false"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - python -m hermes_mcp_bridge.healthcheck
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    stop_grace_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+secrets:
+  hermes_api_key:
+    file: "${BRIDGE_SECRETS_DIR:-/home/estourpm/hermes-mcp-bridge/secrets}/hermes_api_key"
+  hermes_bridge_hmac_secret:
+    file: "${BRIDGE_SECRETS_DIR:-/home/estourpm/hermes-mcp-bridge/secrets}/hermes_bridge_hmac_secret"
