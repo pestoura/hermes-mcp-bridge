@@ -31,7 +31,7 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "HermesIsolatedMock/1.0"
     sys_version = ""
 
-    def log_message(self, format: str, *args: object) -> None:  # noqa: A002
+    def log_message(self, format: str, *args: object) -> None:
         return
 
     def _authorized(self) -> bool:
@@ -47,7 +47,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def do_GET(self) -> None:  # noqa: N802
+    def do_GET(self) -> None:
         _emit(
             {
                 "event": "mock.request",
