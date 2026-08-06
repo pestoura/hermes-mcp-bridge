@@ -1,4 +1,15 @@
-"""Structured observability for the Hermes MCP bridge."""
+"""Structured observability for the Hermes MCP bridge.
+
+Submodules:
+
+* :mod:`.redaction` — central fail-closed redaction.
+* :mod:`.context` — contextvar-based correlation context.
+* :mod:`.logging` — deterministic JSON/text structured logging.
+* :mod:`.metrics` — thread-safe, low-cardinality metric registry.
+* :mod:`.exporter` — loopback-only Prometheus endpoint.
+* :mod:`.tracing` — no-op spans with optional OpenTelemetry and W3C propagation.
+* :mod:`.instrumentation` — central wrappers for tools, upstream calls and SSE.
+"""
 
 from __future__ import annotations
 
@@ -134,6 +145,8 @@ __all__ = [
 
 
 def _retry_health() -> dict[str, object]:
+    """Return retry posture without making health depend on settings parsing."""
+
     try:
         from ..config import get_settings
         from ..resilience.http_retry import retry_posture
@@ -151,6 +164,8 @@ def _retry_health() -> dict[str, object]:
 
 
 def _circuit_health() -> dict[str, object]:
+    """Return circuit posture without exposing settings or endpoint identifiers."""
+
     try:
         from ..config import get_settings
         from ..resilience.http_circuit import circuit_posture
