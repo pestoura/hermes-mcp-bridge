@@ -1,0 +1,62 @@
+// Hermes MCP Bridge 1.0.0 — Grafana Cloud metrics profile.
+//
+// Security properties:
+// - Alloy runs on the same host as the bridge.
+// - The exporter remains bound to 127.0.0.1:9464.
+// - No metrics port is published or made reachable from a Docker network.
+// - Grafana Cloud credentials are injected through the Alloy service environment.
+// - No logs, prompts, results or traces are collected by this profile.
+// - Tracing export remains disabled for the first production observability gate.
+//
+// Required service environment variables:
+//   GRAFANA_CLOUD_PROMETHEUS_URL
+//   GRAFANA_CLOUD_PROMETHEUS_USERNAME
+//   GRAFANA_CLOUD_PROMETHEUS_PASSWORD
+//   HERMES_ENVIRONMENT=production
+
+prometheus.remote_write "grafana_cloud" {
+  external_labels = {
+    service     = "hermes-mcp-bridge",
+    environment = sys.env("HERMES_ENVIRONMENT"),
+  }
+
+  endpoint {
+    url = sys.env("GRAFANA_CLOUD_PROMETHEUS_URL")
+
+    basic_auth {
+      username = sys.env("GRAFANA_CLOUD_PROMETHEUS_USERNAME")
+      password = sys.env("GRAFANA_CLOUD_PROMETHEUS_PASSWORD")
+    }
+  }
+}
+
+prometheus.relabel "hermes_bridge" {
+  forward_to = [prometheus.remote_write.grafana_cloud.receiver]
+
+  // Fail closed for the metric namespace: only bridge-owned metrics leave the host.
+  rule {
+    source_labels = ["__name__"]
+    regex         = "bridge_.*"
+    action        = "keep"
+  }
+
+  // Drop labels that are never part of the stable low-cardinality contract.
+  rule {
+    regex  = "run_id|session_id|execution_id|client_request_id|approval_id|correlation_id|trace_id|prompt|output|path|url|token|api_key|password|cookie|authorization"
+    action = "labeldrop"
+  }
+}
+
+prometheus.scrape "hermes_bridge" {
+  targets = [
+    {
+      "__address__" = "127.0.0.1:9464",
+      "job"         = "hermes-mcp-bridge",
+    },
+  ]
+
+  metrics_path    = "/metrics"
+  scrape_interval = "30s"
+  scrape_timeout  = "10s"
+  forward_to      = [prometheus.relabel.hermes_bridge.receiver]
+}
