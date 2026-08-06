@@ -1,6 +1,6 @@
 """Hermes API client with opt-in, fail-closed upstream retry.
 
-The pre-1.0 implementation is preserved in :mod:`.client_base`. This module
+The pre-retry implementation is preserved in :mod:`.client_base`. This module
 subclasses it only to wrap the common request path. Retry remains disabled by
 default and is admitted solely for operations classified as safe by
 ``resilience.http_retry``.
@@ -29,9 +29,11 @@ from .resilience.http_retry import (
     retry_reason,
 )
 
-# Compatibility for existing tests and callers that patch the module-level UUID
-# generator. Both names reference the same imported module object.
+# Compatibility for existing tests and callers importing the historical module
+# symbols. These aliases point at the same objects used by client_base.
 uuid = _base.uuid
+TransportFactory = _base.TransportFactory
+ProgressCallback = _base.ProgressCallback
 
 RetrySleep = Callable[[float], Awaitable[None]]
 
@@ -83,7 +85,7 @@ class HermesClient(_base.HermesClient):
         self,
         settings: Any,
         *,
-        transport_factory: _base.TransportFactory | None = None,
+        transport_factory: TransportFactory | None = None,
         retry_sleep: RetrySleep | None = None,
         retry_rng: random.Random | None = None,
     ) -> None:
@@ -192,4 +194,19 @@ class HermesClient(_base.HermesClient):
         raise HermesAPIError("Safe upstream retry exhausted without a response")
 
 
-__all__ = ["HermesAPIError", "HermesClient"]
+def __getattr__(name: str) -> Any:
+    """Delegate legacy, non-overridden module attributes to client_base."""
+
+    return getattr(_base, name)
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(dir(_base)))
+
+
+__all__ = [
+    "HermesAPIError",
+    "HermesClient",
+    "ProgressCallback",
+    "TransportFactory",
+]
