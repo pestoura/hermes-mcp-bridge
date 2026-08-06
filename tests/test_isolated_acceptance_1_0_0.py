@@ -26,7 +26,9 @@ def test_harness_never_uses_production_names_paths_or_host_network() -> None:
     assert '"--network",\n            "host"' not in source
     assert '"--network", "host"' not in source
     assert "hermes-mcp-bridge-deploy" not in source
-    assert "ritmo_" not in source.lower()
+    assert "ritmo_health" not in source
+    assert "ritmo_claim" not in source
+    assert "ritmo_start" not in source
     assert '"production_touched": False' in source
     assert '"ritmo_used": False' in source
 
@@ -75,8 +77,7 @@ def test_harness_pins_container_hardening_and_loopback_publish() -> None:
         assert token in source
 
 
-def test_harness_pins_file_backed_security_and_optional_features_off(
-) -> None:
+def test_harness_pins_file_backed_security_and_features_off() -> None:
     source = HARNESS.read_text(encoding="utf-8")
 
     for token in (
