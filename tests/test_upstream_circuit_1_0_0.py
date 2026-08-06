@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 
 import httpx
 import pytest
@@ -13,6 +14,8 @@ from hermes_mcp_bridge.config import Settings, get_settings
 from hermes_mcp_bridge.observability import observability_health
 from hermes_mcp_bridge.resilience import ManualClock
 from hermes_mcp_bridge.resilience.circuit import reset_breakers
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _settings(**overrides: object) -> Settings:
@@ -223,3 +226,27 @@ def test_observability_health_reports_sanitized_circuit_posture(monkeypatch) -> 
     assert circuit["sse_protected"] is False
     assert "private-health-key" not in serialized
     assert "http://" not in serialized
+
+
+def test_env_example_keeps_circuit_disabled_and_bounded() -> None:
+    env_example = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+
+    assert "BRIDGE_CIRCUIT_ENABLED=false" in env_example
+    assert "BRIDGE_CIRCUIT_FAILURE_THRESHOLD=5" in env_example
+    assert "BRIDGE_CIRCUIT_RECOVERY_SECONDS=30.0" in env_example
+    assert "BRIDGE_CIRCUIT_HALF_OPEN_MAX_CALLS=1" in env_example
+    assert "BRIDGE_CIRCUIT_SUCCESS_THRESHOLD=1" in env_example
+    assert "Mutations, SSE" in env_example
+
+
+def test_circuit_runbook_preserves_activation_and_rollback_boundaries() -> None:
+    runbook = (REPO_ROOT / "docs" / "circuit-breaker-1.0.0.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "BRIDGE_CIRCUIT_ENABLED=false" in runbook
+    assert "No mutation is rejected because of circuit state" in runbook
+    assert "SSE event stream" in runbook
+    assert "one logical operation" in runbook
+    assert "HERMES_BRIDGE_1_0_0_CIRCUIT_GATE_PASS" in runbook
+    assert "single-slot Hermes/RITMO acceptance" in runbook
