@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -55,7 +55,7 @@ jobs:
 
       # Build and security artefacts are architecture/runtime gates, not Python
       # compatibility gates. Run them once on the production interpreter to
-      # avoid duplicate images and duplicate SBOM uploads from the matrix.
+      # avoid duplicate images and duplicate SBOM retention from the matrix.
       - name: Build runtime image
         if: matrix.python-version == '3.12'
         run: docker build --tag hermes-mcp-bridge:ci .
@@ -103,16 +103,53 @@ jobs:
           print(f"validated CycloneDX SBOM with {len(payload['components'])} components")
           PY
 
-      # Retention is non-blocking because account-level storage quota is an
-      # external operational constraint. Generation and structural validation
-      # above remain mandatory release evidence.
-      - name: Upload SBOM
+      # GitHub Actions artifact storage is quota-bound. Retain the validated
+      # SBOM instead as a draft release asset tied to the exact tested SHA.
+      # This step is intentionally blocking: release evidence is mandatory.
+      - name: Retain SBOM as release evidence
         if: matrix.python-version == '3.12'
-        continue-on-error: true
-        uses: actions/upload-artifact@v4
-        with:
-          name: sbom-cyclonedx-${{ github.sha }}
-          path: sbom-cyclonedx.json
-          if-no-files-found: error
-          retention-days: 7
-          compression-level: 9
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVIDENCE_TAG: sbom-evidence-${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+
+          SBOM_SHA256="$(sha256sum sbom-cyclonedx.json | awk '{print $1}')"
+          NOTES_FILE="$(mktemp)"
+          trap 'rm -f "$NOTES_FILE"' EXIT
+
+          cat >"$NOTES_FILE" <<EOF
+          CycloneDX SBOM retained for Hermes MCP Bridge 1.0.0 acceptance.
+
+          Tested commit: ${{ github.sha }}
+          Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SBOM SHA-256: ${SBOM_SHA256}
+          EOF
+
+          if gh release view "$EVIDENCE_TAG" >/dev/null 2>&1; then
+            gh release upload \
+              "$EVIDENCE_TAG" \
+              sbom-cyclonedx.json \
+              --clobber
+          else
+            gh release create \
+              "$EVIDENCE_TAG" \
+              sbom-cyclonedx.json \
+              --draft \
+              --target "${{ github.sha }}" \
+              --title "SBOM evidence ${{ github.sha }}" \
+              --notes-file "$NOTES_FILE"
+          fi
+
+          ASSET_COUNT="$(
+            gh release view "$EVIDENCE_TAG" \
+              --json assets \
+              --jq '.assets | map(select(.name == "sbom-cyclonedx.json")) | length'
+          )"
+          if [ "$ASSET_COUNT" != "1" ]; then
+            echo "SBOM release evidence was not retained"
+            exit 1
+          fi
+
+          printf 'retained_sbom_tag=%s\n' "$EVIDENCE_TAG"
+          printf 'retained_sbom_sha256=%s\n' "$SBOM_SHA256"
