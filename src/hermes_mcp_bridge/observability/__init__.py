@@ -144,12 +144,32 @@ __all__ = [
 ]
 
 
+def _retry_health() -> dict[str, object]:
+    """Return retry posture without making health depend on settings parsing."""
+
+    try:
+        from ..config import get_settings
+        from ..resilience.http_retry import retry_posture
+
+        return {"status": "ready", **retry_posture(get_settings())}
+    except Exception:
+        return {
+            "status": "not_ready",
+            "enabled": False,
+            "max_attempts": 1,
+            "safe_endpoint_classes": [],
+            "mutations_retryable": False,
+            "sse_retryable": False,
+        }
+
+
 def observability_health() -> dict[str, Any]:
-    """Aggregate, secret-free observability status for health/readiness."""
+    """Aggregate, secret-free operational status for health/readiness."""
 
     return {
         "logging": observability_status(),
         "metrics": exporter_status(),
         "metrics_registry": get_registry().health(),
         "tracing": tracing_status(),
+        "retry": _retry_health(),
     }
