@@ -98,9 +98,13 @@ def test_harness_pins_file_backed_security_and_features_off() -> None:
 def test_harness_requires_restart_state_and_json_log_evidence() -> None:
     source = HARNESS.read_text(encoding="utf-8")
 
-    assert '_docker("restart", resources["bridge"])' in source
-    assert source.count('_docker("restart", resources["bridge"])') == 1
-    assert "authorized restart did not replace the container process exactly once" in source
+    restart_call = '_docker("restart", resources["bridge"])'
+    assert restart_call in source
+    assert source.count(restart_call) == 1
+    assert (
+        "authorized restart did not replace the container process exactly once"
+        in source
+    )
     assert 'before_state.get("Pid")' in source
     assert 'after_state.get("Pid")' in source
     assert 'before_state.get("StartedAt")' in source
@@ -149,6 +153,30 @@ def test_ci_runs_acceptance_after_build_and_before_trivy() -> None:
     assert acceptance["if"] == "matrix.python-version == '3.12'"
     assert "isolated_acceptance_1_0_0.py" in acceptance["run"]
     assert "--image hermes-mcp-bridge:ci" in acceptance["run"]
+
+
+def test_ci_retains_sbom_as_blocking_release_evidence() -> None:
+    payload = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    assert payload["permissions"]["contents"] == "write"
+
+    steps = payload["jobs"]["test"]["steps"]
+    retention = next(
+        step for step in steps if step.get("name") == "Retain SBOM as release evidence"
+    )
+    assert retention["if"] == "matrix.python-version == '3.12'"
+    assert retention.get("continue-on-error") is not True
+    assert retention["env"]["EVIDENCE_TAG"] == (
+        "sbom-evidence-${{ github.sha }}"
+    )
+
+    command = retention["run"]
+    assert "gh release create" in command
+    assert "gh release upload" in command
+    assert "--draft" in command
+    assert '--target "${{ github.sha }}"' in command
+    assert "sbom-cyclonedx.json" in command
+    assert "SBOM release evidence was not retained" in command
+    assert "actions/upload-artifact" not in WORKFLOW.read_text(encoding="utf-8")
 
 
 def test_pass_marker_is_unique_and_production_safe() -> None:
