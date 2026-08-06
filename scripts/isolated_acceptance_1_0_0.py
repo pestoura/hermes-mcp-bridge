@@ -625,16 +625,28 @@ root.chmod(0o700)
         state_before = _state_integrity(resources["bridge"])
         bridge_logs_before = _parse_json_logs(resources["bridge"])
 
-        before_restart = json.loads(
+        before_state = json.loads(
             _docker("inspect", resources["bridge"]).stdout
-        )[0]["RestartCount"]
+        )[0]["State"]
+        before_pid = int(before_state.get("Pid") or 0)
+        before_started_at = str(before_state.get("StartedAt") or "")
         _docker("restart", resources["bridge"])
         _wait_container_health(resources["bridge"])
-        after_restart = json.loads(
+        after_state = json.loads(
             _docker("inspect", resources["bridge"]).stdout
-        )[0]["RestartCount"]
-        if int(after_restart) != int(before_restart) + 1:
-            raise AcceptanceError("authorized restart count did not advance exactly once")
+        )[0]["State"]
+        after_pid = int(after_state.get("Pid") or 0)
+        after_started_at = str(after_state.get("StartedAt") or "")
+        if (
+            before_pid <= 0
+            or after_pid <= 0
+            or before_pid == after_pid
+            or not before_started_at
+            or before_started_at == after_started_at
+        ):
+            raise AcceptanceError(
+                "authorized restart did not replace the container process exactly once"
+            )
 
         second_probe = asyncio.run(_probe_mcp(url))
         if first_probe != second_probe:
@@ -661,6 +673,10 @@ root.chmod(0o700)
             "contract": first_probe,
             "container_security": security,
             "state": state_after,
+            "restart_evidence": {
+                "pid_changed": before_pid != after_pid,
+                "started_at_changed": before_started_at != after_started_at,
+            },
             "authorized_restarts": 1,
             "bridge_json_log_lines": len(bridge_logs),
             "upstream_mock": mock_evidence,
