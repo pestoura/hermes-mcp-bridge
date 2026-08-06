@@ -1,15 +1,4 @@
-"""Structured observability for the Hermes MCP bridge.
-
-Submodules:
-
-* :mod:`.redaction` — central fail-closed redaction.
-* :mod:`.context` — contextvar-based correlation context.
-* :mod:`.logging` — deterministic JSON/text structured logging.
-* :mod:`.metrics` — thread-safe, low-cardinality metric registry.
-* :mod:`.exporter` — loopback-only Prometheus endpoint.
-* :mod:`.tracing` — no-op spans with optional OpenTelemetry and W3C propagation.
-* :mod:`.instrumentation` — central wrappers for tools, upstream calls and SSE.
-"""
+"""Structured observability for the Hermes MCP bridge."""
 
 from __future__ import annotations
 
@@ -145,8 +134,6 @@ __all__ = [
 
 
 def _retry_health() -> dict[str, object]:
-    """Return retry posture without making health depend on settings parsing."""
-
     try:
         from ..config import get_settings
         from ..resilience.http_retry import retry_posture
@@ -163,6 +150,23 @@ def _retry_health() -> dict[str, object]:
         }
 
 
+def _circuit_health() -> dict[str, object]:
+    try:
+        from ..config import get_settings
+        from ..resilience.http_circuit import circuit_posture
+
+        return {"status": "ready", **circuit_posture(get_settings())}
+    except Exception:
+        return {
+            "status": "not_ready",
+            "enabled": False,
+            "safe_endpoint_classes": [],
+            "mutations_protected": False,
+            "sse_protected": False,
+            "breakers": [],
+        }
+
+
 def observability_health() -> dict[str, Any]:
     """Aggregate, secret-free operational status for health/readiness."""
 
@@ -172,4 +176,5 @@ def observability_health() -> dict[str, Any]:
         "metrics_registry": get_registry().health(),
         "tracing": tracing_status(),
         "retry": _retry_health(),
+        "circuit_breaker": _circuit_health(),
     }
