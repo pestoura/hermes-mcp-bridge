@@ -26,7 +26,7 @@ REQUIRED_DOCKERFILE_TOKENS = (
     "FROM ${BASE_IMAGE} AS builder",
     "FROM ${BASE_IMAGE} AS runtime",
     "USER bridge:bridge",
-    'CMD ["python", "-m", "hermes_mcp_bridge.server"]',
+    'CMD ["python", "-m", "hermes_mcp_bridge.http_runner"]',
 )
 COMPOSE_REQUIRED_KEYS = ("user", "volumes", "healthcheck")
 
@@ -47,6 +47,15 @@ def test_dockerfile_multi_stage_and_nonroot() -> None:
     assert "USER bridge:bridge" in dockerfile
     for token in REQUIRED_DOCKERFILE_TOKENS:
         assert token in dockerfile
+
+
+def test_http_runner_preserves_structured_logging() -> None:
+    runner = Path("src/hermes_mcp_bridge/http_runner.py").read_text(
+        encoding="utf-8"
+    )
+    assert "configure_logging(force=True)" in runner
+    assert "log_config=None" in runner
+    assert "access_log=False" in runner
 
 
 def test_compose_user_volume_healthcheck_hardening() -> None:

@@ -62,4 +62,4 @@ RUN python -m pip install --no-cache-dir --no-index /wheels/*.whl \
 
 USER bridge:bridge
 
-CMD ["python", "-m", "hermes_mcp_bridge.server"]
+CMD ["python", "-m", "hermes_mcp_bridge.http_runner"]
