@@ -28,6 +28,8 @@ from .resilience.http_circuit import (
     circuit_posture,
     circuit_target,
     is_circuit_failure,
+)
+from .resilience.http_circuit import (
     policy_from_settings as circuit_policy_from_settings,
 )
 from .resilience.http_retry import (
