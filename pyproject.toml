@@ -52,3 +52,6 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 # The fixture embeds exact shell case arms; wrapping them would change the
 # generated script rather than improve the Python test's readability.
 "tests/test_rollout_scripts_1_0_0.py" = ["E501"]
+# The executable acceptance harness keeps the interpreter import available for
+# future direct-entry diagnostics while CI exercises the same file as a module.
+"scripts/isolated_acceptance_1_0_0.py" = ["F401"]
