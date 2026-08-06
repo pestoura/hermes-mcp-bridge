@@ -41,7 +41,7 @@ jobs:
         run: python -m compileall src tests scripts
 
       - name: Lint
-        run: python -m ruff check .
+        run: python -m ruff check . --output-format=github
 
       - name: ShellCheck rollout scripts
         run: |
