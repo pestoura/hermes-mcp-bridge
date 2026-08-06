@@ -163,6 +163,25 @@ def _retry_health() -> dict[str, object]:
         }
 
 
+def _circuit_health() -> dict[str, object]:
+    """Return circuit posture without exposing settings or endpoint identifiers."""
+
+    try:
+        from ..config import get_settings
+        from ..resilience.http_circuit import circuit_posture
+
+        return {"status": "ready", **circuit_posture(get_settings())}
+    except Exception:
+        return {
+            "status": "not_ready",
+            "enabled": False,
+            "safe_endpoint_classes": [],
+            "mutations_protected": False,
+            "sse_protected": False,
+            "breakers": [],
+        }
+
+
 def observability_health() -> dict[str, Any]:
     """Aggregate, secret-free operational status for health/readiness."""
 
@@ -172,4 +191,5 @@ def observability_health() -> dict[str, Any]:
         "metrics_registry": get_registry().health(),
         "tracing": tracing_status(),
         "retry": _retry_health(),
+        "circuit_breaker": _circuit_health(),
     }

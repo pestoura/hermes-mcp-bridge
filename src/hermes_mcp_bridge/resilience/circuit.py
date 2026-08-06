@@ -136,8 +136,6 @@ class CircuitBreaker:
         with self._lock:
             self._transition(CircuitState.CLOSED)
 
-    # -- internals -----------------------------------------------------
-
     def _maybe_half_open(self) -> None:
         if self._state is not CircuitState.OPEN:
             return
@@ -188,6 +186,14 @@ def get_breaker(
             breaker = CircuitBreaker(key, config=config, clock=clock)
             _registry[key] = breaker
         return breaker
+
+
+def breaker_snapshots() -> list[dict[str, object]]:
+    """Return sorted, sanitized snapshots of all process-wide breakers."""
+
+    with _registry_lock:
+        breakers = list(_registry.values())
+    return sorted((breaker.snapshot() for breaker in breakers), key=lambda item: str(item["name"]))
 
 
 def reset_breakers() -> None:
