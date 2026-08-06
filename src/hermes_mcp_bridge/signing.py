@@ -5,9 +5,9 @@ Precedence for each key follows :mod:`hermes_mcp_bridge.secretfiles`:
 Values are read on demand and never cached.
 
 The previous key is verification-only. In strict security modes it is accepted
-only while an explicit, timezone-aware validity deadline is active. Expired
-previous keys remain visible in the non-sensitive posture but are never used to
-verify a signature and never prevent the current key from signing.
+only inside an explicit, timezone-aware validity interval. Expired previous
+keys remain visible in the non-sensitive posture but are never used to verify a
+signature and never prevent the current key from signing.
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ CURRENT_SECRET_NAME = "HERMES_BRIDGE_HMAC_SECRET"
 PREVIOUS_SECRET_NAME = "HERMES_BRIDGE_HMAC_SECRET_PREVIOUS"
 CURRENT_KEY_ID_NAME = "HERMES_BRIDGE_HMAC_KEY_ID"
 PREVIOUS_KEY_ID_NAME = "HERMES_BRIDGE_HMAC_PREVIOUS_KEY_ID"
+PREVIOUS_VALID_FROM_NAME = "HERMES_BRIDGE_HMAC_PREVIOUS_VALID_FROM"
 PREVIOUS_VALID_UNTIL_NAME = "HERMES_BRIDGE_HMAC_PREVIOUS_VALID_UNTIL"
 
 # A previous verifier is an emergency compatibility window, not a second
@@ -55,7 +56,9 @@ class SigningPosture:
     previous_configured: bool = False
     previous_source_type: str = "none"
     previous_active: bool = False
+    previous_pending: bool = False
     previous_expired: bool = False
+    previous_valid_from: str | None = None
     previous_valid_until: str | None = None
     previous_legacy_unbounded: bool = False
     error: str | None = None
@@ -75,7 +78,9 @@ class SigningPosture:
             "previous_configured": self.previous_configured,
             "previous_source_type": self.previous_source_type,
             "previous_active": self.previous_active,
+            "previous_pending": self.previous_pending,
             "previous_expired": self.previous_expired,
+            "previous_valid_from": self.previous_valid_from,
             "previous_valid_until": self.previous_valid_until,
             "previous_legacy_unbounded": self.previous_legacy_unbounded,
             "security_mode": self.security_mode,
@@ -105,10 +110,12 @@ def _format_utc(value: datetime) -> str:
     return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
-def _previous_valid_until(
+def _timestamp(
+    name: str,
+    label: str,
     env: Mapping[str, str] | None,
 ) -> tuple[datetime | None, str | None, str | None]:
-    raw = _environ(env).get(PREVIOUS_VALID_UNTIL_NAME)
+    raw = _environ(env).get(name)
     if raw is None or not raw.strip():
         return None, None, None
 
@@ -118,9 +125,9 @@ def _previous_valid_until(
     try:
         parsed = datetime.fromisoformat(candidate)
     except ValueError:
-        return None, None, "previous signing key validity deadline is not valid ISO-8601"
+        return None, None, f"{label} is not valid ISO-8601"
     if parsed.tzinfo is None or parsed.utcoffset() is None:
-        return None, None, "previous signing key validity deadline must include a timezone"
+        return None, None, f"{label} must include a timezone"
     normalized = parsed.astimezone(UTC)
     return normalized, _format_utc(normalized), None
 
@@ -138,7 +145,7 @@ def signing_posture(
     *,
     now: datetime | None = None,
 ) -> SigningPosture:
-    """Describe signing configuration and enforce the previous-key deadline."""
+    """Describe signing configuration and enforce the previous-key interval."""
 
     mode = security_mode(env)
     required = is_strict_mode(env)
@@ -149,7 +156,16 @@ def signing_posture(
     minimum = min_secret_length(env)
     current_id = _key_id(CURRENT_KEY_ID_NAME, env)
     previous_id = _key_id(PREVIOUS_KEY_ID_NAME, env)
-    deadline, deadline_text, deadline_error = _previous_valid_until(env)
+    valid_from, valid_from_text, valid_from_error = _timestamp(
+        PREVIOUS_VALID_FROM_NAME,
+        "previous signing key validity start",
+        env,
+    )
+    valid_until, valid_until_text, valid_until_error = _timestamp(
+        PREVIOUS_VALID_UNTIL_NAME,
+        "previous signing key validity deadline",
+        env,
+    )
     current_time = _utc_now(now)
 
     error: str | None = None
@@ -168,14 +184,18 @@ def signing_posture(
 
     previous_configured = previous_value is not None and previous_desc.configured
     previous_active = False
+    previous_pending = False
     previous_expired = False
     previous_legacy_unbounded = False
 
-    if deadline_error is not None:
-        fail(deadline_error)
+    if valid_from_error is not None:
+        fail(valid_from_error)
+    if valid_until_error is not None:
+        fail(valid_until_error)
 
+    has_window_metadata = valid_from is not None or valid_until is not None
     if not previous_configured:
-        if deadline is not None or previous_id is not None:
+        if has_window_metadata or previous_id is not None:
             fail("previous signing metadata configured without a previous signing key")
     else:
         if len(previous_value) < minimum:
@@ -185,26 +205,33 @@ def signing_posture(
         if current_id is not None and previous_id is not None and current_id == previous_id:
             fail("current and previous signing key identifiers must be different")
 
-        if deadline is None:
+        if valid_from is None and valid_until is None:
             if required:
-                fail("previous signing key requires an explicit validity deadline")
-            elif deadline_error is None:
+                fail("previous signing key requires an explicit validity interval")
+            elif valid_from_error is None and valid_until_error is None:
                 # Compatibility for explicitly relaxed development/test modes.
                 # Production and security_required never take this path.
                 previous_active = True
                 previous_legacy_unbounded = True
-        elif deadline <= current_time:
+        elif valid_from is None or valid_until is None:
+            fail("previous signing key requires both validity start and deadline")
+        elif valid_until <= valid_from:
+            fail("previous signing key validity deadline must be after its start")
+        elif valid_until - valid_from > timedelta(seconds=MAX_PREVIOUS_GRACE_SECONDS):
+            fail("previous signing key validity interval exceeds the maximum grace window")
+        elif current_time < valid_from:
+            previous_pending = True
+        elif current_time >= valid_until:
             previous_expired = True
-        elif deadline - current_time > timedelta(seconds=MAX_PREVIOUS_GRACE_SECONDS):
-            fail("previous signing key validity deadline exceeds the maximum grace window")
         else:
             previous_active = True
 
-        if previous_active and required and previous_id is None:
-            fail("active previous signing key requires a key identifier")
+        if required and (previous_active or previous_pending) and previous_id is None:
+            fail("bounded previous signing key requires a key identifier")
 
     if error is not None:
         previous_active = False
+        previous_pending = False
 
     return SigningPosture(
         required=required,
@@ -217,8 +244,10 @@ def signing_posture(
         previous_configured=previous_configured,
         previous_source_type=previous_desc.source_type,
         previous_active=previous_active,
+        previous_pending=previous_pending,
         previous_expired=previous_expired,
-        previous_valid_until=deadline_text,
+        previous_valid_from=valid_from_text,
+        previous_valid_until=valid_until_text,
         previous_legacy_unbounded=previous_legacy_unbounded,
         error=error,
     )
