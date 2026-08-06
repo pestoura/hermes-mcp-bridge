@@ -41,9 +41,12 @@ from .resilience.http_retry import (
     retry_reason,
 )
 
+# Compatibility for existing tests and callers importing the historical module
+# symbols. These aliases point at the same objects used by client_base.
 uuid = _base.uuid
 TransportFactory = _base.TransportFactory
 ProgressCallback = _base.ProgressCallback
+
 RetrySleep = Callable[[float], Awaitable[None]]
 
 
@@ -79,6 +82,7 @@ def _record_retry(
             delay_ms=round(float(delay_seconds) * 1000, 3),
         )
     except Exception:
+        # Telemetry is fail-open and must never alter retry or request outcome.
         with suppress(Exception):
             get_registry().counter(
                 "bridge_observability_errors_total",
@@ -104,9 +108,13 @@ class HermesClient(_base.HermesClient):
         self._circuit_clock = circuit_clock
 
     def retry_posture(self) -> dict[str, object]:
+        """Return the non-sensitive effective retry configuration."""
+
         return retry_posture(self._settings)
 
     def circuit_posture(self) -> dict[str, object]:
+        """Return the non-sensitive effective circuit configuration and state."""
+
         return circuit_posture(self._settings)
 
     async def _send(
@@ -245,6 +253,8 @@ class HermesClient(_base.HermesClient):
 
 
 def __getattr__(name: str) -> Any:
+    """Delegate legacy, non-overridden module attributes to client_base."""
+
     return getattr(_base, name)
 
 
