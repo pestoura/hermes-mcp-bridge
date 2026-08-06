@@ -75,7 +75,8 @@ def test_harness_pins_container_hardening_and_loopback_publish() -> None:
         assert token in source
 
 
-def test_harness_pins_file_backed_security_and_optional_features_off() -> None:
+def test_harness_pins_file_backed_security_and_optional_features_off(
+) -> None:
     source = HARNESS.read_text(encoding="utf-8")
 
     for token in (
@@ -105,6 +106,8 @@ def test_harness_requires_restart_state_and_json_log_evidence() -> None:
     assert "candidate posture changed after restart" in source
     assert "candidate state integrity changed after restart" in source
     assert '"authorized_restarts": 1' in source
+    assert "result.stdout.splitlines()" in source
+    assert "result.stderr.splitlines()" in source
 
 
 def test_mock_is_finite_read_only_and_does_not_log_headers_or_bodies() -> None:
