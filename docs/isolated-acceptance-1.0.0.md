@@ -121,13 +121,17 @@ After the first successful probe, the harness:
 1. runs SQLite `quick_check` and `integrity_check` in read-only mode;
 2. records migration version;
 3. validates that all current bridge log lines are JSON objects;
-4. executes exactly one `docker restart` of the candidate;
-5. waits for Docker health to return to `healthy`;
-6. requires `RestartCount` to increase by exactly one;
-7. repeats the complete read-only MCP probe;
-8. requires the pre/post posture summaries to match;
-9. repeats SQLite integrity checks and requires identical results;
-10. validates all accumulated logs again.
+4. records the candidate process PID and Docker `StartedAt` timestamp;
+5. executes exactly one `docker restart` of the candidate;
+6. waits for Docker health to return to `healthy`;
+7. requires both PID and `StartedAt` to change;
+8. repeats the complete read-only MCP probe;
+9. requires the pre/post posture summaries to match;
+10. repeats SQLite integrity checks and requires identical results;
+11. validates all accumulated logs again.
+
+Docker `RestartCount` is intentionally not used because it measures automatic
+policy-driven restarts rather than an explicit `docker restart` operation.
 
 This is a candidate-runtime restart test, not the RITMO single-slot restart
 acceptance required for production.
@@ -153,10 +157,15 @@ The `3.12` CI path runs:
 2. isolated runtime acceptance;
 3. Trivy HIGH/CRITICAL blocking scan;
 4. CycloneDX generation and structural validation;
-5. SBOM upload/retention attempt.
+5. blocking retention of the SBOM as an asset in a draft evidence release.
 
-A candidate that fails runtime acceptance is never treated as security-release
-evidence, even if image scanning would otherwise pass.
+The evidence release is tied to the exact tested GitHub SHA. The workflow
+verifies that exactly one `sbom-cyclonedx.json` asset exists and records its
+SHA-256 in the draft release notes. This avoids dependence on the separate
+GitHub Actions artefact-storage quota.
+
+A candidate that fails runtime acceptance or SBOM retention is never treated as
+security-release evidence, even if image scanning would otherwise pass.
 
 ## Decision
 
