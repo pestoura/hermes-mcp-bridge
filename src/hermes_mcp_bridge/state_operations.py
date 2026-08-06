@@ -24,7 +24,7 @@ from typing import Any
 
 from ._file_lock import FileLockError, exclusive_file_lock
 from .config import get_settings
-from .models import RunStatus, TERMINAL_STATUSES
+from .models import TERMINAL_STATUSES, RunStatus
 from .state_backup import (
     ALLOWED_ROOT_ENV,
     LOCK_PATH,
