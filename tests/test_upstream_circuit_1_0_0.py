@@ -247,6 +247,6 @@ def test_circuit_runbook_preserves_activation_and_rollback_boundaries() -> None:
     assert "BRIDGE_CIRCUIT_ENABLED=false" in runbook
     assert "No mutation is rejected because of circuit state" in runbook
     assert "SSE event stream" in runbook
-    assert "one logical operation" in runbook
+    assert "once per logical operation" in runbook
     assert "HERMES_BRIDGE_1_0_0_CIRCUIT_GATE_PASS" in runbook
     assert "single-slot Hermes/RITMO acceptance" in runbook
