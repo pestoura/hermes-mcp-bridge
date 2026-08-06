@@ -148,7 +148,9 @@ def test_ci_runs_acceptance_after_build_and_before_trivy() -> None:
 def test_pass_marker_is_unique_and_production_safe() -> None:
     source = HARNESS.read_text(encoding="utf-8")
 
-    assert source.count("HERMES_BRIDGE_1_0_0_ISOLATED_ACCEPTANCE_PASS") == 1
-    assert source.count("HERMES_BRIDGE_1_0_0_ISOLATED_ACCEPTANCE_FAIL") == 1
+    pass_marker = "HERMES_BRIDGE_1_0_0_ISOLATED_ACCEPTANCE_PASS"
+    fail_marker = "HERMES_BRIDGE_1_0_0_ISOLATED_ACCEPTANCE_FAIL"
+    assert source.count(pass_marker) == 1
+    assert source.count(fail_marker) == 1
     assert '"production_touched": False' in source
     assert '"ritmo_used": False' in source
