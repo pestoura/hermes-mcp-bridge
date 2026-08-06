@@ -99,7 +99,12 @@ def test_harness_requires_restart_state_and_json_log_evidence() -> None:
     source = HARNESS.read_text(encoding="utf-8")
 
     assert '_docker("restart", resources["bridge"])' in source
-    assert "authorized restart count did not advance exactly once" in source
+    assert source.count('_docker("restart", resources["bridge"])') == 1
+    assert "authorized restart did not replace the container process exactly once" in source
+    assert 'before_state.get("Pid")' in source
+    assert 'after_state.get("Pid")' in source
+    assert 'before_state.get("StartedAt")' in source
+    assert 'after_state.get("StartedAt")' in source
     assert "PRAGMA quick_check" in source
     assert "PRAGMA integrity_check" in source
     assert "emitted non-JSON log line" in source
@@ -107,6 +112,7 @@ def test_harness_requires_restart_state_and_json_log_evidence() -> None:
     assert "candidate posture changed after restart" in source
     assert "candidate state integrity changed after restart" in source
     assert '"authorized_restarts": 1' in source
+    assert '"restart_evidence": {' in source
     assert "result.stdout.splitlines()" in source
     assert "result.stderr.splitlines()" in source
 
