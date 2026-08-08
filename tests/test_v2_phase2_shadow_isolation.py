@@ -9,8 +9,8 @@ from hermes_mcp_bridge.v2.shadow_isolation import (
     SHADOW_HERMES_TOOL_NAMES,
     SHADOW_HTTP_METHODS,
     SHADOW_ISOLATION_SCHEMA,
+    SHADOW_MCP_SERVER,
     SHADOW_SERVER_CONTRACT,
-    SHADOW_TOOLSET,
     validate_shadow_isolation,
 )
 
@@ -19,6 +19,7 @@ STRICT_VALIDATOR = ROOT / "scripts" / "validate_v2_phase2_connected_gate.py"
 CONNECTED_TEST = ROOT / "tests" / "test_v2_phase2_connected_acceptance.py"
 SERVER = ROOT / "scripts" / "v2_phase2_shadow_github_mcp.py"
 PREPARE = ROOT / "scripts" / "v2_phase2_prepare_shadow_home.py"
+PROBE = ROOT / "scripts" / "v2_phase2_probe_shadow_runtime.py"
 REPOSITORY = "pestoura/hermes-mcp-bridge"
 SOURCE_COMMIT = "1" * 40
 
@@ -40,8 +41,11 @@ def valid_shadow() -> dict[str, Any]:
         "api_platform": "api_server",
         "api_bind_loopback": True,
         "api_auth_required": True,
-        "effective_toolsets": [SHADOW_TOOLSET],
+        "effective_toolsets": [SHADOW_MCP_SERVER],
+        "native_toolsets_enabled": [],
         "effective_tools": sorted(SHADOW_HERMES_TOOL_NAMES),
+        "resolver_exact": True,
+        "mcp_server_config_exact": True,
         "repository_scopes": [REPOSITORY],
         "credential_provider_type": "github_app",
         "credential_capability": "github.read",
@@ -68,12 +72,42 @@ def test_exact_shadow_isolation_contract_is_accepted() -> None:
     ) == []
 
 
+def test_shadow_isolation_uses_current_hermes_mcp_naming() -> None:
+    assert SHADOW_MCP_SERVER == "phase2-read"
+    assert sorted(SHADOW_HERMES_TOOL_NAMES) == sorted(
+        {
+            "mcp__phase2_read__github_get_checks",
+            "mcp__phase2_read__github_get_issue",
+            "mcp__phase2_read__github_get_pr",
+            "mcp__phase2_read__github_get_repo",
+            "mcp__phase2_read__github_search",
+        }
+    )
+
+
 def test_shadow_isolation_rejects_extra_tool() -> None:
     payload = valid_shadow()
     payload["effective_tools"].append("terminal")
     assert "shadow_isolation_tools_not_exact" in validate_shadow_isolation(
         payload, repositories={REPOSITORY}, source_commit=SOURCE_COMMIT
     )
+
+
+def test_shadow_isolation_rejects_native_toolset() -> None:
+    payload = valid_shadow()
+    payload["native_toolsets_enabled"] = ["terminal"]
+    assert "shadow_isolation_native_toolsets_not_empty" in validate_shadow_isolation(
+        payload, repositories={REPOSITORY}, source_commit=SOURCE_COMMIT
+    )
+
+
+def test_shadow_isolation_rejects_unproven_resolver_or_config() -> None:
+    for field in ("resolver_exact", "mcp_server_config_exact"):
+        payload = valid_shadow()
+        payload[field] = False
+        assert f"shadow_isolation_invalid:{field}" in validate_shadow_isolation(
+            payload, repositories={REPOSITORY}, source_commit=SOURCE_COMMIT
+        )
 
 
 def test_shadow_isolation_rejects_repo_or_commit_drift() -> None:
@@ -134,12 +168,26 @@ def test_shadow_mcp_surface_has_no_generic_or_mutating_tools() -> None:
         assert forbidden not in text
 
 
-def test_shadow_home_config_is_explicitly_minimal() -> None:
+def test_shadow_home_config_uses_exact_mcp_server_allowlist() -> None:
     text = PREPARE.read_text(encoding="utf-8")
-    assert 'target["platform_toolsets"] = {"api_server": [SHADOW_TOOLSET]}' in text
+    assert 'target["platform_toolsets"] = {"api_server": [SHADOW_MCP_SERVER]}' in text
+    assert "_constrain_platform_to_shadow_mcp(target)" in text
+    assert 'final != {SHADOW_MCP_SERVER}' in text
     assert '"resources": False' in text
     assert '"prompts": False' in text
     assert '"supports_parallel_tool_calls": False' in text
     assert '"messaging_credentials_copied": False' in text
     assert '"integration_credentials_copied": False' in text
     assert 'source.get("fallback_providers")' not in text
+
+
+def test_shadow_probe_composes_native_endpoint_and_actual_resolver_proof() -> None:
+    text = PROBE.read_text(encoding="utf-8")
+    assert 'if native_enabled:' in text
+    assert 'ProbeError("SHADOW_NATIVE_TOOLSETS_NOT_EMPTY")' in text
+    assert '_get_platform_tools(config, "api_server")' in text
+    assert 'resolved != [SHADOW_MCP_SERVER]' in text
+    assert 'ProbeError("SHADOW_EFFECTIVE_TOOLSETS_NOT_EXACT")' in text
+    assert 'server_cfg["tools"].get("include") == expected_tools' in text
+    assert 'server_cfg["tools"].get("resources") is False' in text
+    assert 'server_cfg["tools"].get("prompts") is False' in text
