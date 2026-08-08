@@ -15,7 +15,7 @@ def test_resolver_uses_console_script_shebang_candidate(
     hermes = tmp_path / "hermes"
     hermes.write_text(f"#!{sys.executable}\n", encoding="utf-8")
     hermes.chmod(0o755)
-    expected = Path(sys.executable).resolve()
+    expected = Path(os.path.abspath(sys.executable))
 
     monkeypatch.setattr(
         runtime,
