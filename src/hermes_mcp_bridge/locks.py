@@ -10,6 +10,7 @@ from typing import Any
 
 from .models import LockStatus, LockType, ResourceLock
 from .observability.instrumentation import record_sqlite_operation
+from .observability.state_governance import record_lock_event
 
 
 class LockError(RuntimeError):
@@ -194,11 +195,32 @@ class LockRegistry:
                 )
 
     def _reap_expired(self, connection: sqlite3.Connection) -> None:
+        """Transition expired ACTIVE rows and record each transition exactly once."""
+
         now = self._now()
+        rows = connection.execute(
+            "SELECT acquired_at FROM resource_locks "
+            "WHERE status = ? AND expires_at IS NOT NULL AND expires_at <= ?",
+            (LockStatus.ACTIVE.value, now),
+        ).fetchall()
+        if not rows:
+            return
         connection.execute(
-            "UPDATE resource_locks SET status = ? WHERE status = ? AND expires_at <= ?",
+            "UPDATE resource_locks SET status = ? "
+            "WHERE status = ? AND expires_at IS NOT NULL AND expires_at <= ?",
             (LockStatus.EXPIRED.value, LockStatus.ACTIVE.value, now),
         )
+        now_dt = datetime.fromisoformat(now)
+        for (acquired_at,) in rows:
+            duration: float | None = None
+            try:
+                acquired = datetime.fromisoformat(str(acquired_at))
+                if acquired.tzinfo is None or acquired.utcoffset() is None:
+                    acquired = acquired.replace(tzinfo=UTC)
+                duration = max(0.0, (now_dt - acquired.astimezone(UTC)).total_seconds())
+            except (TypeError, ValueError):
+                duration = None
+            record_lock_event("expired", duration_seconds=duration)
 
     def _expires_at(self, now: str, ttl_seconds: int) -> str | None:
         if ttl_seconds <= 0:
