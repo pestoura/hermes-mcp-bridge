@@ -19,6 +19,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
+from .observability.governance import record_hmac_validation
 from .policy import is_strict_mode, security_mode
 from .secretfiles import describe_secret, min_secret_length, read_secret
 
@@ -289,13 +290,15 @@ def verify(
     *,
     now: datetime | None = None,
 ) -> bool:
-    """Verify against current and, only while active, previous key material."""
+    """Verify current/previous key material and emit only a bounded outcome."""
 
     if not signature:
+        record_hmac_validation("missing")
         return False
 
     posture = signing_posture(env, now=now)
     if not posture.ok:
+        record_hmac_validation("config_error")
         return False
 
     value = current_key(env)
@@ -304,14 +307,24 @@ def verify(
             value.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256
         ).hexdigest()
         if hmac.compare_digest(expected, signature):
+            record_hmac_validation("valid_current")
             return True
 
     if not posture.previous_active:
+        record_hmac_validation("invalid")
         return False
     value = previous_key(env)
     if not value:
+        # The non-sensitive posture said the previous verifier was active but
+        # key material is now absent. Keep verification fail-closed and report
+        # only the configuration class, never the key identifier or secret.
+        record_hmac_validation("config_error")
         return False
     expected = hmac.new(
         value.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256
     ).hexdigest()
-    return hmac.compare_digest(expected, signature)
+    if hmac.compare_digest(expected, signature):
+        record_hmac_validation("valid_previous")
+        return True
+    record_hmac_validation("invalid")
+    return False

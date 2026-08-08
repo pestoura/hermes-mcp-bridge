@@ -17,10 +17,12 @@ import hmac
 import json
 import os
 import threading
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from .observability.governance import record_policy_evaluation
 from .protocol import (
     DecisionType,
     MutationClass,
@@ -311,12 +313,12 @@ def _trust_risk(trust_label: TrustLabel) -> str:
     return "unknown"
 
 
-def evaluate_policy(
+def _evaluate_policy_impl(
     evaluation: PolicyEvaluationInput,
     *,
     policy: dict[str, Any] | None = None,
 ) -> PolicyEvaluationResult:
-    """Evaluate a decision. Raises :class:`PolicyError` when fail-closed."""
+    """Evaluate the deterministic policy decision without telemetry concerns."""
 
     if policy is None:
         loaded = get_active_policy()
@@ -412,6 +414,23 @@ def evaluate_policy(
         reason="read-only action allowed by policy",
         effective_policy=effective_policy,
     )
+
+
+def evaluate_policy(
+    evaluation: PolicyEvaluationInput,
+    *,
+    policy: dict[str, Any] | None = None,
+) -> PolicyEvaluationResult:
+    """Evaluate a decision and emit only bounded, fail-open policy telemetry."""
+
+    started = time.perf_counter()
+    decision: object = "other"
+    try:
+        result = _evaluate_policy_impl(evaluation, policy=policy)
+        decision = result.decision
+        return result
+    finally:
+        record_policy_evaluation(decision, time.perf_counter() - started)
 
 
 def deterministic_policy_signature(

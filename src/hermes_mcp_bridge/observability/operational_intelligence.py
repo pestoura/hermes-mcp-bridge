@@ -18,11 +18,15 @@ import importlib
 from contextlib import suppress
 from typing import Any
 
+from .governance import observe_approval_tool_result, refresh_approvals_pending
 from .instrumentation import instrument_all_tools as _base_instrument_all_tools
 from .logging import log_event
 from .metrics import BOUNDED_LABEL_VALUES, get_registry
 
 _ADMISSION_REASONS = frozenset({"draining", "unavailable", "timeout", "rejected", "other"})
+_APPROVAL_TOOLS = frozenset(
+    {"hermes_approval_create", "hermes_approval_respond", "hermes_approval_status"}
+)
 
 # Keep the reason label finite while extending the pre-existing SSE reason domain.
 BOUNDED_LABEL_VALUES["reason"] = frozenset(BOUNDED_LABEL_VALUES["reason"] | _ADMISSION_REASONS)
@@ -171,6 +175,7 @@ async def _augment_readiness(result: Any) -> Any:
     if not isinstance(result, dict):
         return result
     admission = await _probe_admission()
+    refresh_approvals_pending()
     augmented = dict(result)
     components = dict(augmented.get("components") or {})
     components["admission"] = admission
@@ -207,6 +212,8 @@ def _operational_wrapper(tool_name: str, fn: Any) -> Any:
             _failed, is_503 = _returned_failure(result)
             if is_503:
                 await _observe_503_admission()
+        if tool_name in _APPROVAL_TOOLS:
+            observe_approval_tool_result(tool_name, result)
         return result
 
     wrapper.__bridge_operational_intelligence__ = True  # type: ignore[attr-defined]
@@ -243,7 +250,13 @@ def instrument_all_tools(mcp_server: Any) -> int:
             return newly_instrumented
         expected = len(tools)
         covered = _instrumented_count(tools)
-        for tool_name in ("hermes_readiness", "hermes_prompt", "hermes_submit"):
+        wrapped_tools = {
+            "hermes_readiness",
+            "hermes_prompt",
+            "hermes_submit",
+            *_APPROVAL_TOOLS,
+        }
+        for tool_name in wrapped_tools:
             tool = tools.get(tool_name)
             fn = getattr(tool, "fn", None) if tool is not None else None
             if fn is None or getattr(fn, "__bridge_operational_intelligence__", False):
@@ -260,6 +273,7 @@ def instrument_all_tools(mcp_server: Any) -> int:
         # functools.wraps preserves the base instrumentation marker, so the
         # count remains stable after adding the operational wrapper.
         covered = _instrumented_count(tools)
+        refresh_approvals_pending()
     finally:
         _set_coverage(expected=expected, instrumented=covered)
     return newly_instrumented
