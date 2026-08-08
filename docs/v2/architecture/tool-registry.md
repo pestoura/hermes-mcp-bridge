@@ -107,9 +107,10 @@ Implemented (`hermes_mcp_bridge.v2`):
 The Phase 1 acceptance harness verifies schema invariants, exact readiness
 semantics, deterministic hashes, malicious/sensitive-schema rejection,
 fail-closed policy reason codes, authorized-only projection, credential
-status-only serialization and V1 isolation. CI retains the evidence artifact
-for the exact commit tested; only integrated-main evidence may promote
-`REGISTRY_ACCEPTED`.
+status-only serialization and V1 isolation. CI retains the evidence and gate as
+a blocking **draft GitHub Release** targeted to the exact commit under test;
+asset count is verified before the workflow continues. Only evidence from the
+integrated `main` commit may promote `REGISTRY_ACCEPTED`.
 
 Deferred (unchanged): registry persistence, storage format and signing — open
 questions of ADR-0004; schema migration process beyond the explicit Phase 1
