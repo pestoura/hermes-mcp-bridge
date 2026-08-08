@@ -15,6 +15,19 @@ def test_jarvas_launcher_is_valid_bash() -> None:
     subprocess.run(["bash", "-n", str(SCRIPT)], check=True)
 
 
+def test_jarvas_launcher_pins_exact_launcher_checkout_commit() -> None:
+    text = _text()
+    assert 'SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"' in text
+    assert 'rev-parse --show-toplevel' in text
+    assert 'ACCEPTED_SOURCE_COMMIT="$(git -C "$CHECKOUT_ROOT" rev-parse HEAD' in text
+    assert 'diff --quiet -- scripts/v2_phase2_connected_jarvas.sh' in text
+    assert 'git clone -q --no-checkout' in text
+    assert 'checkout -q --detach "$ACCEPTED_SOURCE_COMMIT"' in text
+    assert '[[ "$SOURCE_COMMIT" == "$ACCEPTED_SOURCE_COMMIT" ]]' in text
+    assert 'blocked "SOURCE_COMMIT_MISMATCH"' in text
+    assert "git clone -q --depth 1" not in text
+
+
 def test_jarvas_launcher_derives_read_only_basis_from_live_shadow_probe() -> None:
     text = _text()
     assert "HERMES_V2_SHADOW_MUTATION_BASIS" not in text
