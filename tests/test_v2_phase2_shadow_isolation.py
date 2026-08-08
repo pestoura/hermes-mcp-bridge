@@ -171,6 +171,8 @@ def test_shadow_mcp_surface_has_no_generic_or_mutating_tools() -> None:
 def test_shadow_home_config_uses_exact_mcp_server_allowlist() -> None:
     text = PREPARE.read_text(encoding="utf-8")
     assert 'target["platform_toolsets"] = {"api_server": [SHADOW_MCP_SERVER]}' in text
+    assert "_ensure_hermes_runtime_python(args, raw_argv)" in text
+    assert "resolve_hermes_python(" in text
     assert "_constrain_platform_to_shadow_mcp(target)" in text
     assert 'final != {SHADOW_MCP_SERVER}' in text
     assert '"resources": False' in text
@@ -185,6 +187,8 @@ def test_shadow_probe_composes_native_endpoint_and_actual_resolver_proof() -> No
     text = PROBE.read_text(encoding="utf-8")
     assert 'if native_enabled:' in text
     assert 'ProbeError("SHADOW_NATIVE_TOOLSETS_NOT_EMPTY")' in text
+    assert "_resolve_hermes_runtime_python(shadow_home)" in text
+    assert "resolve_hermes_python(" in text
     assert '_get_platform_tools(config, "api_server")' in text
     assert 'resolved != [SHADOW_MCP_SERVER]' in text
     assert 'ProbeError("SHADOW_EFFECTIVE_TOOLSETS_NOT_EXACT")' in text
