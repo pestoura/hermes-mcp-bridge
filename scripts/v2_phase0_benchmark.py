@@ -17,6 +17,7 @@ import asyncio
 import hashlib
 import json
 import math
+import sqlite3
 import statistics
 import time
 import urllib.request
@@ -124,6 +125,97 @@ def _extract_tokens(value: Any) -> dict[str, int] | None:
             if found is not None:
                 return found
 
+    return None
+
+
+STATE_DB_TOKEN_SOURCE = "hermes_state_db:session_model_usage"
+STATE_DB_POLL_ATTEMPTS = 5
+STATE_DB_POLL_INTERVAL = 0.4
+
+
+def _top_level_session_id(payload: Any) -> str | None:
+    """Return the top-level session_id only; never search nested payloads."""
+    if not isinstance(payload, dict):
+        return None
+    value = payload.get("session_id")
+    if isinstance(value, str) and value.strip() and len(value) <= 128:
+        return value
+    return None
+
+
+def _query_state_db_tokens(db_path: str, session_id: str) -> dict[str, Any] | None:
+    """Read aggregate token usage for one session from a read-only SQLite DB."""
+    uri = f"file:{Path(db_path).as_posix()}?mode=ro"
+    try:
+        connection = sqlite3.connect(uri, uri=True, timeout=5.0)
+    except sqlite3.Error:
+        return None
+
+    try:
+        connection.execute("PRAGMA query_only = ON")
+        columns = {
+            str(row[1]) for row in connection.execute("PRAGMA table_info(session_model_usage)")
+        }
+        if not {"input_tokens", "output_tokens", "session_id"} <= columns:
+            return None
+
+        has_reasoning = "reasoning_tokens" in columns
+        reasoning_expr = "COALESCE(SUM(reasoning_tokens), 0)" if has_reasoning else "0"
+        row = connection.execute(
+            "SELECT COALESCE(SUM(input_tokens), 0), "
+            "COALESCE(SUM(output_tokens), 0), "
+            f"{reasoning_expr}, COUNT(*) "
+            "FROM session_model_usage WHERE session_id = ?",
+            (session_id,),
+        ).fetchone()
+    except sqlite3.Error:
+        return None
+    finally:
+        connection.close()
+
+    if row is None or int(row[3]) == 0:
+        return None
+
+    input_tokens = int(row[0])
+    output_tokens = int(row[1])
+    reasoning_tokens = int(row[2])
+    if min(input_tokens, output_tokens, reasoning_tokens) < 0:
+        return None
+    if input_tokens == 0 and output_tokens == 0 and reasoning_tokens == 0:
+        return None
+
+    tokens: dict[str, Any] = {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": input_tokens + output_tokens + reasoning_tokens,
+        "source": STATE_DB_TOKEN_SOURCE,
+    }
+    if has_reasoning:
+        tokens["reasoning_tokens"] = reasoning_tokens
+    return tokens
+
+
+def _state_db_tokens(
+    db_path: str | None,
+    payload: Any,
+    *,
+    attempts: int = STATE_DB_POLL_ATTEMPTS,
+    interval: float = STATE_DB_POLL_INTERVAL,
+    sleep: Any = time.sleep,
+) -> dict[str, Any] | None:
+    """Bounded-poll the state DB; fail closed when accounting never appears."""
+    if not db_path:
+        return None
+    session_id = _top_level_session_id(payload)
+    if session_id is None:
+        return None
+
+    for attempt in range(max(1, attempts)):
+        tokens = _query_state_db_tokens(db_path, session_id)
+        if tokens is not None:
+            return tokens
+        if attempt + 1 < max(1, attempts):
+            sleep(interval)
     return None
 
 
@@ -375,6 +467,8 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
                     if tokens is not None:
                         tokens = {**tokens, "source": "hermes_result"}
                     else:
+                        tokens = _state_db_tokens(args.hermes_state_db, payload)
+                    if tokens is None:
                         tokens = _sidecar_tokens(
                             token_sidecar,
                             scenario["id"],
@@ -425,6 +519,8 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
             "mcp_url_scope": "loopback" if loopback else "non_loopback",
             "metrics_enabled": bool(args.metrics_url),
             "token_sidecar_used": bool(args.token_usage_file),
+            "hermes_state_db_enabled": bool(args.hermes_state_db),
+            "hermes_state_db_readonly": bool(args.hermes_state_db),
         },
         "scenarios": evidence,
         "privacy": {
@@ -445,6 +541,14 @@ def main() -> int:
     parser.add_argument("--scenarios", required=True)
     parser.add_argument("--token-usage-file")
     parser.add_argument(
+        "--hermes-state-db",
+        help=(
+            "optional path to the Hermes state.db; opened strictly read-only to "
+            "read real token accounting from session_model_usage. The path is "
+            "never persisted in the evidence file."
+        ),
+    )
+    parser.add_argument(
         "--ack-mutation-sandbox",
         action="store_true",
         help="confirm mutation scenarios target an isolated/disposable resource",
@@ -458,6 +562,8 @@ def main() -> int:
         parser.error("--wait-seconds must be in [0, 900]")
     if args.http_timeout <= 0 or args.http_timeout > 60:
         parser.error("--http-timeout must be in (0, 60]")
+    if args.hermes_state_db and not Path(args.hermes_state_db).is_file():
+        parser.error("--hermes-state-db must point to an existing SQLite file")
 
     scenarios = _load_scenarios(args.scenarios)
     has_mutation = any(item["category"] == "mutation" for item in scenarios)

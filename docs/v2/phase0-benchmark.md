@@ -45,6 +45,7 @@ python scripts/v2_phase0_benchmark.py \
   --metrics-url http://127.0.0.1:9464/metrics \
   --scenarios /path/to/phase0-scenarios.json \
   --token-usage-file /path/to/token-usage.json \
+  --hermes-state-db "$HOME/.hermes/state.db" \
   --ack-mutation-sandbox \
   --json-out /tmp/hermes-v2-phase0-evidence.json
 
@@ -100,8 +101,19 @@ Phase 0 must not estimate provider token counts from characters or prompt length
 sources are:
 
 1. token usage present in the Hermes result; or
-2. numeric usage copied/exported from the actual LLM/provider execution record and linked to
+2. real accounting read from the Hermes `state.db` table `session_model_usage`, enabled with
+   the optional `--hermes-state-db PATH` flag; or
+3. numeric usage copied/exported from the actual LLM/provider execution record and linked to
    the exact scenario repetition in the sidecar.
+
+The state DB path is used strictly read-only (SQLite URI `mode=ro` plus `PRAGMA query_only`),
+queried with a parameterized statement on the top-level `session_id` returned by
+`hermes_prompt` only. `input_tokens` and `output_tokens` are summed, and `reasoning_tokens` is
+added explicitly to the total when the column exists. If accounting is not yet visible, the
+collector performs a short bounded poll and then fails closed for that repetition — it never
+estimates. The persisted source string is the constant `hermes_state_db:session_model_usage`;
+the database path is never written to the evidence file. Collection metadata records only the
+booleans `hermes_state_db_enabled` and `hermes_state_db_readonly`.
 
 This preserves the distinction between measured evidence and approximation.
 
