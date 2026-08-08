@@ -43,6 +43,19 @@ def test_jarvas_launcher_preserves_only_sanitized_mint_reason() -> None:
     assert '--attestation-out "$ATTESTATION" >/dev/null' not in text
 
 
+def test_jarvas_launcher_preserves_only_sanitized_shadow_home_reason() -> None:
+    text = _text()
+    assert "shadow_home_output_field()" in text
+    assert 'payload.get("status") == "SHADOW_HOME_BLOCKED"' in text
+    assert 'value == "SHADOW_HOME_PREPARED"' in text
+    assert 're.fullmatch(r"[A-Z0-9_]{1,160}", value)' in text
+    assert "shadow_home_output_field reason || true" in text
+    assert 'blocked "$SHADOW_HOME_REASON"' in text
+    assert "SHADOW_HOME_OUTPUT=''" in text
+    assert '--api-key-out "$SHADOW_API_KEY" >/dev/null' not in text
+    assert "SHADOW_HOME_PREPARATION_FAILED" in text
+
+
 def test_jarvas_launcher_runs_shadow_gateway_in_foreground_mode() -> None:
     text = _text()
     assert '"$HERMES_BIN" gateway run >"$SHADOW_HERMES_LOG" 2>&1 &' in text
