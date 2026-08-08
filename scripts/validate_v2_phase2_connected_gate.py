@@ -97,7 +97,8 @@ def main(argv: list[str] | None = None) -> int:
         "gate": gate,
         "source_commit": connected.get("source_commit"),
     }
-    Path(args.json_out).write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    text = json.dumps(result, indent=2, sort_keys=True) + "\n"
+    Path(args.json_out).write_text(text, encoding="utf-8")
     print(json.dumps(result, sort_keys=True))
     return 0 if not failures else 2
 
