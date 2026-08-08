@@ -11,12 +11,14 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 
 from hermes_mcp_bridge.v2 import CapabilityDescriptor, CapabilityState, ToolRegistry
 
 ROOT = Path(__file__).resolve().parents[1]
 COLLECTOR = ROOT / "scripts" / "v2_phase1_registry_acceptance.py"
 VALIDATOR = ROOT / "scripts" / "validate_v2_phase1_registry_evidence.py"
+WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 TEST_SHA = "0" * 40
 SENTINEL = "PHASE1_TEST_EDITORIAL_SENTINEL"
 
@@ -151,3 +153,25 @@ def test_gate_requires_all_phase1_traceability_requirements(tmp_path: Path) -> N
     payload["requirements"].remove("V2-SEC-013")
     failures = _validate(payload)
     assert "requirements_missing:V2-SEC-013" in failures
+
+
+def test_ci_retains_phase1_gate_as_blocking_draft_release() -> None:
+    payload = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    steps = payload["jobs"]["test"]["steps"]
+    retention = next(
+        step for step in steps if step.get("name") == "Retain Phase 1 registry acceptance evidence"
+    )
+
+    assert retention["if"] == "matrix.python-version == '3.12'"
+    assert retention.get("continue-on-error") is not True
+    assert retention["env"]["PHASE1_EVIDENCE_TAG"] == (
+        "phase1-registry-evidence-${{ github.sha }}"
+    )
+    command = retention["run"]
+    assert "gh release create" in command
+    assert "gh release upload" in command
+    assert "--draft" in command
+    assert '--target "${{ github.sha }}"' in command
+    assert "phase1-registry-acceptance.json" in command
+    assert "phase1-registry-gate.json" in command
+    assert "Phase 1 registry acceptance evidence was not retained" in command
