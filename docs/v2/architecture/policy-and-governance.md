@@ -1,6 +1,10 @@
 # Policy and Per-Node Governance
 
-> **V2 · PLANNED · NOT IMPLEMENTED · NO IMPACT ON V1**
+> **V2 · PHASE 1 SUBSET IMPLEMENTED · NOT YET ACCEPTED · NO IMPACT ON V1**
+
+Phase 1 implements only the static per-tool policy decision
+(`hermes_mcp_bridge.v2.policy`). Approvals binding, plan digests, idempotency
+keys, locks and quotas are **not** implemented in Phase 1.
 
 V2 reuses v1 policy/approval/lock/quota foundations and extends them to typed tools and every BATCH/DAG/RUNBOOK node.
 
@@ -45,3 +49,34 @@ Typed lock scopes may include repository, pull request, service or container res
 ## Policy simulation
 
 `dry_run=true` should support per-node `ALLOW`, `DENY`, `APPROVAL_REQUIRED` plus reason, without executing external mutations.
+
+## Phase 1 policy-as-code subset
+
+`PolicyEngine.evaluate()` is deterministic and fail closed. Phase 1 decisions:
+
+- rules are **explicit per `policy_action`**. Wildcards and globs (`*`, `?`,
+  `[`, `]`) are rejected at rule-construction time, so a permissive rule cannot
+  be written at all; duplicate rules for one action are also rejected;
+- the outcome set is exactly `ALLOW`, `DENY`, `APPROVAL_REQUIRED`;
+- fixed evaluation order — (1) destructive/T4 backstop, (2) capability known
+  and `READY`, (3) required credential capability `READY`, (4) an explicit rule
+  exists, (5) the tool's own `approval_requirement`;
+- unknown tool -> `DENY` (`UNKNOWN_TOOL`); missing rule -> `DENY`
+  (`MISSING_POLICY_RULE`); capability not `READY` -> `DENY`
+  (`CAPABILITY_NOT_READY`); credential capability missing or not `READY` ->
+  `DENY` (`CREDENTIAL_CAPABILITY_UNKNOWN` / `CREDENTIAL_CAPABILITY_NOT_READY`);
+- **T4/destructive is denied by default** (`DESTRUCTIVE_DENIED_BY_DEFAULT`)
+  before any rule is consulted, so an accidental `ALLOW` rule cannot enable it;
+- a tool declaring `approval_requirement = REQUIRED` can never resolve to a
+  plain `ALLOW`; it is upgraded to `APPROVAL_REQUIRED`
+  (`APPROVAL_REQUIRED_BY_TOOL`);
+- `approval_requirement = CONDITIONAL` is **not** the same as `REQUIRED`: in
+  Phase 1 the *condition is the policy rule*. An explicit `APPROVAL_REQUIRED`
+  rule yields `APPROVAL_REQUIRED` (`APPROVAL_REQUIRED_BY_RULE`); an explicit
+  `ALLOW` rule yields `ALLOW`. Richer conditional predicates (argument-aware,
+  principal-aware) are deferred with the rest of OD-017;
+- every decision carries a stable `ReasonCode` token containing no secret,
+  path or argument value.
+
+This is a scoped, partial answer to OD-017: the rule *model* is fixed for Phase
+1, but the durable policy-as-code format and engine choice remain open.

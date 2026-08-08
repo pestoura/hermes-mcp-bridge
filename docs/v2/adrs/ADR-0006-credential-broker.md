@@ -1,8 +1,8 @@
 # ADR-0006 — Credential Broker Abstraction
 
-> **V2 · PLANNED · NOT IMPLEMENTED · NO IMPACT ON V1**
+> **V2 · PHASE 1 CONTRACT IMPLEMENTED · NOT YET ACCEPTED · NO IMPACT ON V1**
 
-**Status:** Proposed
+**Status:** Accepted in principle; Phase 1 implements the interface only, `REGISTRY_ACCEPTED` not declared.
 
 ## Context
 Direct execution needs credentials while clients must never receive them, and current secrets are stored through heterogeneous mechanisms.
@@ -22,5 +22,13 @@ Centralizes secret handling and redaction; broker compromise is a high-value thr
 ## Operational implications
 Allows phased backends (restricted file/keyring/Vault/secret manager) without changing tool contracts.
 
+## Phase 1 outcome
+`CredentialBroker` exists as a `Protocol` returning only
+`CredentialCapabilityStatus` (capability ID, provider, readiness state,
+version). A single in-memory `StaticCredentialBroker` supports tests. No secret
+value, path or environment variable name is exposed by any method or by any
+serialization path.
+
 ## Open questions
-Initial provider backend and credential readiness SLA.
+Initial provider backend and credential readiness SLA remain open (OD-005).
+Phase 1 deliberately implements **no** real backend.
