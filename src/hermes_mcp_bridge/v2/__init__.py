@@ -97,6 +97,9 @@ __all__ = [
     "GITHUB_API_VERSION",
     "GITHUB_DIRECT_READ_TOOL_IDS",
     "GITHUB_READ_CREDENTIAL_CAPABILITY",
+    "PHASE1_GATE",
+    "PHASE1_STATUS",
+    "PHASE2_STATUS",
     "ApprovalRequirement",
     "CapabilityDescriptor",
     "CapabilityRegistry",
@@ -147,6 +150,10 @@ __all__ = [
     "sha256_hex",
 ]
 
-PHASE1_STATUS = "REGISTRY_ACCEPTED"
+#: Legacy Phase 1 implementation marker retained for V1/V2 compatibility tests.
+#: It was explicitly defined as "not an acceptance gate" in the accepted core.
+PHASE1_STATUS = "PHASE_1_CORE_IMPLEMENTED_NOT_ACCEPTED"
+#: Formal assurance gate promoted by retained Phase 1 evidence.
+PHASE1_GATE = "REGISTRY_ACCEPTED"
 #: Phase 2 repo-side core marker. Not an acceptance gate.
 PHASE2_STATUS = "GITHUB_DIRECT_READ_CORE_IMPLEMENTED_NOT_ACCEPTED"
