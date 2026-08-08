@@ -263,6 +263,8 @@ if ! SHADOW_PROBE_OUTPUT="$(
     --api-key-file "$SHADOW_API_KEY" \
     --repository "$REPOSITORY" \
     --source-commit "$SOURCE_COMMIT" \
+    --hermes-python "$HERMES_PY" \
+    --shadow-home "$SHADOW_HOME" \
     --json-out "$SHADOW_ISOLATION" 2>/dev/null
 )"; then
   SHADOW_REASON="$(
