@@ -17,8 +17,25 @@ Phase 1 decisions:
   is always flagged explicitly (``requires_approval=True``) and is never
   silently presented as executable;
 * the projected payload contains a strict, normalized allow-list of fields. It
-  never contains credential values, credential capability ids, secret paths,
-  backend-supplied metadata, terminal or filesystem capabilities.
+  never contains credential values, credential capability ids, secret paths or
+  backend-supplied metadata: there is **no pass-through** of backend metadata,
+  each projected field is copied explicitly from the canonical definition.
+
+What the Phase 1 surface guarantee actually is
+----------------------------------------------
+
+Only tools that are (a) explicitly registered as canonical
+:class:`~hermes_mcp_bridge.v2.schema.ToolDefinition` objects, (b) backed by a
+capability in state READY, and (c) resolved by policy to ALLOW or
+APPROVAL_REQUIRED are projected. Nothing is discovered, inferred or forwarded
+from a backend.
+
+Consequently **no generic terminal or filesystem tool is registered in this
+phase**, so none can be projected. This is a property of the registered set,
+not a hard-coded provider ban: if a later phase deliberately registers a
+*typed, constrained* wrapper (a specific command with a fixed argument schema,
+say), its security tier and policy rule decide the outcome like any other tool.
+An unregistered id such as ``terminal.exec`` is simply unknown and denies.
 """
 
 from __future__ import annotations
@@ -29,6 +46,7 @@ from pydantic import ConfigDict, Field
 
 from ._models import RegistryModel
 from .canonical import canonical_json_bytes, sha256_hex
+from .credentials import CredentialBroker
 from .enums import ExecutionMode, MutationClass, PolicyDecision, ResultShaping, SecurityTier
 from .policy import PolicyEngine, PolicyEvaluation, PolicyRuleSet, ReasonCode
 from .registry import ToolRegistry
@@ -158,7 +176,7 @@ class ProjectionResult:
 def project_capabilities(
     registry: ToolRegistry,
     rules: PolicyRuleSet,
-    credential_broker: Any = None,
+    credential_broker: CredentialBroker | None = None,
     context: ProjectionContext | None = None,
 ) -> ProjectionResult:
     """Project the authorized, operational tool surface.

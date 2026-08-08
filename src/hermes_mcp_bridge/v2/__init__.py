@@ -16,9 +16,9 @@ Phase 1 scope (see ``docs/v2/roadmap.md``):
 * fail-closed policy-as-code evaluation;
 * deterministic capability projection.
 
-Explicitly **deferred** (unchanged open decisions): registry persistence/
-signing (OD-003), real credential backends (OD-005), principal/tenant model
-(OD-007), dynamic projection and discovery protocol (OD-012, OD-013).
+Explicitly **deferred**: registry persistence/signing (open question of
+ADR-0004, not an OD entry), real credential backends (OD-005), principal/tenant
+model (OD-007), dynamic projection and discovery protocol (OD-012, OD-013).
 """
 
 from __future__ import annotations

@@ -486,6 +486,76 @@ def test_tool_declaring_required_approval_cannot_be_plain_allow() -> None:
     assert result.reason_code is ReasonCode.APPROVAL_REQUIRED_BY_TOOL
 
 
+def test_conditional_approval_defers_to_the_rule_and_can_allow() -> None:
+    """CONDITIONAL is not REQUIRED: an explicit ALLOW rule resolves to ALLOW."""
+    tool = read_tool(approval=ApprovalRequirement.CONDITIONAL)
+    registry = registry_with([tool])
+    result = PolicyEngine(registry, allow_rules("github.pr.read")).evaluate("github.get_pr")
+    assert result.decision is PolicyDecision.ALLOW
+    assert result.reason_code is ReasonCode.ALLOWED
+
+
+def test_conditional_approval_requires_approval_under_an_approval_rule() -> None:
+    tool = read_tool(approval=ApprovalRequirement.CONDITIONAL)
+    registry = registry_with([tool])
+    rules = PolicyRuleSet(
+        [
+            PolicyRule(
+                policy_action="github.pr.read", decision=PolicyDecision.APPROVAL_REQUIRED
+            )
+        ]
+    )
+    result = PolicyEngine(registry, rules).evaluate("github.get_pr")
+    assert result.decision is PolicyDecision.APPROVAL_REQUIRED
+    assert result.reason_code is ReasonCode.APPROVAL_REQUIRED_BY_RULE
+
+
+def test_conditional_and_required_are_not_semantically_equal() -> None:
+    """Under the same ALLOW rule the two enum values must diverge."""
+    registry_conditional = registry_with(
+        [read_tool(approval=ApprovalRequirement.CONDITIONAL)]
+    )
+    registry_required = registry_with([read_tool(approval=ApprovalRequirement.REQUIRED)])
+    rules = allow_rules("github.pr.read")
+
+    conditional = PolicyEngine(registry_conditional, rules).evaluate("github.get_pr")
+    required = PolicyEngine(registry_required, rules).evaluate("github.get_pr")
+    assert conditional.decision is PolicyDecision.ALLOW
+    assert required.decision is PolicyDecision.APPROVAL_REQUIRED
+    assert conditional.decision is not required.decision
+
+
+def test_conditional_does_not_bypass_the_destructive_backstop() -> None:
+    """The T4/destructive DENY still runs before any approval reasoning."""
+    tool = mutation_tool(
+        tier=SecurityTier.T4,
+        mutation=MutationClass.DESTRUCTIVE,
+        approval=ApprovalRequirement.CONDITIONAL,
+    )
+    registry = registry_with([tool])
+    result = PolicyEngine(registry, allow_rules("github.pr.create")).evaluate(
+        "github.create_pr"
+    )
+    assert result.decision is PolicyDecision.DENY
+    assert result.reason_code is ReasonCode.DESTRUCTIVE_DENIED_BY_DEFAULT
+
+
+def test_policy_rule_note_is_excluded_from_canonical_form() -> None:
+    """A human note must not become a persistence channel for secrets."""
+    rule = PolicyRule(
+        policy_action="github.pr.read",
+        decision=PolicyDecision.ALLOW,
+        note=f"reviewed by ops {SECRET_SENTINEL}",
+    )
+    canonical = rule.canonical()
+    assert "note" not in canonical
+    assert canonical == {"decision": "ALLOW", "policy_action": "github.pr.read"}
+    assert SECRET_SENTINEL not in canonical_json_text(canonical)
+    assert SECRET_SENTINEL not in canonical_json_text(PolicyRuleSet([rule]).canonical())
+    # the note is still available in-process for operators
+    assert SECRET_SENTINEL in rule.note
+
+
 def test_policy_missing_rule_denies() -> None:
     registry = registry_with([read_tool()])
     result = PolicyEngine(registry, PolicyRuleSet([])).evaluate("github.get_pr")
@@ -676,6 +746,41 @@ def test_projection_carries_capability_snapshot_hash() -> None:
     assert result.capability_snapshot_hash == registry.capability_snapshot_hash()
 
 
+def test_unregistered_terminal_and_filesystem_ids_are_not_projected() -> None:
+    """Phase 1 registers no generic terminal/filesystem tool, so none appears.
+
+    This asserts the actual guarantee — only explicitly registered canonical
+    tools are projected — rather than a hard-coded provider ban.
+    """
+    registry, rules, broker = _projection_fixture()
+    result = project_capabilities(registry, rules, broker)
+
+    for tool_id in ("terminal.exec", "filesystem.any"):
+        assert tool_id not in result.tool_ids
+    assert not any(
+        tool.provider in ("terminal", "filesystem", "shell") for tool in result.tools
+    )
+    # every projected tool is one that was explicitly registered
+    assert set(result.tool_ids) <= {tool.tool_id for tool in registry.ordered()}
+
+
+@pytest.mark.parametrize("tool_id", ["terminal.exec", "filesystem.any", "shell.run"])
+def test_unknown_tool_ids_are_denied(tool_id: str) -> None:
+    registry, rules, broker = _projection_fixture()
+    evaluation = PolicyEngine(registry, rules, broker).evaluate(tool_id)
+    assert evaluation.decision is PolicyDecision.DENY
+    assert evaluation.reason_code is ReasonCode.UNKNOWN_TOOL
+    assert evaluation.allowed is False
+
+
+def test_projection_accepts_a_typed_credential_broker() -> None:
+    """The contract is ``CredentialBroker | None``, not ``Any``."""
+    registry, rules, broker = _projection_fixture()
+    assert isinstance(broker, CredentialBroker)
+    assert project_capabilities(registry, rules, None) is not None
+    assert project_capabilities(registry, rules, broker) is not None
+
+
 def test_projection_context_is_opaque_and_not_serialized() -> None:
     registry, rules, broker = _projection_fixture()
     context = ProjectionContext(
@@ -780,13 +885,209 @@ def test_credential_broker_interface_exposes_status_only() -> None:
     assert broker.status("github.absent") is None
 
 
-def test_tool_definition_rejects_secret_bearing_fields() -> None:
+def test_tool_definition_has_no_field_able_to_carry_a_secret() -> None:
+    """The guarantee is structural, not heuristic.
+
+    There is no field for a raw credential value, a secret path or an env var
+    name, and ``extra`` is forbidden, so one cannot be smuggled in.
+    """
     with pytest.raises(RegistryValidationError):
         ToolDefinition(**{**read_tool().model_dump(), "credential_secret": SECRET_SENTINEL})
     with pytest.raises(RegistryValidationError):
-        ToolDefinition(
-            **{**read_tool().model_dump(), "description": f"uses token {SECRET_SENTINEL}"}
-        )
+        ToolDefinition(**{**read_tool().model_dump(), "credential_path": SECRET_PATH_SENTINEL})
+    with pytest.raises(RegistryValidationError):
+        ToolDefinition(**{**read_tool().model_dump(), "env": {"TOKEN": SECRET_SENTINEL}})
+
+    fields = set(ToolDefinition.model_fields)
+    for forbidden in ("secret", "password", "token", "env", "credential_value"):
+        assert forbidden not in fields
+    # the only credential reference is an opaque id
+    assert "credential_capability_id" in fields
+
+
+def test_legitimate_human_description_is_not_rejected() -> None:
+    """Prose is not scanned: no false positives on ordinary wording."""
+    for text in (
+        "Collect real token accounting from the state DB.",
+        "Backwards patch compatibility for older payloads.",
+        "Reads the repository, no authorization changes.",
+    ):
+        tool = ToolDefinition(**{**read_tool().model_dump(), "description": text})
+        assert tool.description == text
+
+
+def test_backend_identifier_segment_matching_is_exact() -> None:
+    """``backend`` rejects by exact segment, never by substring.
+
+    ``patch-compatibility`` contains the substring ``pat`` and
+    ``authorization`` is a whole word inside no segment here — neither has a
+    segment equal to a credential name, so both are accepted. A backend whose
+    own segment *is* ``token``/``password``/... is rejected, which for a
+    structured identifier is the intended behaviour (prose is handled by
+    ``description``, which is not scanned at all).
+    """
+    for accepted in ("github-api", "patch-compatibility", "gitlab.rest-v4", "pat-service"):
+        tool = ToolDefinition(**{**read_tool().model_dump(), "backend": accepted})
+        assert tool.backend == accepted
+
+    for rejected in ("vault.token", "store.password", "api_key", "svc-secret"):
+        with pytest.raises(RegistryValidationError):
+            ToolDefinition(**{**read_tool().model_dump(), "backend": rejected})
+
+
+def test_resource_key_selector_segment_matching_is_exact() -> None:
+    assert ResourceKey(scope="repository", selector="patch-compatibility").selector
+    with pytest.raises(RegistryValidationError):
+        ResourceKey(scope="repository", selector="vault.token")
+
+
+def test_schema_may_declare_a_sensitive_property_without_a_value() -> None:
+    """Naming a runtime field ``token`` is legitimate and must be allowed."""
+    schema = {
+        "type": "object",
+        "properties": {
+            "token": {"type": "string", "description": "Runtime bearer token."},
+            "count": {"type": "integer", "default": 5},
+        },
+    }
+    tool = ToolDefinition(**{**read_tool().model_dump(), "input_schema": schema})
+    assert "token" in tool.input_schema["properties"]
+
+
+@pytest.mark.parametrize("keyword", ["default", "const", "example", "examples"])
+def test_schema_materializing_a_credential_is_rejected(keyword: str) -> None:
+    value = [SECRET_SENTINEL] if keyword == "examples" else SECRET_SENTINEL
+    schema = {
+        "type": "object",
+        "properties": {"token": {"type": "string", keyword: value}},
+    }
+    with pytest.raises(RegistryValidationError):
+        ToolDefinition(**{**read_tool().model_dump(), "input_schema": schema})
+    with pytest.raises(RegistryValidationError):
+        ToolDefinition(**{**read_tool().model_dump(), "output_schema": schema})
+
+
+def test_schema_empty_materialized_value_on_sensitive_property_is_allowed() -> None:
+    schema = {
+        "type": "object",
+        "properties": {"password": {"type": "string", "default": ""}},
+    }
+    tool = ToolDefinition(**{**read_tool().model_dump(), "input_schema": schema})
+    assert tool.input_schema["properties"]["password"]["default"] == ""
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        # nested under $defs
+        {
+            "type": "object",
+            "properties": {"auth": {"$ref": "#/$defs/Auth"}},
+            "$defs": {
+                "Auth": {
+                    "type": "object",
+                    "properties": {"api_key": {"type": "string", "const": SECRET_SENTINEL}},
+                }
+            },
+        },
+        # nested under items
+        {
+            "type": "object",
+            "properties": {
+                "creds": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "private_key": {"type": "string", "default": SECRET_SENTINEL}
+                        },
+                    },
+                }
+            },
+        },
+        # nested under a combinator
+        {
+            "type": "object",
+            "properties": {
+                "auth": {
+                    "anyOf": [
+                        {"type": "null"},
+                        {
+                            "type": "object",
+                            "properties": {
+                                "authorization": {
+                                    "type": "string",
+                                    "example": SECRET_SENTINEL,
+                                }
+                            },
+                        },
+                    ]
+                }
+            },
+        },
+        # deeply nested property
+        {
+            "type": "object",
+            "properties": {
+                "outer": {
+                    "type": "object",
+                    "properties": {
+                        "inner": {
+                            "type": "object",
+                            "properties": {
+                                "cookie": {"type": "string", "default": SECRET_SENTINEL}
+                            },
+                        }
+                    },
+                }
+            },
+        },
+    ],
+)
+def test_nested_materialized_credentials_are_rejected(schema: dict[str, Any]) -> None:
+    with pytest.raises(RegistryValidationError):
+        ToolDefinition(**{**read_tool().model_dump(), "input_schema": schema})
+
+
+def test_sentinel_never_appears_in_snapshot_or_projection() -> None:
+    """A sentinel placed in every place it is still legal must not leak."""
+    caps = CapabilityRegistry([capability("github.api")])
+    registry = ToolRegistry(caps)
+    # legal placements: prose description, and a declared (valueless) property
+    tool = ToolDefinition(
+        **{
+            **read_tool().model_dump(),
+            "description": f"Notes {SECRET_SENTINEL}",
+            "input_schema": {
+                "type": "object",
+                "properties": {"token": {"type": "string"}},
+            },
+        }
+    )
+    registry.register(tool)
+    rules = PolicyRuleSet(
+        [
+            PolicyRule(
+                policy_action="github.pr.read",
+                decision=PolicyDecision.ALLOW,
+                note=f"operator note {SECRET_SENTINEL}",
+            )
+        ]
+    )
+
+    # the rule note must never reach a canonical form
+    assert SECRET_SENTINEL not in canonical_json_text(rules.canonical())
+    assert "note" not in rules.canonical()[0]
+
+    snapshot = registry.capability_snapshot_hash()
+    assert SECRET_SENTINEL not in snapshot
+
+    result = project_capabilities(registry, rules)
+    payload = canonical_json_text(result.canonical())
+    assert SECRET_PATH_SENTINEL not in payload
+    assert SECRET_SENTINEL not in canonical_json_text(
+        [evaluation.canonical() for evaluation in result.excluded]
+    )
 
 
 # ---------------------------------------------------------------------------

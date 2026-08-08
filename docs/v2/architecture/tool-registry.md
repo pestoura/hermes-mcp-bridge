@@ -86,5 +86,6 @@ Implemented (`hermes_mcp_bridge.v2`):
   change (tool set, schema, state, version, tier, policy action, timeout) does.
   The snapshot carries **non-secret metadata only**.
 
-Deferred (unchanged): registry persistence, storage format and signing
-(OD-003); schema migration process; dynamic discovery/refresh (OD-012).
+Deferred (unchanged): registry persistence, storage format and signing — open
+questions of ADR-0004, with no OD entry of their own; schema migration process;
+dynamic discovery/refresh (OD-012).

@@ -67,9 +67,14 @@ Typed lock scopes may include repository, pull request, service or container res
   `DENY` (`CREDENTIAL_CAPABILITY_UNKNOWN` / `CREDENTIAL_CAPABILITY_NOT_READY`);
 - **T4/destructive is denied by default** (`DESTRUCTIVE_DENIED_BY_DEFAULT`)
   before any rule is consulted, so an accidental `ALLOW` rule cannot enable it;
-- a tool declaring `approval_requirement = REQUIRED` (or `CONDITIONAL`) can
-  never resolve to a plain `ALLOW`; it is upgraded to `APPROVAL_REQUIRED`
+- a tool declaring `approval_requirement = REQUIRED` can never resolve to a
+  plain `ALLOW`; it is upgraded to `APPROVAL_REQUIRED`
   (`APPROVAL_REQUIRED_BY_TOOL`);
+- `approval_requirement = CONDITIONAL` is **not** the same as `REQUIRED`: in
+  Phase 1 the *condition is the policy rule*. An explicit `APPROVAL_REQUIRED`
+  rule yields `APPROVAL_REQUIRED` (`APPROVAL_REQUIRED_BY_RULE`); an explicit
+  `ALLOW` rule yields `ALLOW`. Richer conditional predicates (argument-aware,
+  principal-aware) are deferred with the rest of OD-017;
 - every decision carries a stable `ReasonCode` token containing no secret,
   path or argument value.
 

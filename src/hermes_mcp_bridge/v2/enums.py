@@ -86,7 +86,20 @@ class RetryClass(StrEnum):
 
 @unique
 class ApprovalRequirement(StrEnum):
-    """Whether human approval is required before execution."""
+    """Whether human approval is required before execution.
+
+    Phase 1 semantics, as enforced by
+    :meth:`hermes_mcp_bridge.v2.policy.PolicyEngine.evaluate_tool`:
+
+    * ``NOT_REQUIRED`` — an ALLOW rule yields ALLOW.
+    * ``CONDITIONAL`` — the *condition is the policy rule*. An explicit
+      ``APPROVAL_REQUIRED`` rule yields APPROVAL_REQUIRED; an explicit
+      ``ALLOW`` rule yields ALLOW. This is what distinguishes it from
+      ``REQUIRED``.
+    * ``REQUIRED`` — always APPROVAL_REQUIRED, even under an ALLOW rule.
+
+    The destructive/T4 backstop is applied before any of this and denies first.
+    """
 
     NOT_REQUIRED = "NOT_REQUIRED"
     CONDITIONAL = "CONDITIONAL"

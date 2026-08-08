@@ -7,7 +7,12 @@ for later phases stays open):
   prefix matching. A rule whose action contains ``*``/``?``/``[``/``]`` is
   rejected at construction time, so a permissive rule cannot be written;
 * the outcome set is exactly ``ALLOW``, ``DENY``, ``APPROVAL_REQUIRED``;
-* every non-ALLOW outcome carries a stable, non-secret reason code.
+* every non-ALLOW outcome carries a stable, non-secret reason code;
+* approval semantics: a tool declaring :attr:`ApprovalRequirement.REQUIRED`
+  always yields ``APPROVAL_REQUIRED``, even under an ALLOW rule. A tool
+  declaring :attr:`ApprovalRequirement.CONDITIONAL` defers to the rule — an
+  explicit ``APPROVAL_REQUIRED`` rule needs approval, an explicit ``ALLOW``
+  rule yields ``ALLOW``. In Phase 1 the *condition* is the policy rule.
 
 Fail-closed order of evaluation is fixed and must not be reordered: an unknown
 tool can never reach the capability checks, and the T4/destructive backstop is
@@ -52,7 +57,15 @@ _WILDCARD_CHARS = ("*", "?", "[", "]")
 
 
 class PolicyRule(PolicyModel):
-    """One explicit rule bound to exactly one ``policy_action``."""
+    """One explicit rule bound to exactly one ``policy_action``.
+
+    ``note`` is free-form operator text for humans reading the rule set in
+    source. It is **excluded from** :meth:`canonical` on purpose: the canonical
+    form feeds hashes, audit records and serialized output, and an unstructured
+    human field must not become an accidental persistence channel for secrets.
+    The note therefore stays in memory only and never leaves via a canonical
+    projection.
+    """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -75,9 +88,9 @@ class PolicyRule(PolicyModel):
             raise PolicyValidationError(f"invalid policy_action: {exc}") from exc
 
     def canonical(self) -> dict[str, Any]:
+        """Audit-safe projection. ``note`` is intentionally omitted."""
         return {
             "decision": self.decision.value,
-            "note": self.note,
             "policy_action": self.policy_action,
         }
 
@@ -226,16 +239,17 @@ class PolicyEngine:
                 reason_code=ReasonCode.APPROVAL_REQUIRED_BY_RULE,
             )
 
-        # 5. rule says ALLOW, but a tool declaring REQUIRED approval cannot be
-        #    downgraded to a plain ALLOW.
+        # 5. The rule says ALLOW. A tool declaring REQUIRED approval can never
+        #    be downgraded to a plain ALLOW by a rule.
+        #
+        #    CONDITIONAL is different from REQUIRED on purpose: in Phase 1 the
+        #    *condition* is expressed by the policy rule itself. A CONDITIONAL
+        #    tool paired with an explicit APPROVAL_REQUIRED rule needs approval
+        #    (handled in step 4 above); paired with an explicit ALLOW rule it
+        #    resolves to ALLOW. Were CONDITIONAL to force approval here it
+        #    would be semantically identical to REQUIRED and the enum value
+        #    would carry no information.
         if tool.approval_requirement is ApprovalRequirement.REQUIRED:
-            return PolicyEvaluation(
-                tool_id=tool_id,
-                policy_action=action,
-                decision=PolicyDecision.APPROVAL_REQUIRED,
-                reason_code=ReasonCode.APPROVAL_REQUIRED_BY_TOOL,
-            )
-        if tool.approval_requirement is ApprovalRequirement.CONDITIONAL:
             return PolicyEvaluation(
                 tool_id=tool_id,
                 policy_action=action,

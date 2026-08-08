@@ -5,12 +5,35 @@ Every field that drives a security decision is a typed enum (see
 which are normalized and validated here.
 
 Phase 1 decision: the definition is an **in-process typed model** (Pydantic v2)
-plus a canonical JSON projection. Persistence, signing and schema migration of
-the registry remain deferred (OD-003).
+plus a canonical JSON projection. Registry persistence, storage and signing
+remain an open question of ADR-0004; schema migration is likewise deferred.
 
-Secrets: a tool definition references a *credential capability id* only. Fields
-holding secret material, environment variable names or secret paths are
-rejected by :func:`_reject_secretish`.
+Secrets — what is and is not guaranteed here
+--------------------------------------------
+
+The guarantee is **structural**, not heuristic:
+
+* :class:`ToolDefinition` and the credential models have **no field** able to
+  carry a raw credential value, a secret path or an environment variable name.
+  ``extra`` is ``forbid`` everywhere, so a caller cannot smuggle one in through
+  an unexpected key. A tool references a *credential capability id* only, which
+  is an opaque identifier resolved by the broker at runtime.
+* For **structured identifiers** (:attr:`ResourceKey.selector`, ``backend``) the
+  value is a dotted identifier, and rejection is by **exact segment match**
+  against :data:`SENSITIVE_CREDENTIAL_NAMES` — never by arbitrary substring. A
+  segment ``token`` is rejected; ``patch-compatibility`` is not, because no
+  segment equals a sensitive name.
+* ``description`` is **human text and is not scanned**. Substring heuristics
+  over prose produce false positives ("token accounting", "compatibility") and
+  prove nothing about the absence of secrets, so they are deliberately absent.
+
+JSON Schema is allowed to *name* sensitive runtime fields — a tool may legally
+declare an input property called ``token``. What it must not do is carry a
+**materialized** credential in the schema itself: a non-empty ``default``,
+``const``, ``example`` or ``examples`` on a clearly sensitive property is
+rejected by :func:`_validate_json_schema`, recursively through ``properties``,
+``$defs``, ``items`` and ``allOf``/``anyOf``/``oneOf``. There is no regex for
+real token formats; the check is purely structural.
 """
 
 from __future__ import annotations
@@ -41,19 +64,29 @@ _IDENTIFIER_RE = re.compile(r"^[a-z0-9]([a-z0-9_-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9
 #: the identifier a permissive pattern or suggest secret material.
 _WILDCARD_TOKENS = ("*", "?", "[", "]", "**")
 
-_SECRETISH_TOKENS = (
-    "password",
-    "passwd",
-    "secret",
-    "token",
-    "apikey",
-    "api_key",
-    "private_key",
-    "credential_value",
-    "bearer",
-    "cookie",
-    "pat",
+_SEGMENT_SPLIT_RE = re.compile(r"[._\-]")
+
+#: Property/segment names that unambiguously denote credential material.
+#: Matching is by **exact name**, never substring: ``token`` matches, while
+#: ``token_accounting`` or ``compatibility`` do not.
+SENSITIVE_CREDENTIAL_NAMES = frozenset(
+    {
+        "password",
+        "passwd",
+        "secret",
+        "token",
+        "api_key",
+        "apikey",
+        "authorization",
+        "cookie",
+        "private_key",
+        "credential",
+    }
 )
+
+#: JSON Schema keywords that materialize a literal value into the definition.
+#: A sensitive property may be *declared*, but must not carry one of these.
+_MATERIALIZING_KEYWORDS = ("default", "const", "example", "examples")
 
 #: Bounds for ``timeout_seconds``. Unbounded or non-positive timeouts are a
 #: reliability and denial-of-service hazard and are rejected outright.
@@ -82,17 +115,109 @@ def normalize_identifier(raw: str, *, field: str) -> str:
     return value
 
 
-def _reject_secretish(value: str, *, field: str) -> None:
-    lowered = value.lower()
-    for token in _SECRETISH_TOKENS:
-        if token in lowered:
-            raise RegistryValidationError(
-                f"{field} must not reference secret material or secret names"
+def _is_sensitive_name(name: str) -> bool:
+    """True when ``name`` *is* a credential name, by exact match.
+
+    The name is compared whole and, for compound identifiers, segment by
+    segment (``.``/``_``/``-`` separated), so ``auth.token`` is sensitive while
+    ``token_accounting`` and ``patch_compatibility`` are not.
+    """
+    lowered = name.strip().lower()
+    if lowered in SENSITIVE_CREDENTIAL_NAMES:
+        return True
+    segments = [segment for segment in _SEGMENT_SPLIT_RE.split(lowered) if segment]
+    return any(segment in SENSITIVE_CREDENTIAL_NAMES for segment in segments)
+
+
+def _reject_sensitive_identifier(value: str, *, field: str) -> None:
+    """Reject a structured identifier whose segments name credential material.
+
+    Exact segment matching only. Human prose must never be passed here.
+    """
+    if _is_sensitive_name(value):
+        raise RegistryValidationError(
+            f"{field} must not be named after credential material"
+        )
+
+
+def _is_materialized(value: Any) -> bool:
+    """True when a schema keyword carries a non-empty literal value."""
+    if value is None:
+        return False
+    if isinstance(value, str | bytes | list | tuple | dict | set):
+        return len(value) > 0
+    return True
+
+
+def _reject_materialized_credentials(
+    node: Any, *, field: str, path: str = "", sensitive: bool = False
+) -> None:
+    """Recursively reject materialized credential literals in a JSON Schema.
+
+    A schema may freely *declare* a property named ``token``. What it may not
+    do is pin a non-empty ``default``/``const``/``example``/``examples`` on it,
+    which would persist a credential inside the registry definition.
+    """
+    if not isinstance(node, dict):
+        return
+
+    if sensitive:
+        for keyword in _MATERIALIZING_KEYWORDS:
+            if keyword in node and _is_materialized(node[keyword]):
+                where = path or "<root>"
+                raise RegistryValidationError(
+                    f"{field} must not materialize a credential value: "
+                    f"sensitive property {where!r} declares a non-empty {keyword!r}"
+                )
+
+    for container in ("properties", "$defs", "definitions", "patternProperties"):
+        block = node.get(container)
+        if isinstance(block, dict):
+            for name, child in block.items():
+                child_path = f"{path}.{name}" if path else str(name)
+                child_sensitive = container in ("properties", "patternProperties") and (
+                    isinstance(name, str) and _is_sensitive_name(name)
+                )
+                _reject_materialized_credentials(
+                    child, field=field, path=child_path, sensitive=child_sensitive
+                )
+
+    items = node.get("items")
+    if isinstance(items, dict):
+        _reject_materialized_credentials(
+            items, field=field, path=f"{path}[]", sensitive=sensitive
+        )
+    elif isinstance(items, list):
+        for index, child in enumerate(items):
+            _reject_materialized_credentials(
+                child, field=field, path=f"{path}[{index}]", sensitive=sensitive
+            )
+
+    for combinator in ("allOf", "anyOf", "oneOf"):
+        block = node.get(combinator)
+        if isinstance(block, list):
+            for index, child in enumerate(block):
+                _reject_materialized_credentials(
+                    child,
+                    field=field,
+                    path=f"{path}/{combinator}[{index}]",
+                    sensitive=sensitive,
+                )
+
+    for single in ("not", "additionalProperties", "contains"):
+        child = node.get(single)
+        if isinstance(child, dict):
+            _reject_materialized_credentials(
+                child, field=field, path=f"{path}/{single}", sensitive=sensitive
             )
 
 
 def _validate_json_schema(schema: Any, *, field: str) -> dict[str, Any]:
-    """Phase 1 schema check: must be a JSON object describing an object."""
+    """Phase 1 schema check: must be a JSON object describing an object.
+
+    Additionally enforces that no clearly sensitive property materializes a
+    credential literal; see :func:`_reject_materialized_credentials`.
+    """
     if not isinstance(schema, dict):
         raise RegistryValidationError(f"{field} must be a JSON object")
     if not schema:
@@ -103,6 +228,7 @@ def _validate_json_schema(schema: Any, *, field: str) -> dict[str, Any]:
     for key in schema:
         if not isinstance(key, str):
             raise RegistryValidationError(f"{field} keys must be strings")
+    _reject_materialized_credentials(schema, field=field)
     return schema
 
 
@@ -141,8 +267,9 @@ class ResourceKey(RegistryModel):
     """Concurrency/lock key for an operation.
 
     ``scope`` names the resource class (``repository``, ``service``, ...).
-    ``selector`` is an opaque, non-secret template token; it never contains
-    credential material or a filesystem path.
+    ``selector`` is an opaque, non-secret identifier token. It is a dotted
+    identifier, and any segment that *is* a credential name (exact match) is
+    rejected; it never carries credential material or a filesystem path.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -159,7 +286,7 @@ class ResourceKey(RegistryModel):
     @classmethod
     def _selector(cls, value: str) -> str:
         normalized = normalize_identifier(value, field="resource_key.selector")
-        _reject_secretish(normalized, field="resource_key.selector")
+        _reject_sensitive_identifier(normalized, field="resource_key.selector")
         return normalized
 
     @property
@@ -229,12 +356,34 @@ class ToolDefinition(RegistryModel):
             return None
         return normalize_identifier(value, field="credential_capability_id")
 
-    @field_validator("backend", "description")
+    @field_validator("backend")
     @classmethod
-    def _non_secret_text(cls, value: str, info: Any) -> str:
+    def _backend(cls, value: str) -> str:
+        """``backend`` is a short identifier (``github-api``), not prose.
+
+        Empty is allowed. When present it must be a dotted identifier, and a
+        segment that *is* a credential name is rejected by exact match — so
+        ``github-api`` and ``patch-compatibility`` are accepted, while
+        ``vault.token`` is rejected.
+        """
         text = value.strip()
-        _reject_secretish(text, field=str(info.field_name))
-        return text
+        if not text:
+            return ""
+        normalized = normalize_identifier(text, field="backend")
+        _reject_sensitive_identifier(normalized, field="backend")
+        return normalized
+
+    @field_validator("description")
+    @classmethod
+    def _description(cls, value: str) -> str:
+        """Human text. Deliberately **not** scanned for secret-like words.
+
+        Substring heuristics over prose reject legitimate wording ("token
+        accounting", "compatibility") while proving nothing about the absence
+        of secrets. The real guarantee is structural: no field of this model
+        can hold credential material, and extras are forbidden.
+        """
+        return value.strip()
 
     @field_validator("input_schema")
     @classmethod
@@ -315,6 +464,7 @@ SchemaKind = Literal["input", "output"]
 __all__ = [
     "MAX_TIMEOUT_SECONDS",
     "MIN_TIMEOUT_SECONDS",
+    "SENSITIVE_CREDENTIAL_NAMES",
     "ResourceKey",
     "RetryPolicy",
     "ToolDefinition",

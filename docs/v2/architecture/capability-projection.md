@@ -55,9 +55,17 @@ deferred (OD-013), as does the discovery/refresh protocol (OD-012).
   `operation`, `version`, `execution_mode`, `input_schema`, `output_schema`,
   `security_tier`, `read_only`, `mutation_class`, `result_shaping`,
   `timeout_seconds`, `requires_approval`, `description`. It never contains
-  credential values, `credential_capability_id`, `capability_id`, secret paths,
-  backend identifiers, terminal or filesystem capabilities, or unnormalized
-  backend-supplied metadata;
+  credential values, `credential_capability_id`, `capability_id`, secret paths
+  or unnormalized backend-supplied metadata — there is no backend metadata
+  pass-through, every field is copied explicitly from the canonical definition;
+- **surface guarantee (Phase 1):** only tools explicitly registered as canonical
+  `ToolDefinition` objects, whose capability is `READY` and whose policy
+  decision is `ALLOW` or `APPROVAL_REQUIRED`, are projected. Nothing is
+  discovered or forwarded from a backend. No generic terminal or filesystem
+  tool is registered in this phase, so none can be projected; an unregistered
+  id such as `terminal.exec` is unknown and denies. This is a property of the
+  registered set, not a provider ban — a future *typed, constrained* wrapper
+  would be decided by its tier and policy rule like any other tool;
 - the caller context (`ProjectionContext`) is **opaque and minimal**
   (`principal_ref`, `resource_scope_ref`). It participates in no Phase 1
   authorization decision and is deliberately not serialized, so the

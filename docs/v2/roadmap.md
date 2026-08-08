@@ -45,9 +45,9 @@ deterministic static capability projection; credential broker **contract** with
 an in-memory test broker only.
 
 **Not yet done (required before the gate):** registry persistence and signing
-(OD-003), a real credential backend (OD-005), the principal/tenant model
-(OD-007), dynamic projection and discovery (OD-012/OD-013), and the Phase 1
-acceptance evidence + validator.
+(open question of ADR-0004), a real credential backend (OD-005), the
+principal/tenant model (OD-007), dynamic projection and discovery
+(OD-012/OD-013), and the Phase 1 acceptance evidence + validator.
 
 **Gate:** `REGISTRY_ACCEPTED` — **not satisfied**.
 

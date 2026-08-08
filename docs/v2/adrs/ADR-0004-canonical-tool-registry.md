@@ -30,5 +30,7 @@ states are `CONFIGURED`/`AVAILABLE`/`HEALTHY`/`READY`/`DEGRADED`/`UNAVAILABLE`/
 
 ## Open questions
 Registry storage/format, signing and schema migration process — all still open
-(OD-003). Phase 1 chose in-process typed objects plus canonical JSON
-serialization, and deliberately did not choose a persistence backend.
+questions **of this ADR**; they are not tracked by an OD entry (OD-003 is the
+durable queue/store decision, which is a different concern). Phase 1 chose
+in-process typed objects plus canonical JSON serialization, and deliberately
+did not choose a persistence backend.
