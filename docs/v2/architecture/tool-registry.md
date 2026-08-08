@@ -1,6 +1,11 @@
 # Canonical Tool Registry
 
-> **V2 · PLANNED · NOT IMPLEMENTED · NO IMPACT ON V1**
+> **V2 · PHASE 1 CORE IMPLEMENTED · NOT YET ACCEPTED · NO IMPACT ON V1**
+
+Phase 1 implements this document as an **isolated, in-process typed package**
+at `src/hermes_mcp_bridge/v2/`. Nothing in that package is imported by the V1
+server or tool registration path, and the V1 27-tool surface is unchanged.
+`REGISTRY_ACCEPTED` is **not** declared.
 
 The Tool Registry normalizes capabilities from Hermes native tools, typed CLI wrappers, APIs, plugins, internal MCP servers and future connectors.
 
@@ -44,3 +49,42 @@ Registration does not imply usability. Registry/health state must distinguish `A
 ## Capability snapshots
 
 Each execution should be able to record `capability_manifest_hash` so audit/replay can identify the exact tool surface and versions used.
+
+## Phase 1 implementation notes
+
+Implemented (`hermes_mcp_bridge.v2`):
+
+- `ToolDefinition` (`schema.py`) — canonical typed definition carrying
+  `tool_id`, `provider`, `operation`, `execution_mode`, `input_schema`,
+  `output_schema`, `security_tier`, `read_only`, `mutation_class`,
+  `idempotency`, `credential_capability_id`, `policy_action`,
+  `approval_requirement`, `timeout_seconds`, `retry_policy`, `resource_key`,
+  `result_shaping`, `capability_id`, `version`, plus non-secret
+  `description`/`backend`/`stability`/`deprecated` metadata.
+- Enforced invariants: identifiers are non-empty, normalized (trimmed,
+  lowercase, dotted `[a-z0-9_-]`) and wildcard-free; `read_only` implies
+  `mutation_class = NONE`, tier T0/T1 and `idempotency = READ`; mutating tools
+  are T2+ with a non-`NONE` mutation class; `DESTRUCTIVE` <-> `T4` is
+  bidirectional; `timeout_seconds` is bounded to `[1, 3600]`; schemas must be
+  non-empty JSON objects of `type: object`; `tool_id` must be namespaced by
+  `provider`; duplicate `tool_id`/`capability_id` are rejected; references to
+  unknown capabilities or credential capabilities are rejected; non-idempotent
+  mutations may not declare `RETRY_SAFE`.
+- `CapabilityRegistry` / `ToolRegistry` (`capabilities.py`, `registry.py`) —
+  deterministic, duplicate-checked, controlled mutation until `freeze()`, and
+  fail-closed lookups (`UnknownToolError` / `UnknownCapabilityError`; an
+  unknown capability is never "ready").
+- `CapabilityState` (`enums.py`) distinguishes `CONFIGURED`, `AVAILABLE`,
+  `HEALTHY`, `READY`, `DEGRADED`, `UNAVAILABLE`, `DENIED` with unambiguous
+  `is_configured` / `is_available` / `is_healthy` / `is_ready` properties.
+  `DENIED` is the ADR-0004 `UNAUTHORIZED` state; `DEGRADED` is available but
+  not healthy. Only `READY` may execute.
+- `capability_snapshot_hash` — canonical JSON (UTF-8, sorted keys, separators
+  `(",", ":")`, no floats, tools ordered by `tool_id`, capabilities by
+  `capability_id`, no timestamps or paths) digested with SHA-256 into a
+  lowercase 64-hex string. Insertion order cannot change it; any material
+  change (tool set, schema, state, version, tier, policy action, timeout) does.
+  The snapshot carries **non-secret metadata only**.
+
+Deferred (unchanged): registry persistence, storage format and signing
+(OD-003); schema migration process; dynamic discovery/refresh (OD-012).

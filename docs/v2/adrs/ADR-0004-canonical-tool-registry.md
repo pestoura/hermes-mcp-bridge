@@ -1,8 +1,8 @@
 # ADR-0004 — Canonical Tool Registry
 
-> **V2 · PLANNED · NOT IMPLEMENTED · NO IMPACT ON V1**
+> **V2 · PHASE 1 CORE IMPLEMENTED · NOT YET ACCEPTED · NO IMPACT ON V1**
 
-**Status:** Proposed
+**Status:** Accepted in principle; Phase 1 core implemented, `REGISTRY_ACCEPTED` not declared.
 
 ## Context
 Capabilities may come from native tools, CLI wrappers, APIs, plugins, internal MCPs or future connectors, each with different metadata.
@@ -22,5 +22,13 @@ Registry integrity becomes critical; untrusted metadata must not mutate authorit
 ## Operational implications
 Supports capability snapshots and health states AVAILABLE/DEGRADED/UNAVAILABLE/UNAUTHORIZED.
 
+## Phase 1 outcome
+Implemented in `hermes_mcp_bridge.v2` as an isolated typed in-process model with
+canonical JSON serialization and a SHA-256 `capability_snapshot_hash`. Health
+states are `CONFIGURED`/`AVAILABLE`/`HEALTHY`/`READY`/`DEGRADED`/`UNAVAILABLE`/
+`DENIED`, where `DENIED` is the state this ADR called `UNAUTHORIZED`.
+
 ## Open questions
-Registry storage/format, signing and schema migration process.
+Registry storage/format, signing and schema migration process — all still open
+(OD-003). Phase 1 chose in-process typed objects plus canonical JSON
+serialization, and deliberately did not choose a persistence backend.

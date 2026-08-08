@@ -27,11 +27,29 @@ See `docs/v2/evidence/README.md` for the full index and traceability chain.
 
 ## PHASE 1 — Tool Registry
 
-**Status:** becomes **NEXT / IN PROGRESS** only after the Phase 0 acceptance documentation is merged. `REGISTRY_ACCEPTED` is **not** declared and no registry implementation is promoted by this document.
+**Status: IMPLEMENTATION IN PROGRESS.** The canonical registry core landed as an
+isolated additive package (`src/hermes_mcp_bridge/v2/`) with unit tests. It is
+**not** wired into the V1 server or tool registration path and the V1 27-tool
+surface is unchanged. `REGISTRY_ACCEPTED` is **not** declared: no acceptance
+evidence has been produced, no gate validator has been run and no registry
+implementation is promoted by this document.
 
 **Deliverables:** canonical tool schema; capability registry/health model; policy taxonomy/security tiers; capability projection; credential abstraction/capability IDs; policy-as-code test model; capability snapshot hash.
 
-**Gate:** `REGISTRY_ACCEPTED`.
+**Implemented so far:** canonical `ToolDefinition` with enforced invariants;
+`CapabilityRegistry`/`ToolRegistry` with duplicate checks and fail-closed
+lookups; the seven-state `CapabilityState` readiness model; deterministic
+canonical JSON plus SHA-256 `capability_snapshot_hash`; fail-closed
+policy-as-code with `ALLOW`/`DENY`/`APPROVAL_REQUIRED` and stable reason codes;
+deterministic static capability projection; credential broker **contract** with
+an in-memory test broker only.
+
+**Not yet done (required before the gate):** registry persistence and signing
+(OD-003), a real credential backend (OD-005), the principal/tenant model
+(OD-007), dynamic projection and discovery (OD-012/OD-013), and the Phase 1
+acceptance evidence + validator.
+
+**Gate:** `REGISTRY_ACCEPTED` — **not satisfied**.
 
 ## PHASE 2 — GitHub DIRECT Read-Only MVP
 
