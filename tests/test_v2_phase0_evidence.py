@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import sys
 from pathlib import Path
 
 
@@ -14,7 +13,6 @@ def _load_script(name: str):
     spec = importlib.util.spec_from_file_location(name.replace(".py", ""), path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 
@@ -92,7 +90,15 @@ def _valid_evidence() -> dict:
 
 
 def test_extract_tokens_from_nested_usage() -> None:
-    payload = {"result": {"usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}}}
+    payload = {
+        "result": {
+            "usage": {
+                "prompt_tokens": 10,
+                "completion_tokens": 5,
+                "total_tokens": 15,
+            }
+        }
+    }
     assert benchmark._extract_tokens(payload) == {
         "input_tokens": 10,
         "output_tokens": 5,
@@ -133,8 +139,18 @@ def test_load_scenarios_rejects_duplicate_ids(tmp_path: Path) -> None:
             {
                 "schema_version": "1",
                 "scenarios": [
-                    {"id": "same", "category": "read", "prompt": "one", "repetitions": 3},
-                    {"id": "same", "category": "agentic", "prompt": "two", "repetitions": 3},
+                    {
+                        "id": "same",
+                        "category": "read",
+                        "prompt": "one",
+                        "repetitions": 3,
+                    },
+                    {
+                        "id": "same",
+                        "category": "agentic",
+                        "prompt": "two",
+                        "repetitions": 3,
+                    },
                 ],
             }
         ),
