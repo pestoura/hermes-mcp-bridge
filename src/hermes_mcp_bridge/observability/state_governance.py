@@ -13,28 +13,18 @@ from typing import Any
 
 from .metrics import BOUNDED_LABEL_VALUES, get_registry
 
+# Locks require three domain-specific outcomes because acquired/released/conflict
+# carry operational meaning that cannot be represented by the existing generic
+# result vocabulary. Other primitives deliberately reuse the existing global
+# success/pending/partial/skipped/error values to preserve the <=40 outcome
+# cardinality gate.
 _LOCK_OUTCOMES = frozenset({"acquired", "released", "conflict", "expired", "error", "other"})
-_CHECKPOINT_OUTCOMES = frozenset({"created", "error", "other"})
-_CONTINUATION_OUTCOMES = frozenset({"created", "unsupported", "error", "other"})
-_SAGA_OUTCOMES = frozenset(
-    {
-        "started",
-        "running",
-        "completed",
-        "compensating",
-        "compensated",
-        "failed",
-        "error",
-        "other",
-    }
-)
+_CHECKPOINT_OUTCOMES = frozenset({"success", "error", "other"})
+_CONTINUATION_OUTCOMES = frozenset({"success", "skipped", "error", "other"})
+_SAGA_OUTCOMES = frozenset({"success", "pending", "partial", "failed", "error", "other"})
 
 BOUNDED_LABEL_VALUES["outcome"] = frozenset(
-    BOUNDED_LABEL_VALUES["outcome"]
-    | _LOCK_OUTCOMES
-    | _CHECKPOINT_OUTCOMES
-    | _CONTINUATION_OUTCOMES
-    | _SAGA_OUTCOMES
+    BOUNDED_LABEL_VALUES["outcome"] | _LOCK_OUTCOMES
 )
 
 
@@ -58,6 +48,23 @@ def _normalize(value: object, allowed: frozenset[str]) -> str:
         .replace("-", "_")
     )
     return normalized if normalized in allowed else "other"
+
+
+def _saga_outcome(value: object) -> str:
+    """Map saga-specific lifecycle states onto the existing global result domain."""
+
+    raw = str(getattr(value, "value", value) or "").strip().lower().replace("-", "_")
+    if raw in {"started", "completed", "compensated", "success", "ok"}:
+        return "success"
+    if raw in {"running", "pending"}:
+        return "pending"
+    if raw in {"compensating", "partial"}:
+        return "partial"
+    if raw in {"failed", "cancelled"}:
+        return "failed"
+    if raw == "error":
+        return "error"
+    return "other"
 
 
 def _parse_time(value: object) -> datetime | None:
@@ -214,24 +221,26 @@ def observe_state_tool_result(tool_name: str, result: Any) -> Any:
     elif tool_name == "hermes_lock_status":
         refresh_locks_active()
     elif tool_name == "hermes_checkpoint_create":
-        record_checkpoint_event("error" if error else "created")
+        record_checkpoint_event("error" if error else "success")
     elif tool_name == "hermes_continue":
         if error:
             record_continuation_event("error")
         elif result.get("resume_supported") is False:
-            record_continuation_event("unsupported")
+            record_continuation_event("skipped")
         else:
-            record_continuation_event("created")
+            record_continuation_event("success")
     elif tool_name == "hermes_saga_start":
-        record_saga_event("error" if error else "started")
+        record_saga_event("error" if error else "success")
     elif tool_name == "hermes_saga_compensate":
         if error:
             record_saga_compensation("error")
             record_saga_event("error")
         else:
-            outcome = _normalize(result.get("status"), _SAGA_OUTCOMES)
+            raw_status = result.get("status")
+            outcome = _saga_outcome(raw_status)
             record_saga_compensation(outcome)
-            terminal = outcome in {"completed", "compensated", "failed"}
+            raw = str(getattr(raw_status, "value", raw_status) or "").strip().lower()
+            terminal = raw in {"completed", "compensated", "failed", "cancelled"}
             duration = _saga_duration_from_result(result) if terminal else None
             record_saga_event(outcome, duration_seconds=duration)
     elif tool_name == "hermes_quota_status":
