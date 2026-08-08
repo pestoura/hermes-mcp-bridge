@@ -55,11 +55,24 @@ from .errors import (
     UnknownToolError,
     V2Error,
 )
+from .github_attestation import (
+    REQUIRED_PERMISSIONS,
+    AttestationError,
+    ProviderAttestation,
+    attest_provider,
+)
 from .github_auth import (
     GitHubAuthorization,
     GitHubAuthorizationError,
     GitHubAuthorizationProvider,
     StaticGitHubAuthorizationProvider,
+)
+from .github_canary import (
+    ExecutionPath,
+    FallbackReason,
+    GitHubCanaryConfig,
+    GitHubCanaryRouter,
+    RouteDecision,
 )
 from .github_direct import (
     GITHUB_ACCEPT,
@@ -71,6 +84,10 @@ from .github_direct import (
     GitHubDirectResult,
     GitHubRepositoryScope,
 )
+from .github_readiness import (
+    GitHubReadReadinessBroker,
+    capability_state_for,
+)
 from .github_registry import (
     GITHUB_API_CAPABILITY,
     GITHUB_DIRECT_READ_TOOL_IDS,
@@ -78,6 +95,14 @@ from .github_registry import (
     build_github_direct_read_registry,
     github_direct_read_definitions,
     github_direct_read_policy_rules,
+)
+from .github_secret_provider import (
+    DEFAULT_SECRET_NAME,
+    AuthorizationStatus,
+    FileGitHubAuthorizationProvider,
+    GitHubProviderType,
+    MaterialClass,
+    classify_material,
 )
 from .policy import (
     PolicyEngine,
@@ -91,6 +116,7 @@ from .registry import CapabilitySnapshot, ToolRegistry
 from .schema import ResourceKey, RetryPolicy, ToolDefinition
 
 __all__ = [
+    "DEFAULT_SECRET_NAME",
     "GITHUB_ACCEPT",
     "GITHUB_API_BASE_URL",
     "GITHUB_API_CAPABILITY",
@@ -100,7 +126,10 @@ __all__ = [
     "PHASE1_GATE",
     "PHASE1_STATUS",
     "PHASE2_STATUS",
+    "REQUIRED_PERMISSIONS",
     "ApprovalRequirement",
+    "AttestationError",
+    "AuthorizationStatus",
     "CapabilityDescriptor",
     "CapabilityRegistry",
     "CapabilitySnapshot",
@@ -109,15 +138,23 @@ __all__ = [
     "CredentialCapabilityStatus",
     "DuplicateCapabilityError",
     "ExecutionMode",
+    "ExecutionPath",
+    "FallbackReason",
+    "FileGitHubAuthorizationProvider",
     "GitHubAuthorization",
     "GitHubAuthorizationError",
     "GitHubAuthorizationProvider",
+    "GitHubCanaryConfig",
+    "GitHubCanaryRouter",
     "GitHubDirectDenied",
     "GitHubDirectError",
     "GitHubDirectReadExecutor",
     "GitHubDirectResult",
+    "GitHubProviderType",
+    "GitHubReadReadinessBroker",
     "GitHubRepositoryScope",
     "IdempotencySemantics",
+    "MaterialClass",
     "MutationClass",
     "PolicyDecision",
     "PolicyEngine",
@@ -127,12 +164,14 @@ __all__ = [
     "ProjectedTool",
     "ProjectionContext",
     "ProjectionResult",
+    "ProviderAttestation",
     "ReasonCode",
     "RegistryValidationError",
     "ResourceKey",
     "ResultShaping",
     "RetryClass",
     "RetryPolicy",
+    "RouteDecision",
     "SecurityTier",
     "StaticCredentialBroker",
     "StaticGitHubAuthorizationProvider",
@@ -141,9 +180,12 @@ __all__ = [
     "UnknownCapabilityError",
     "UnknownToolError",
     "V2Error",
+    "attest_provider",
     "build_github_direct_read_registry",
     "canonical_json_bytes",
     "canonical_json_text",
+    "capability_state_for",
+    "classify_material",
     "github_direct_read_definitions",
     "github_direct_read_policy_rules",
     "project_capabilities",
@@ -156,4 +198,4 @@ PHASE1_STATUS = "PHASE_1_CORE_IMPLEMENTED_NOT_ACCEPTED"
 #: Formal assurance gate promoted by retained Phase 1 evidence.
 PHASE1_GATE = "REGISTRY_ACCEPTED"
 #: Phase 2 repo-side core marker. Not an acceptance gate.
-PHASE2_STATUS = "GITHUB_DIRECT_READ_CORE_IMPLEMENTED_NOT_ACCEPTED"
+PHASE2_STATUS = "CANARY_COLLECTOR_IMPLEMENTED_CONNECTED_CREDENTIAL_BLOCKED"

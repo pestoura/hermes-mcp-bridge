@@ -65,12 +65,27 @@ hermetic security + result-shaping tests
         ↓
 V1 regression + Phase 1 gate remain GREEN
         ↓
-CONNECTED JARVAS DISCOVERY / github.read PROVIDER     [PENDING]
+github.read provider adapter + readiness broker       [IMPLEMENTED]
+        ↓
+DIRECT canary router, default OFF, exact allow-list   [IMPLEMENTED]
+        ↓
+sanitized provider attestation with live probes       [IMPLEMENTED]
+        ↓
+connected collector (5x3, fail-closed)                [IMPLEMENTED]
+        ↓
+least-privilege GitHub App / fine-grained credential  [BLOCKED]
         ↓
 DIRECT vs V1 shadow evidence + zero Hermes LLM tokens [PENDING]
         ↓
 DIRECT_READ_ACCEPTED                                  [NOT DECLARED]
 ```
+
+Repo-side status: **CANARY/COLLECTOR IMPLEMENTED · CONNECTED CREDENTIAL
+BLOCKED.** The only GitHub credential currently present on the Jarvas host is a
+classic broad PAT, which this gate refuses as least-privilege evidence; the 15
+connected samples are deliberately not collected until a GitHub App installation
+or fine-grained least-privilege credential exists. See
+`docs/v2/phase2-connected-acceptance.md`.
 
 Deferred design decisions such as a real generalized credential backend
 (OD-005), principal/tenant authorization (OD-007) and dynamic
