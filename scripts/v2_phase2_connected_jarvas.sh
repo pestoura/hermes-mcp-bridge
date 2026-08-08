@@ -193,8 +193,6 @@ git -C "$CHECKOUT_ROOT" diff --quiet -- scripts/v2_phase2_connected_jarvas.sh \
 openssl pkey -in "$PEM" -noout >/dev/null 2>&1 || blocked "GITHUB_APP_PRIVATE_KEY_INVALID"
 
 HERMES_BIN="$(readlink -f "$(command -v hermes)")"
-HERMES_PY="$(dirname "$HERMES_BIN")/python"
-[[ -x "$HERMES_PY" ]] || blocked "HERMES_PYTHON_RUNTIME_MISSING"
 
 # Never permit a bare DIRECT secret value to override the file-backed provider.
 unset BRIDGE_V2_GITHUB_DIRECT_READ_TOKEN || true
@@ -215,6 +213,24 @@ SOURCE_COMMIT="$(git -C "$SRC" rev-parse HEAD)"
 # resolving dependencies from the network.
 "$VENV/bin/python" -m pip install -q --no-deps --disable-pip-version-check "$SRC" \
   || blocked "ACCEPTANCE_SOURCE_INSTALL_FAILED"
+
+# Resolve the managed Hermes interpreter BEFORE any shadow HOME exists, using
+# the REAL runtime roots. Deriving managed-install candidates from the shadow
+# home is the SHADOW_HOME_BREAKS_MANAGED_LAYOUT blocker: the disposable home has
+# no hermes-agent/venv, so resolution silently degraded to a PATH interpreter
+# that cannot import the Hermes resolver. The resolved value is passed on as an
+# explicit argument only; it is never exported into any child environment.
+# Only a stable reason code crosses this boundary; no path is ever printed.
+HERMES_PY=''
+if ! HERMES_PY="$(
+  "$VENV/bin/python" "$SRC/scripts/v2_resolve_hermes_python.py" \
+    --hermes-bin "$HERMES_BIN" \
+    --home "$HOME" \
+    --hermes-home "$SOURCE_HERMES_HOME" 2>/dev/null
+)"; then
+  blocked "HERMES_RUNTIME_PYTHON_UNRESOLVED"
+fi
+[[ -n "$HERMES_PY" && -x "$HERMES_PY" ]] || blocked "HERMES_PYTHON_RUNTIME_MISSING"
 
 # Rotate the GitHub App installation token and regenerate its provider
 # attestation. The helper emits only a sanitized JSON contract. On failure we
@@ -273,7 +289,8 @@ if ! SHADOW_HOME_OUTPUT="$(
     --token-file "$TOKEN" \
     --repository "$REPOSITORY" \
     --api-port "$SHADOW_API_PORT" \
-    --api-key-out "$SHADOW_API_KEY" 2>/dev/null
+    --api-key-out "$SHADOW_API_KEY" \
+    --hermes-python "$HERMES_PY" 2>/dev/null
 )"; then
   SHADOW_HOME_REASON="$(
     printf '%s' "$SHADOW_HOME_OUTPUT" | shadow_home_output_field reason || true

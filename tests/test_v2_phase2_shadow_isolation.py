@@ -187,8 +187,8 @@ def test_shadow_probe_composes_native_endpoint_and_actual_resolver_proof() -> No
     text = PROBE.read_text(encoding="utf-8")
     assert 'if native_enabled:' in text
     assert 'ProbeError("SHADOW_NATIVE_TOOLSETS_NOT_EMPTY")' in text
-    assert "_resolve_hermes_runtime_python(shadow_home)" in text
-    assert "resolve_hermes_python(" in text
+    assert "_validated_hermes_runtime_python(args.hermes_python, shadow_home)" in text
+    assert "validate_hermes_python_hint(" in text
     assert '_get_platform_tools(config, "api_server")' in text
     assert 'resolved != [SHADOW_MCP_SERVER]' in text
     assert 'ProbeError("SHADOW_EFFECTIVE_TOOLSETS_NOT_EXACT")' in text
