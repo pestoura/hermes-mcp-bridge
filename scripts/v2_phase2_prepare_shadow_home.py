@@ -16,12 +16,17 @@ import re
 import secrets
 import shutil
 import stat
+import sys
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-from hermes_mcp_bridge.v2.shadow_isolation import SHADOW_MCP_TOOL_NAMES, SHADOW_TOOLSET
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(ROOT / "src"))
+
+from hermes_mcp_bridge.v2.shadow_isolation import SHADOW_MCP_TOOL_NAMES, SHADOW_TOOLSET  # noqa: E402
 
 _SENSITIVE_KEY_RE = re.compile(r"(?:api[_-]?key|authorization|bearer|password|secret|token)$", re.I)
 
