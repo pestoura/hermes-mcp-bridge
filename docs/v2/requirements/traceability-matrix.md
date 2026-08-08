@@ -47,9 +47,9 @@ collector (scripts/v2_phase1_registry_acceptance.py)
         ↓
 fail-closed validator (scripts/validate_v2_phase1_registry_evidence.py)
         ↓
-CI artifact bound to the tested commit
+blocking draft release bound to the exact tested commit
         ↓
-retained repository evidence after integrated-main validation
+revalidated repository evidence after integrated-main validation
         ↓
 REGISTRY_ACCEPTED
 ```
