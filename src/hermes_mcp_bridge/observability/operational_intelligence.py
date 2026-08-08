@@ -2,8 +2,7 @@
 
 This module is deliberately additive and contract-preserving. It does not add MCP
 Tools or change the execution plane. It augments the existing 1.x readiness result
-with an admission dimension and publishes low-cardinality coverage/admission
-metrics.
+with admission and bounded operational-intelligence dimensions.
 
 Telemetry remains fail-open. Admission probing is read-only and uses the existing
 authenticated Hermes client. No prompt, output, arguments, identifiers or secrets
@@ -22,10 +21,27 @@ from .governance import observe_approval_tool_result, refresh_approvals_pending
 from .instrumentation import instrument_all_tools as _base_instrument_all_tools
 from .logging import log_event
 from .metrics import BOUNDED_LABEL_VALUES, get_registry
+from .state_governance import (
+    observe_state_tool_result,
+    refresh_locks_active,
+    set_quota_not_enforced,
+)
 
 _ADMISSION_REASONS = frozenset({"draining", "unavailable", "timeout", "rejected", "other"})
 _APPROVAL_TOOLS = frozenset(
     {"hermes_approval_create", "hermes_approval_respond", "hermes_approval_status"}
+)
+_STATE_TOOLS = frozenset(
+    {
+        "hermes_checkpoint_create",
+        "hermes_continue",
+        "hermes_saga_start",
+        "hermes_saga_compensate",
+        "hermes_lock_acquire",
+        "hermes_lock_status",
+        "hermes_lock_release",
+        "hermes_quota_status",
+    }
 )
 
 # Keep the reason label finite while extending the pre-existing SSE reason domain.
@@ -41,8 +57,6 @@ def _metric_counter(name: str, help_text: str) -> Any:
 
 
 def _set_coverage(*, expected: int, instrumented: int) -> None:
-    """Publish FastMCP instrumentation coverage without affecting startup."""
-
     try:
         _metric_gauge(
             "bridge_expected_tools",
@@ -85,8 +99,6 @@ def _record_admission_failure(reason: str) -> None:
 
 
 def _gateway_state(payload: dict[str, Any]) -> str:
-    """Extract a bounded gateway state from known detailed-health shapes."""
-
     candidates: list[Any] = [payload.get("gateway_state")]
     gateway = payload.get("gateway")
     if isinstance(gateway, dict):
@@ -98,9 +110,7 @@ def _gateway_state(payload: dict[str, Any]) -> str:
         if isinstance(checks, dict):
             gateway_check = checks.get("gateway")
             if isinstance(gateway_check, dict):
-                candidates.extend(
-                    (gateway_check.get("state"), gateway_check.get("gateway_state"))
-                )
+                candidates.extend((gateway_check.get("state"), gateway_check.get("gateway_state")))
     for raw in candidates:
         state = str(raw or "").strip().lower().replace("-", "_")
         if state:
@@ -109,8 +119,6 @@ def _gateway_state(payload: dict[str, Any]) -> str:
 
 
 def classify_admission(payload: dict[str, Any]) -> dict[str, Any]:
-    """Classify authenticated detailed health into admission semantics."""
-
     state = _gateway_state(payload)
     top_status = str(payload.get("status") or "").strip().lower()
     if state in {"running", "ready"}:
@@ -123,8 +131,6 @@ def classify_admission(payload: dict[str, Any]) -> dict[str, Any]:
         accepting = False
         reason = "unavailable"
     elif top_status in {"ok", "healthy", "ready", "running"} and state == "unknown":
-        # Fail closed for admission: a healthy-looking response that does not
-        # expose the gateway state is not evidence that new work is accepted.
         accepting = False
         reason = "other"
     else:
@@ -139,8 +145,6 @@ def classify_admission(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _probe_admission() -> dict[str, Any]:
-    """Read authenticated detailed health without exposing sensitive fields."""
-
     try:
         server = importlib.import_module("hermes_mcp_bridge.server")
         payload = await server.client.health(detailed=True)
@@ -176,6 +180,8 @@ async def _augment_readiness(result: Any) -> Any:
         return result
     admission = await _probe_admission()
     refresh_approvals_pending()
+    refresh_locks_active()
+    set_quota_not_enforced()
     augmented = dict(result)
     components = dict(augmented.get("components") or {})
     components["admission"] = admission
@@ -214,6 +220,8 @@ def _operational_wrapper(tool_name: str, fn: Any) -> Any:
                 await _observe_503_admission()
         if tool_name in _APPROVAL_TOOLS:
             observe_approval_tool_result(tool_name, result)
+        if tool_name in _STATE_TOOLS:
+            return observe_state_tool_result(tool_name, result)
         return result
 
     wrapper.__bridge_operational_intelligence__ = True  # type: ignore[attr-defined]
@@ -221,8 +229,6 @@ def _operational_wrapper(tool_name: str, fn: Any) -> Any:
 
 
 def _instrumented_count(tools: dict[str, Any]) -> int:
-    """Count actual coverage, including already-instrumented idempotent calls."""
-
     count = 0
     for tool in tools.values():
         fn = getattr(tool, "fn", None)
@@ -232,13 +238,6 @@ def _instrumented_count(tools: dict[str, Any]) -> int:
 
 
 def instrument_all_tools(mcp_server: Any) -> int:
-    """Instrument all tools, then add 1.x operational-intelligence wrappers.
-
-    The returned count remains the number newly instrumented by the base wrapper,
-    preserving existing startup semantics. Coverage metrics use the actual current
-    state, so a repeated/idempotent invocation cannot falsely report 0/27.
-    """
-
     newly_instrumented = _base_instrument_all_tools(mcp_server)
     expected = 0
     covered = 0
@@ -255,6 +254,7 @@ def instrument_all_tools(mcp_server: Any) -> int:
             "hermes_prompt",
             "hermes_submit",
             *_APPROVAL_TOOLS,
+            *_STATE_TOOLS,
         }
         for tool_name in wrapped_tools:
             tool = tools.get(tool_name)
@@ -266,14 +266,13 @@ def instrument_all_tools(mcp_server: Any) -> int:
                 object.__setattr__(tool, "fn", wrapped)
             except Exception:
                 continue
-            # Keep the module-level callable aligned for direct tests/callers.
             with suppress(Exception):
                 server = importlib.import_module("hermes_mcp_bridge.server")
                 setattr(server, tool_name, wrapped)
-        # functools.wraps preserves the base instrumentation marker, so the
-        # count remains stable after adding the operational wrapper.
         covered = _instrumented_count(tools)
         refresh_approvals_pending()
+        refresh_locks_active()
+        set_quota_not_enforced()
     finally:
         _set_coverage(expected=expected, instrumented=covered)
     return newly_instrumented
