@@ -1,6 +1,6 @@
 """Central instrumentation wrappers.
 
-A single decorator instruments every MCP tool (no need to hand-edit 26
+A single decorator instruments every MCP tool (no need to hand-edit 27
 functions), plus helpers for upstream requests and SSE→polling transitions.
 All instrumentation is fail-open: a telemetry error can never change the result
 of the wrapped call.
@@ -16,6 +16,13 @@ from contextlib import suppress
 from typing import Any
 
 from .context import correlation_scope, new_correlation_id
+from .execution import (
+    complete_execution_call,
+    execution_call_scope,
+    observe_poll_iteration,
+    observe_recovery,
+    observe_upstream_call,
+)
 from .logging import log_event
 from .metrics import get_metrics
 from .tracing import start_span
@@ -88,6 +95,7 @@ def record_upstream(
     sc = status_class(status_code)
     _call("upstream_requests_total", "inc", endpoint_class=ec, status_class=sc)
     _call("upstream_duration_seconds", "observe", duration_seconds, endpoint_class=ec)
+    _safe(observe_upstream_call, duration_seconds)
     _safe(
         log_event,
         "bridge.upstream.request",
@@ -110,6 +118,7 @@ def record_sse_fallback(reason: str) -> None:
 
 def record_polling_iteration() -> None:
     _call("polling_iterations_total", "inc")
+    _safe(observe_poll_iteration)
 
 
 def record_approval(decision: str) -> None:
@@ -203,7 +212,9 @@ def record_recovery(*, outcome: str, count: int = 1) -> None:
     """Runs recovered from persisted state after a restart."""
 
     normalized = (outcome or "other").strip().lower()[:32]
-    _call("recovery_runs_total", "inc", float(max(0, int(count))), outcome=normalized)
+    bounded_count = max(0, int(count))
+    _call("recovery_runs_total", "inc", float(bounded_count), outcome=normalized)
+    _safe(observe_recovery, bounded_count)
     _safe(log_event, "bridge.recovery", outcome=normalized)
 
 
@@ -246,12 +257,20 @@ def instrument_tool(
             async def awrapper(*args: Any, **kwargs: Any) -> Any:
                 started = time.perf_counter()
                 outcome = "success"
+                result: Any = None
+                call_stats: Any = None
                 _call("tool_inflight", "inc", tool=tool_name)
                 try:
-                    with correlation_scope(
-                        correlation_id=new_correlation_id(), tool_name=tool_name
-                    ), start_span(f"tool.{tool_name}"):
-                        return await func(*args, **kwargs)
+                    with (
+                        correlation_scope(
+                            correlation_id=new_correlation_id(), tool_name=tool_name
+                        ),
+                        execution_call_scope(tool_name) as scoped_stats,
+                        start_span(f"tool.{tool_name}"),
+                    ):
+                        call_stats = scoped_stats
+                        result = await func(*args, **kwargs)
+                        return result
                 except asyncio.CancelledError:
                     outcome = "cancelled"
                     raise
@@ -260,6 +279,16 @@ def instrument_tool(
                     raise
                 finally:
                     _finish_tool(tool_name, started, outcome)
+                    if outcome == "success" and call_stats is not None:
+                        _safe(
+                            complete_execution_call,
+                            tool_name=tool_name,
+                            func=func,
+                            args=args,
+                            kwargs=kwargs,
+                            result=result,
+                            call_stats=call_stats,
+                        )
 
             return awrapper
 
@@ -267,17 +296,35 @@ def instrument_tool(
         def swrapper(*args: Any, **kwargs: Any) -> Any:
             started = time.perf_counter()
             outcome = "success"
+            result: Any = None
+            call_stats: Any = None
             _call("tool_inflight", "inc", tool=tool_name)
             try:
-                with correlation_scope(
-                    correlation_id=new_correlation_id(), tool_name=tool_name
-                ), start_span(f"tool.{tool_name}"):
-                    return func(*args, **kwargs)
+                with (
+                    correlation_scope(
+                        correlation_id=new_correlation_id(), tool_name=tool_name
+                    ),
+                    execution_call_scope(tool_name) as scoped_stats,
+                    start_span(f"tool.{tool_name}"),
+                ):
+                    call_stats = scoped_stats
+                    result = func(*args, **kwargs)
+                    return result
             except Exception:
                 outcome = "error"
                 raise
             finally:
                 _finish_tool(tool_name, started, outcome)
+                if outcome == "success" and call_stats is not None:
+                    _safe(
+                        complete_execution_call,
+                        tool_name=tool_name,
+                        func=func,
+                        args=args,
+                        kwargs=kwargs,
+                        result=result,
+                        call_stats=call_stats,
+                    )
 
         return swrapper
 
