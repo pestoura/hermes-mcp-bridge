@@ -52,7 +52,7 @@ _ALLOWED_KEYS = frozenset(
     }
 )
 _ALLOWED_PROBE_KEYS = frozenset(
-    {"health_status", "capabilities_status", "toolsets_status"}
+    {"health_status", "capabilities_status", "toolsets_status", "sessions_status"}
 )
 
 
