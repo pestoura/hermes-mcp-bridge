@@ -17,7 +17,16 @@ _LOCK_OUTCOMES = frozenset({"acquired", "released", "conflict", "expired", "erro
 _CHECKPOINT_OUTCOMES = frozenset({"created", "error", "other"})
 _CONTINUATION_OUTCOMES = frozenset({"created", "unsupported", "error", "other"})
 _SAGA_OUTCOMES = frozenset(
-    {"started", "running", "completed", "compensating", "compensated", "failed", "error", "other"}
+    {
+        "started",
+        "running",
+        "completed",
+        "compensating",
+        "compensated",
+        "failed",
+        "error",
+        "other",
+    }
 )
 
 BOUNDED_LABEL_VALUES["outcome"] = frozenset(
@@ -42,7 +51,12 @@ def _histogram(name: str, help_text: str) -> Any:
 
 
 def _normalize(value: object, allowed: frozenset[str]) -> str:
-    normalized = str(getattr(value, "value", value) or "other").strip().lower().replace("-", "_")
+    normalized = (
+        str(getattr(value, "value", value) or "other")
+        .strip()
+        .lower()
+        .replace("-", "_")
+    )
     return normalized if normalized in allowed else "other"
 
 
@@ -58,7 +72,12 @@ def _parse_time(value: object) -> datetime | None:
     return parsed.astimezone(UTC)
 
 
-def record_lock_event(outcome: str, *, duration_seconds: float | None = None, count: int = 1) -> None:
+def record_lock_event(
+    outcome: str,
+    *,
+    duration_seconds: float | None = None,
+    count: int = 1,
+) -> None:
     """Record a lock lifecycle event with a finite outcome domain."""
 
     try:
@@ -212,7 +231,8 @@ def observe_state_tool_result(tool_name: str, result: Any) -> Any:
         else:
             outcome = _normalize(result.get("status"), _SAGA_OUTCOMES)
             record_saga_compensation(outcome)
-            duration = _saga_duration_from_result(result) if outcome in {"completed", "compensated", "failed"} else None
+            terminal = outcome in {"completed", "compensated", "failed"}
+            duration = _saga_duration_from_result(result) if terminal else None
             record_saga_event(outcome, duration_seconds=duration)
     elif tool_name == "hermes_quota_status":
         set_quota_not_enforced()
