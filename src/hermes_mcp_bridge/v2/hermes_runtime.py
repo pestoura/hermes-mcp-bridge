@@ -1,13 +1,15 @@
 """Resolve the Python interpreter that actually owns the installed Hermes CLI.
 
 The Phase 2 acceptance launcher must introspect the exact Hermes runtime that
-serves the connected API.  Guessing ``$(dirname hermes)/python`` is unsafe:
-console-script shims and symlinks may live beside a different Python executable.
+serves the connected API. Guessing ``$(dirname hermes)/python`` is unsafe:
+console-script shims, symlinks and managed installer wrappers may live outside
+the environment that owns ``hermes_cli``.
 
-This module follows the resolved console script's shebang first, then bounded
-fallback candidates, and accepts an interpreter only when it can import the
-Hermes modules required by the connected shadow proof.  Candidate paths are
-never emitted by the public/sanitized launcher contract.
+Resolution is deliberately bounded. We inspect the resolved console-script
+shebang first, then known Hermes managed-install layouts derived from HOME and
+HERMES_HOME, then adjacent/PATH candidates. A candidate is accepted only when
+it can import the exact Hermes modules required by the connected shadow proof.
+Candidate paths are never emitted by the public/sanitized launcher contract.
 """
 
 from __future__ import annotations
@@ -73,9 +75,6 @@ def _shebang_python(hermes_bin: Path, *, path_env: str) -> Path | None:
 
     command = parts[0]
     if Path(command).name == "env":
-        # Console scripts normally use either ``/usr/bin/env python3`` or an
-        # absolute interpreter.  Support ``env -S ...`` defensively while only
-        # considering python-like command tokens.
         tokens = parts[1:]
         if tokens[:1] == ["-S"]:
             tokens = tokens[1:]
@@ -95,6 +94,63 @@ def _shebang_python(hermes_bin: Path, *, path_env: str) -> Path | None:
         return candidate.resolve(strict=True)
     except OSError:
         return None
+
+
+def _managed_install_candidates(
+    *,
+    executable: Path,
+    original_executable: Path,
+    home: Path,
+    hermes_home: Path,
+) -> list[Path]:
+    """Return bounded interpreter candidates from supported Hermes layouts."""
+    roots: list[Path] = [hermes_home, home]
+
+    # The official installer uses ``$HERMES_HOME/hermes-agent`` for a normal
+    # user install and may expose ``hermes`` through a wrapper/symlink elsewhere.
+    # Existing Jarvas deployments also use ``venv`` rather than ``.venv``.
+    relative = (
+        Path("hermes-agent/venv/bin/python"),
+        Path("hermes-agent/venv/bin/python3"),
+        Path("hermes-agent/.venv/bin/python"),
+        Path("hermes-agent/.venv/bin/python3"),
+        Path("venv/bin/python"),
+        Path("venv/bin/python3"),
+        Path(".venv/bin/python"),
+        Path(".venv/bin/python3"),
+    )
+
+    values: list[Path] = []
+    for root in roots:
+        values.extend(root / item for item in relative)
+
+    # Bounded ancestry handles commands living inside the checkout/venv without
+    # recursively scanning the filesystem.
+    for command in (executable, original_executable):
+        parent = command.parent
+        for _ in range(5):
+            values.extend(
+                (
+                    parent / "venv/bin/python",
+                    parent / "venv/bin/python3",
+                    parent / ".venv/bin/python",
+                    parent / ".venv/bin/python3",
+                )
+            )
+            if parent.parent == parent:
+                break
+            parent = parent.parent
+
+    # FHS root installs are explicitly supported by the upstream installer.
+    values.extend(
+        (
+            Path("/usr/local/lib/hermes-agent/venv/bin/python"),
+            Path("/usr/local/lib/hermes-agent/venv/bin/python3"),
+            Path("/usr/local/lib/hermes-agent/.venv/bin/python"),
+            Path("/usr/local/lib/hermes-agent/.venv/bin/python3"),
+        )
+    )
+    return values
 
 
 def _supports_required_hermes_modules(candidate: Path, *, env: dict[str, str]) -> bool:
@@ -126,20 +182,31 @@ def resolve_hermes_python(
     path_env: str | None = None,
 ) -> Path:
     """Return the interpreter proven to own the installed Hermes runtime."""
+    original = Path(hermes_bin).expanduser()
     try:
-        executable = Path(hermes_bin).expanduser().resolve(strict=True)
+        executable = original.resolve(strict=True)
         info = executable.stat()
     except OSError as exc:
         raise HermesRuntimeError("HERMES_RUNTIME_EXECUTABLE_INVALID") from exc
     if not stat.S_ISREG(info.st_mode) or not os.access(executable, os.X_OK):
         raise HermesRuntimeError("HERMES_RUNTIME_EXECUTABLE_INVALID")
 
+    home_path = Path(home).expanduser().resolve()
+    hermes_home_path = Path(hermes_home).expanduser().resolve()
     path_value = path_env if path_env is not None else os.environ.get("PATH", "")
     shebang = _shebang_python(executable, path_env=path_value)
     sibling = executable.parent
+
+    managed = _managed_install_candidates(
+        executable=executable,
+        original_executable=original,
+        home=home_path,
+        hermes_home=hermes_home_path,
+    )
     candidates = _unique_existing_executables(
         [
             shebang,
+            *managed,
             sibling / "python",
             sibling / "python3",
             shutil.which("python3", path=path_value),
@@ -148,8 +215,8 @@ def resolve_hermes_python(
         ]
     )
     probe_env = {
-        "HOME": str(Path(home).expanduser().resolve()),
-        "HERMES_HOME": str(Path(hermes_home).expanduser().resolve()),
+        "HOME": str(home_path),
+        "HERMES_HOME": str(hermes_home_path),
         "PATH": path_value,
         "USER": os.environ.get("USER", "estourpm"),
         "LANG": os.environ.get("LANG", "C.UTF-8"),
