@@ -55,7 +55,7 @@ def test_jarvas_launcher_preserves_only_sanitized_shadow_probe_reason() -> None:
     assert 'payload.get("status") == "SHADOW_ISOLATION_BLOCKED"' in text
     assert 'value == "SHADOW_ISOLATION_PROVEN"' in text
     assert 're.fullmatch(r"[A-Z0-9_]{1,160}", value)' in text
-    assert 'shadow_output_field reason || true' in text
+    assert "shadow_output_field reason || true" in text
     assert 'blocked "$SHADOW_REASON"' in text
     assert "SHADOW_PROBE_OUTPUT=''" in text
     assert '--json-out "$SHADOW_ISOLATION" >/dev/null' not in text
@@ -66,6 +66,8 @@ def test_jarvas_launcher_derives_read_only_basis_from_live_shadow_probe() -> Non
     assert "HERMES_V2_SHADOW_MUTATION_BASIS" not in text
     assert "v2_phase2_prepare_shadow_home.py" in text
     assert "v2_phase2_probe_shadow_runtime.py" in text
+    assert '--hermes-python "$HERMES_PY"' in text
+    assert '--shadow-home "$SHADOW_HOME"' in text
     assert "--shadow-mutation-basis read_only_credential_enforced" in text
     assert "SHADOW_ISOLATION_NOT_PROVEN" in text
 
