@@ -64,6 +64,41 @@ def test_resolver_discovers_managed_hermes_home_venv(
     assert resolved == expected
 
 
+def test_resolver_preserves_managed_venv_python_symlink(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    hermes_home = tmp_path / ".hermes"
+    managed_python = hermes_home / "hermes-agent" / "venv" / "bin" / "python"
+    managed_python.parent.mkdir(parents=True)
+    managed_python.symlink_to(Path(sys.executable).resolve())
+
+    wrapper = tmp_path / ".local" / "bin" / "hermes"
+    wrapper.parent.mkdir(parents=True)
+    wrapper.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    wrapper.chmod(0o755)
+
+    expected = Path(os.path.abspath(managed_python))
+    dereferenced = managed_python.resolve()
+    checked: list[Path] = []
+
+    def supports(candidate: Path, env: dict[str, str]) -> bool:
+        checked.append(candidate)
+        return candidate == expected
+
+    monkeypatch.setattr(runtime, "_supports_required_hermes_modules", supports)
+
+    resolved = runtime.resolve_hermes_python(
+        wrapper,
+        home=tmp_path,
+        hermes_home=hermes_home,
+        path_env=os.environ.get("PATH", ""),
+    )
+
+    assert resolved == expected
+    assert resolved != dereferenced
+    assert expected in checked
+
+
 def test_resolver_prefers_managed_runtime_before_generic_path_python(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
