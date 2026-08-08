@@ -1,14 +1,15 @@
 """Governed GitHub REST DIRECT read executor for V2 Phase 2.
 
-The execution path is intentionally deterministic and contains no Hermes/LLM
-client:
+The execution path is deterministic and contains no Hermes/LLM client:
 
-    typed operation -> registry/policy -> exact repository scope
-      -> credential readiness -> authorization material -> GitHub GET
-      -> normalized result shaping -> bounded result
+    typed operation -> exact repository scope -> registry/policy/readiness
+      -> authorization material -> GitHub GET -> normalized result shaping
+      -> bounded result
 
-This is repo-side core only. It is not wired into the V1 MCP server and does not
-claim that a Jarvas-side GitHub authorization provider is available.
+Scope is checked before credential readiness so requests outside the allowed
+resource set cannot observe internal credential state. This is repo-side core
+only: it is not wired into the V1 MCP server and does not claim that a real
+Jarvas-side GitHub authorization provider exists.
 """
 
 from __future__ import annotations
@@ -37,8 +38,10 @@ GITHUB_ACCEPT = "application/vnd.github+json"
 GITHUB_USER_AGENT = "hermes-mcp-bridge-v2-direct-read"
 
 _REPO_PART_RE = re.compile(r"^[A-Za-z0-9_.-]{1,100}$")
-_SEARCH_BOOLEAN_RE = re.compile(r"(?:^|\s)(?:AND|OR|NOT)(?:\s|$)", re.IGNORECASE)
-
+_SEARCH_BOOLEAN_RE = re.compile(
+    r"(?:^|\s)(?:AND|OR|NOT)(?:\s|$)",
+    re.IGNORECASE,
+)
 _DEFAULT_MAX_RESULT_BYTES = 64 * 1024
 _MAX_RESULT_BYTES = 1024 * 1024
 
@@ -75,7 +78,9 @@ class GitHubRepositoryScope:
     __slots__ = ("_repositories",)
 
     def __init__(self, repositories: Iterable[str]) -> None:
-        normalized = frozenset(_normalize_repository_ref(value) for value in repositories)
+        normalized = frozenset(
+            _normalize_repository_ref(value) for value in repositories
+        )
         if not normalized:
             raise ValueError("at least one repository scope is required")
         self._repositories = normalized
@@ -134,7 +139,7 @@ class _BackendResponse:
     request_id: str | None
 
 
-def _normalize_repository_part(value: str, *, field: str) -> str:
+def _normalize_repository_part(value: str) -> str:
     if not isinstance(value, str):
         raise GitHubDirectDenied("INVALID_REPOSITORY_SCOPE")
     cleaned = value.strip()
@@ -144,15 +149,11 @@ def _normalize_repository_part(value: str, *, field: str) -> str:
         raise GitHubDirectDenied("INVALID_REPOSITORY_SCOPE")
     if cleaned in {".", ".."}:
         raise GitHubDirectDenied("INVALID_REPOSITORY_SCOPE")
-    _ = field
     return cleaned.lower()
 
 
 def _repository_ref(owner: str, repo: str) -> str:
-    return (
-        f"{_normalize_repository_part(owner, field='owner')}/"
-        f"{_normalize_repository_part(repo, field='repo')}"
-    )
+    return f"{_normalize_repository_part(owner)}/{_normalize_repository_part(repo)}"
 
 
 def _normalize_repository_ref(value: str) -> str:
@@ -165,8 +166,15 @@ def _normalize_repository_ref(value: str) -> str:
         raise ValueError("invalid repository scope") from exc
 
 
-def _positive_int(value: int, *, minimum: int, maximum: int, code: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
+def _positive_int(
+    value: int,
+    *,
+    minimum: int,
+    maximum: int,
+    code: str,
+) -> int:
+    invalid_type = isinstance(value, bool) or not isinstance(value, int)
+    if invalid_type or not minimum <= value <= maximum:
         raise GitHubDirectDenied(code)
     return value
 
@@ -186,9 +194,13 @@ def _safe_search_text(value: str) -> str:
     text = " ".join(value.strip().split())
     if not text or len(text) > 200:
         raise GitHubDirectDenied("INVALID_SEARCH_TEXT")
-    # Search qualifiers are constructed by code. Reject syntax that could add
-    # another repo/org/user qualifier or alter boolean precedence.
-    if ":" in text or "(" in text or ")" in text or _SEARCH_BOOLEAN_RE.search(text):
+    unsafe = (
+        ":" in text
+        or "(" in text
+        or ")" in text
+        or _SEARCH_BOOLEAN_RE.search(text) is not None
+    )
+    if unsafe:
         raise GitHubDirectDenied("UNSAFE_SEARCH_SYNTAX")
     return text
 
@@ -233,7 +245,10 @@ def _select_fields(
 
 
 def _user_login(value: Any) -> str | None:
-    return value.get("login") if isinstance(value, dict) and isinstance(value.get("login"), str) else None
+    if not isinstance(value, dict):
+        return None
+    login = value.get("login")
+    return login if isinstance(login, str) else None
 
 
 def _ref_summary(value: Any) -> dict[str, Any] | None:
@@ -244,6 +259,11 @@ def _ref_summary(value: Any) -> dict[str, Any] | None:
 
 def _normalize_repo(payload: dict[str, Any]) -> dict[str, Any]:
     license_payload = payload.get("license")
+    license_id = (
+        license_payload.get("spdx_id")
+        if isinstance(license_payload, dict)
+        else None
+    )
     return {
         "archived": bool(payload.get("archived", False)),
         "default_branch": payload.get("default_branch"),
@@ -253,9 +273,7 @@ def _normalize_repo(payload: dict[str, Any]) -> dict[str, Any]:
         "full_name": payload.get("full_name"),
         "html_url": payload.get("html_url"),
         "language": payload.get("language"),
-        "license": (
-            license_payload.get("spdx_id") if isinstance(license_payload, dict) else None
-        ),
+        "license": license_id,
         "open_issues_count": payload.get("open_issues_count"),
         "private": bool(payload.get("private", False)),
         "pushed_at": payload.get("pushed_at"),
@@ -284,26 +302,29 @@ def _normalize_pr(payload: dict[str, Any]) -> dict[str, Any]:
 def _normalize_issue(payload: dict[str, Any]) -> dict[str, Any]:
     labels = payload.get("labels")
     assignees = payload.get("assignees")
-    return {
-        "assignees": [
-            login
-            for item in assignees if (login := _user_login(item)) is not None
+    label_names = (
+        [
+            item.get("name")
+            for item in labels
+            if isinstance(item, dict) and isinstance(item.get("name"), str)
         ]
+        if isinstance(labels, list)
+        else []
+    )
+    assignee_names = (
+        [login for item in assignees if (login := _user_login(item)) is not None]
         if isinstance(assignees, list)
-        else [],
+        else []
+    )
+    return {
+        "assignees": assignee_names,
         "body": payload.get("body"),
         "closed_at": payload.get("closed_at"),
         "comments": payload.get("comments"),
         "created_at": payload.get("created_at"),
         "html_url": payload.get("html_url"),
         "is_pull_request": isinstance(payload.get("pull_request"), dict),
-        "labels": [
-            item.get("name")
-            for item in labels
-            if isinstance(item, dict) and isinstance(item.get("name"), str)
-        ]
-        if isinstance(labels, list)
-        else [],
+        "labels": label_names,
         "number": payload.get("number"),
         "state": payload.get("state"),
         "state_reason": payload.get("state_reason"),
@@ -334,7 +355,8 @@ def _normalize_checks(payload: dict[str, Any]) -> dict[str, Any]:
                     "status": item.get("status"),
                 }
             )
-    return {"check_runs": normalized_runs, "total_count": payload.get("total_count", len(normalized_runs))}
+    total = payload.get("total_count", len(normalized_runs))
+    return {"check_runs": normalized_runs, "total_count": total}
 
 
 def _normalize_search(payload: dict[str, Any]) -> dict[str, Any]:
@@ -349,9 +371,11 @@ def _normalize_search(payload: dict[str, Any]) -> dict[str, Any]:
                     "comments": item.get("comments"),
                     "created_at": item.get("created_at"),
                     "html_url": item.get("html_url"),
-                    "item_type": "pull_request"
-                    if isinstance(item.get("pull_request"), dict)
-                    else "issue",
+                    "item_type": (
+                        "pull_request"
+                        if isinstance(item.get("pull_request"), dict)
+                        else "issue"
+                    ),
                     "number": item.get("number"),
                     "state": item.get("state"),
                     "title": item.get("title"),
@@ -435,7 +459,11 @@ class GitHubDirectReadExecutor:
     ) -> None:
         if not registry.frozen:
             raise ValueError("DIRECT registry must be frozen")
-        if not isinstance(max_result_bytes, int) or isinstance(max_result_bytes, bool):
+        invalid_type = isinstance(max_result_bytes, bool) or not isinstance(
+            max_result_bytes,
+            int,
+        )
+        if invalid_type:
             raise ValueError("max_result_bytes must be an integer")
         if not 1024 <= max_result_bytes <= _MAX_RESULT_BYTES:
             raise ValueError("max_result_bytes outside allowed bounds")
@@ -447,10 +475,19 @@ class GitHubDirectReadExecutor:
         self._transport = transport
         self._max_result_bytes = max_result_bytes
 
-    def _authorize(self, tool_id: str, owner: str, repo: str) -> tuple[ToolDefinition, str, GitHubAuthorization]:
+    def _authorize(
+        self,
+        tool_id: str,
+        owner: str,
+        repo: str,
+    ) -> tuple[ToolDefinition, str, GitHubAuthorization]:
         tool = self._registry.get(tool_id)
         if tool.execution_mode is not ExecutionMode.DIRECT or not tool.read_only:
             raise GitHubDirectDenied("TOOL_NOT_DIRECT_READ")
+
+        # Resource scope is deliberately checked before policy/readiness. This
+        # prevents an out-of-scope caller from learning credential health.
+        repository = self._scope.require(owner, repo)
 
         evaluation = PolicyEngine(
             self._registry,
@@ -460,12 +497,14 @@ class GitHubDirectReadExecutor:
         if evaluation.decision is not PolicyDecision.ALLOW:
             raise GitHubDirectDenied(f"POLICY_{evaluation.reason_code.value}")
 
-        repository = self._scope.require(owner, repo)
         capability_id = tool.credential_capability_id
         if capability_id != GITHUB_READ_CREDENTIAL_CAPABILITY:
             raise GitHubDirectDenied("INVALID_CREDENTIAL_CAPABILITY")
 
-        authorization = self._authorization_provider.resolve(capability_id, repository)
+        authorization = self._authorization_provider.resolve(
+            capability_id,
+            repository,
+        )
         if authorization is None:
             raise GitHubDirectDenied("CREDENTIAL_MATERIAL_UNAVAILABLE")
         return tool, repository, authorization
@@ -515,7 +554,10 @@ class GitHubDirectReadExecutor:
             payload=payload,
             raw_bytes=len(response.content),
             status_code=response.status_code,
-            rate_limit_remaining=_header_int(response.headers, "X-RateLimit-Remaining"),
+            rate_limit_remaining=_header_int(
+                response.headers,
+                "X-RateLimit-Remaining",
+            ),
             request_id=response.headers.get("X-GitHub-Request-Id"),
         )
 
@@ -524,7 +566,7 @@ class GitHubDirectReadExecutor:
         status = response.status_code
         retry_after = _header_int(response.headers, "Retry-After")
         remaining = _header_int(response.headers, "X-RateLimit-Remaining")
-        if status in (429,) or (status == 403 and remaining == 0):
+        if status == 429 or (status == 403 and remaining == 0):
             code = "RATE_LIMITED"
         elif status == 401:
             code = "AUTHENTICATION_FAILED"
@@ -581,11 +623,17 @@ class GitHubDirectReadExecutor:
         *,
         select: Iterable[str] | None = None,
     ) -> GitHubDirectResult:
-        tool, repository, authorization = self._authorize("github.get_repo", owner, repo)
+        tool, repository, authorization = self._authorize(
+            "github.get_repo",
+            owner,
+            repo,
+        )
+        owner_path = quote(owner.strip(), safe="")
+        repo_path = quote(repo.strip(), safe="")
         backend = await self._get(
             tool=tool,
             authorization=authorization,
-            path=f"/repos/{quote(owner.strip(), safe='')}/{quote(repo.strip(), safe='')}",
+            path=f"/repos/{owner_path}/{repo_path}",
         )
         shaped = _select_fields(
             _normalize_repo(backend.payload),
@@ -593,7 +641,12 @@ class GitHubDirectReadExecutor:
             defaults=_REPO_DEFAULT,
             select=select,
         )
-        return self._result(tool_id=tool.tool_id, repository=repository, shaped=shaped, backend=backend)
+        return self._result(
+            tool_id=tool.tool_id,
+            repository=repository,
+            shaped=shaped,
+            backend=backend,
+        )
 
     async def get_pr(
         self,
@@ -603,12 +656,23 @@ class GitHubDirectReadExecutor:
         *,
         select: Iterable[str] | None = None,
     ) -> GitHubDirectResult:
-        number = _positive_int(number, minimum=1, maximum=2_147_483_647, code="INVALID_NUMBER")
-        tool, repository, authorization = self._authorize("github.get_pr", owner, repo)
+        number = _positive_int(
+            number,
+            minimum=1,
+            maximum=2_147_483_647,
+            code="INVALID_NUMBER",
+        )
+        tool, repository, authorization = self._authorize(
+            "github.get_pr",
+            owner,
+            repo,
+        )
+        owner_path = quote(owner.strip(), safe="")
+        repo_path = quote(repo.strip(), safe="")
         backend = await self._get(
             tool=tool,
             authorization=authorization,
-            path=f"/repos/{quote(owner.strip(), safe='')}/{quote(repo.strip(), safe='')}/pulls/{number}",
+            path=f"/repos/{owner_path}/{repo_path}/pulls/{number}",
         )
         shaped = _select_fields(
             _normalize_pr(backend.payload),
@@ -616,7 +680,12 @@ class GitHubDirectReadExecutor:
             defaults=_PR_DEFAULT,
             select=select,
         )
-        return self._result(tool_id=tool.tool_id, repository=repository, shaped=shaped, backend=backend)
+        return self._result(
+            tool_id=tool.tool_id,
+            repository=repository,
+            shaped=shaped,
+            backend=backend,
+        )
 
     async def get_issue(
         self,
@@ -626,12 +695,23 @@ class GitHubDirectReadExecutor:
         *,
         select: Iterable[str] | None = None,
     ) -> GitHubDirectResult:
-        number = _positive_int(number, minimum=1, maximum=2_147_483_647, code="INVALID_NUMBER")
-        tool, repository, authorization = self._authorize("github.get_issue", owner, repo)
+        number = _positive_int(
+            number,
+            minimum=1,
+            maximum=2_147_483_647,
+            code="INVALID_NUMBER",
+        )
+        tool, repository, authorization = self._authorize(
+            "github.get_issue",
+            owner,
+            repo,
+        )
+        owner_path = quote(owner.strip(), safe="")
+        repo_path = quote(repo.strip(), safe="")
         backend = await self._get(
             tool=tool,
             authorization=authorization,
-            path=f"/repos/{quote(owner.strip(), safe='')}/{quote(repo.strip(), safe='')}/issues/{number}",
+            path=f"/repos/{owner_path}/{repo_path}/issues/{number}",
         )
         shaped = _select_fields(
             _normalize_issue(backend.payload),
@@ -639,7 +719,12 @@ class GitHubDirectReadExecutor:
             defaults=_ISSUE_DEFAULT,
             select=select,
         )
-        return self._result(tool_id=tool.tool_id, repository=repository, shaped=shaped, backend=backend)
+        return self._result(
+            tool_id=tool.tool_id,
+            repository=repository,
+            shaped=shaped,
+            backend=backend,
+        )
 
     async def get_checks(
         self,
@@ -651,15 +736,24 @@ class GitHubDirectReadExecutor:
         select: Iterable[str] | None = None,
     ) -> GitHubDirectResult:
         ref = _safe_ref(ref)
-        per_page = _positive_int(per_page, minimum=1, maximum=100, code="INVALID_PER_PAGE")
-        tool, repository, authorization = self._authorize("github.get_checks", owner, repo)
+        per_page = _positive_int(
+            per_page,
+            minimum=1,
+            maximum=100,
+            code="INVALID_PER_PAGE",
+        )
+        tool, repository, authorization = self._authorize(
+            "github.get_checks",
+            owner,
+            repo,
+        )
+        owner_path = quote(owner.strip(), safe="")
+        repo_path = quote(repo.strip(), safe="")
+        ref_path = quote(ref, safe="")
         backend = await self._get(
             tool=tool,
             authorization=authorization,
-            path=(
-                f"/repos/{quote(owner.strip(), safe='')}/{quote(repo.strip(), safe='')}"
-                f"/commits/{quote(ref, safe='')}/check-runs"
-            ),
+            path=f"/repos/{owner_path}/{repo_path}/commits/{ref_path}/check-runs",
             params={"filter": "latest", "page": 1, "per_page": per_page},
         )
         shaped = _select_fields(
@@ -668,7 +762,12 @@ class GitHubDirectReadExecutor:
             defaults=_CHECKS_DEFAULT,
             select=select,
         )
-        return self._result(tool_id=tool.tool_id, repository=repository, shaped=shaped, backend=backend)
+        return self._result(
+            tool_id=tool.tool_id,
+            repository=repository,
+            shaped=shaped,
+            backend=backend,
+        )
 
     async def search(
         self,
@@ -686,9 +785,18 @@ class GitHubDirectReadExecutor:
             raise GitHubDirectDenied("INVALID_SEARCH_TYPE")
         if state not in {"open", "closed", "any"}:
             raise GitHubDirectDenied("INVALID_SEARCH_STATE")
-        per_page = _positive_int(per_page, minimum=1, maximum=30, code="INVALID_PER_PAGE")
+        per_page = _positive_int(
+            per_page,
+            minimum=1,
+            maximum=30,
+            code="INVALID_PER_PAGE",
+        )
 
-        tool, repository, authorization = self._authorize("github.search", owner, repo)
+        tool, repository, authorization = self._authorize(
+            "github.search",
+            owner,
+            repo,
+        )
         qualifiers = [f"repo:{repository}"]
         if item_type != "any":
             qualifiers.append(f"is:{item_type}")
@@ -708,7 +816,12 @@ class GitHubDirectReadExecutor:
             defaults=_SEARCH_DEFAULT,
             select=select,
         )
-        return self._result(tool_id=tool.tool_id, repository=repository, shaped=shaped, backend=backend)
+        return self._result(
+            tool_id=tool.tool_id,
+            repository=repository,
+            shaped=shaped,
+            backend=backend,
+        )
 
 
 __all__ = [
