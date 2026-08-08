@@ -75,6 +75,7 @@ from hermes_mcp_bridge.v2.github_canary import (  # noqa: E402
     GitHubCanaryRouter,
 )
 from hermes_mcp_bridge.v2.github_direct import (  # noqa: E402
+    GITHUB_DIRECT_DEFAULT_RESULT_FIELDS,
     GitHubDirectReadExecutor,
     GitHubRepositoryScope,
 )
@@ -100,15 +101,31 @@ STATE_DB_TOKEN_SOURCE = "hermes_state_db:session_model_usage"
 STATE_DB_POLL_ATTEMPTS = 8
 STATE_DB_POLL_INTERVAL = 0.5
 
-#: Fields compared between DIRECT and the V1 agentic shadow, per tool. Both
-#: sides are projected onto exactly this set before hashing.
+#: Fields compared between DIRECT and the V1 agentic shadow, per tool.
+#:
+#: This is **not** a hand-maintained subset: it is exactly the DIRECT executor's
+#: own default result shaping, imported read-only from
+#: :data:`~hermes_mcp_bridge.v2.github_direct.GITHUB_DIRECT_DEFAULT_RESULT_FIELDS`.
+#: Comparing anything narrower (for example only ``total_count`` for
+#: ``github.get_checks``/``github.search``) would let two materially different
+#: results claim ``semantic_match = true``, so the full default shaped result is
+#: compared on both sides. Deriving it here also makes drift impossible: a change
+#: to the executor defaults changes the comparison automatically.
 COMPARISON_FIELDS: dict[str, tuple[str, ...]] = {
-    "github.get_repo": ("full_name", "private", "default_branch", "archived"),
-    "github.get_pr": ("number", "title", "state", "draft", "merged"),
-    "github.get_issue": ("number", "title", "state", "labels"),
-    "github.get_checks": ("total_count",),
-    "github.search": ("total_count",),
+    tool_id: tuple(fields)
+    for tool_id, fields in GITHUB_DIRECT_DEFAULT_RESULT_FIELDS.items()
 }
+
+#: Collections whose ORDER is semantically part of the provider response and
+#: must therefore be preserved verbatim rather than canonically sorted.
+#:
+#: The default shaped results contain no such array: ``labels``/``assignees``
+#: are set-like, and ``check_runs``/``items`` are returned in a provider-chosen
+#: order that is not part of the read's meaning and is not reproducible by an
+#: agentic re-read. Every collection is therefore canonically ordered on BOTH
+#: sides with the identical rule before hashing. The set is kept explicit (and
+#: empty) so that adding an order-bearing field later is a deliberate act.
+ORDER_SIGNIFICANT_FIELDS: frozenset[tuple[str, str]] = frozenset()
 
 
 # --------------------------------------------------------------------------
@@ -247,6 +264,15 @@ class CountingTransport(httpx.AsyncHTTPTransport):
 
 
 def _scalar(value: Any) -> Any:
+    """Canonicalize a value while PRESERVING its semantic structure.
+
+    Nested objects stay objects and nested arrays stay arrays: an array of
+    dicts is never flattened into strings, because that would discard the very
+    structure the comparison is supposed to prove (two different check runs
+    could otherwise collapse onto the same digest). Only values that have no
+    stable cross-platform JSON encoding — floats and exotic objects — are
+    stringified, and dict keys are stringified and sorted.
+    """
     if isinstance(value, bool) or value is None or isinstance(value, int | str):
         return value
     if isinstance(value, float):
@@ -258,18 +284,54 @@ def _scalar(value: Any) -> Any:
     return str(value)
 
 
+def _canonical_sort_key(value: Any) -> str:
+    """Total, deterministic ordering key for an already-canonicalized item.
+
+    Ordering by the item's own canonical JSON text is safe for any shape
+    (scalar, object or nested array) and is identical on both sides, so two
+    semantically equal collections that differ only in provider-chosen order
+    produce the same digest, while any change to an item's *content* changes it.
+    """
+    return canonical_json_bytes(value).decode("utf-8")
+
+
+def _canonical_collection(value: Any, *, order_significant: bool) -> Any:
+    """Apply the canonical ordering rule recursively to a canonicalized value."""
+    if isinstance(value, list):
+        items = [
+            _canonical_collection(item, order_significant=order_significant)
+            for item in value
+        ]
+        if order_significant:
+            return items
+        return sorted(items, key=_canonical_sort_key)
+    if isinstance(value, dict):
+        return {
+            key: _canonical_collection(item, order_significant=order_significant)
+            for key, item in sorted(value.items())
+        }
+    return value
+
+
 def normalize_for_comparison(tool_id: str, data: Any) -> dict[str, Any]:
-    """Project either side onto the exact comparison field set for ``tool_id``."""
+    """Project either side onto the full default shaped result for ``tool_id``.
+
+    The projection is the executor's own default field set (see
+    :data:`COMPARISON_FIELDS`), the canonicalization preserves nested structure,
+    and the ordering rule is applied identically to both sides before hashing.
+    Fields absent from one side become ``None`` and therefore *differ* from a
+    populated counterpart — a missing item can never be normalized away.
+    """
     fields = COMPARISON_FIELDS.get(tool_id)
     if fields is None:
         raise CollectorError("UNKNOWN_COMPARISON_TOOL")
     source = data if isinstance(data, dict) else {}
     normalized: dict[str, Any] = {}
     for field in fields:
-        value = _scalar(source.get(field))
-        if isinstance(value, list):
-            value = sorted(str(item) for item in value)
-        normalized[field] = value
+        normalized[field] = _canonical_collection(
+            _scalar(source.get(field)),
+            order_significant=(tool_id, field) in ORDER_SIGNIFICANT_FIELDS,
+        )
     return normalized
 
 
@@ -408,14 +470,55 @@ def _direct_operation(tool_id: str, repository: str, arguments: dict[str, Any]):
 # --------------------------------------------------------------------------
 
 
+#: Compact, per-tool description of the nested structures inside the DIRECT
+#: default shape. Only shapes are described — never values — so the shadow can
+#: return a semantically equivalent object without being told the answer.
+NESTED_SHAPE_HINTS: dict[str, str] = {
+    "github.get_pr": (
+        "'head' and 'base' are each an object with exactly the keys "
+        "'ref' and 'sha'; 'user' is the login string."
+    ),
+    "github.get_issue": (
+        "'labels' and 'assignees' are arrays of strings (label names and "
+        "assignee logins); 'user' is the login string; 'is_pull_request' is a "
+        "boolean."
+    ),
+    "github.get_checks": (
+        "'check_runs' is an array of objects, each with exactly the keys "
+        "'app' (the app slug), 'completed_at', 'conclusion', 'head_sha', "
+        "'html_url', 'id', 'name', 'started_at', 'status'."
+    ),
+    "github.search": (
+        "'items' is an array of objects, each with exactly the keys "
+        "'comments', 'created_at', 'html_url', 'item_type' "
+        "('issue' or 'pull_request'), 'number', 'state', 'title', "
+        "'updated_at', 'user' (the login string)."
+    ),
+}
+
+
 def _shadow_prompt(tool_id: str, repository: str, arguments: dict[str, Any]) -> str:
+    """Ask the V1 agent for exactly the full DIRECT default shape.
+
+    The shadow must return the *same* shaped result the DIRECT executor
+    produces by default — not a summary and not a superset — otherwise the
+    comparison would only ever prove that a narrow projection matched. Nested
+    structures are described compactly by shape only. The prompt is used once
+    and never retained in the evidence.
+    """
     fields = ", ".join(COMPARISON_FIELDS[tool_id])
     detail = json.dumps(arguments, sort_keys=True)
+    nested = NESTED_SHAPE_HINTS.get(tool_id)
+    nested_clause = f" {nested}" if nested else ""
     return (
         "Read-only task. Do not modify anything on GitHub. "
         f"For repository {repository}, perform the read {tool_id} with "
         f"arguments {detail}. Reply with ONE JSON object and nothing else, "
-        f"containing exactly these keys: {fields}."
+        f"containing exactly these keys and no extra keys: {fields}."
+        f"{nested_clause} "
+        "The JSON must be semantically equivalent to the shape described "
+        "above: same keys, same nesting, no additional fields anywhere, and "
+        "no commentary."
     )
 
 

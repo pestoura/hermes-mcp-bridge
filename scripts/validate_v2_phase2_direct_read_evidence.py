@@ -13,6 +13,7 @@ import argparse
 import json
 import re
 from collections import Counter
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +45,83 @@ EXPECTED_PERMISSIONS = {
     "pull_requests": "read",
 }
 ALLOWED_PROVIDER_TYPES = {"github_app", "fine_grained_token"}
+
+#: Sanitized external declaration schema the collector embeds under
+#: ``attestation_notes.declaration``. Only this exact version is accepted.
+ATTESTATION_INPUT_SCHEMA = "hermes-v2-phase2-provider-attestation/1"
+
+#: Confirmation sources accepted per provider type. Anything else is a forged
+#: or unsupported provenance claim and fails closed.
+ALLOWED_CONFIRMATION_SOURCES = {
+    "fine_grained_token": {"github_settings_ui"},
+    "github_app": {"github_app_settings_ui", "installation_token_mint_response"},
+}
+
+#: Facts that only the operator declaration can establish. The evidence must
+#: prove exactly these — no more (an extra entry would claim external
+#: confirmation of something nobody confirmed) and no fewer.
+REQUIRED_EXTERNALLY_CONFIRMED = {
+    "exact_permission_map",
+    "exact_repository_selection",
+}
+
+#: Facts the live read-only probes actually established.
+REQUIRED_MACHINE_VERIFIED = {
+    "authentication",
+    "repository_metadata_read",
+    "pull_requests_read",
+    "issues_read",
+    "check_runs_read",
+}
+#: Additional machine-verified fact required for a GitHub App installation.
+APP_MACHINE_VERIFIED = "installation_repository_set"
+
+#: ``permissions_source`` values accepted per (provider_type, confirmation
+#: source). A fine-grained token can never claim a mint-response provenance.
+ALLOWED_PERMISSIONS_SOURCES = {
+    ("fine_grained_token", "github_settings_ui"): "operator_declared_ui_confirmed",
+    ("github_app", "github_app_settings_ui"): "operator_declared_ui_confirmed",
+    (
+        "github_app",
+        "installation_token_mint_response",
+    ): "installation_token_mint_response",
+}
+
+#: Per-repository read probe fields that must each be an HTTP 200.
+REQUIRED_PROBE_STATUSES = (
+    "metadata_status",
+    "pulls_status",
+    "issues_status",
+    "check_runs_status",
+)
+#: Per-repository read probe fields that must each be a non-negative integer.
+REQUIRED_PROBE_COUNTS = (
+    "pulls_sample_count",
+    "issues_sample_count",
+    "check_runs_total_count",
+)
+
+#: The only basis under which the DIRECT side may claim no mutation: the
+#: executor is structurally restricted to GET.
+DIRECT_MUTATION_BASIS = "executor_http_method_restricted_to_get"
+
+#: Documented observational bases accepted for the V1 shadow side. ``none`` and
+#: ``unknown`` are explicitly not bases and are rejected.
+ALLOWED_SHADOW_MUTATION_BASES = {
+    "github_audit_log_reviewed",
+    "read_only_credential_enforced",
+}
+
+#: The canonical real token accounting source. Any other string — including a
+#: plausible-looking one — is not the Hermes state DB and fails closed.
+CANONICAL_TOKEN_USAGE_SOURCE = "hermes_state_db:session_model_usage"
+
+#: The per-sample window integrity facts, all of which must be proven true.
+REQUIRED_WINDOW_TRUE = (
+    "direct_transport_dedicated",
+    "direct_call_delta_exact",
+    "shadow_session_scoped_accounting",
+)
 
 FORBIDDEN_KEYS = frozenset(
     {
@@ -194,6 +272,183 @@ def _validate_discovery(payload: dict[str, Any], failures: list[str]) -> None:
             failures.append(f"discovery_privacy_invalid:{key}")
 
 
+def _validate_attestation(
+    payload: dict[str, Any],
+    provider_type: Any,
+    repository_scopes: set[str],
+    failures: list[str],
+) -> None:
+    """Require the provenance behind ``least_privilege`` / permission claims.
+
+    A hand-forged document declaring ``least_privilege = true`` must not pass:
+    the evidence has to carry the sanitized external declaration AND the live
+    probe record that together justify it. No secret path or value is required,
+    accepted or inspected here.
+    """
+    notes = payload.get("attestation_notes")
+    if not isinstance(notes, dict):
+        failures.append("attestation_notes_missing")
+        return
+
+    if notes.get("attestation_path_recorded") is not False:
+        failures.append("attestation_path_recorded")
+
+    # ---- external declaration -------------------------------------------
+    declaration = notes.get("declaration")
+    confirmation_source: Any = None
+    if not isinstance(declaration, dict):
+        failures.append("attestation_declaration_missing")
+    else:
+        if declaration.get("schema") != ATTESTATION_INPUT_SCHEMA:
+            failures.append("attestation_declaration_schema_invalid")
+        if declaration.get("confirmation") is not True:
+            failures.append("attestation_declaration_not_confirmed")
+        confirmation_source = declaration.get("confirmation_source")
+        allowed = ALLOWED_CONFIRMATION_SOURCES.get(str(provider_type), set())
+        if confirmation_source not in allowed:
+            failures.append("attestation_confirmation_source_not_allowed")
+        confirmed_at = declaration.get("confirmed_at")
+        if not isinstance(confirmed_at, str) or not confirmed_at.strip():
+            failures.append("attestation_confirmed_at_missing")
+        else:
+            try:
+                parsed = datetime.fromisoformat(
+                    confirmed_at.strip().replace("Z", "+00:00")
+                )
+            except ValueError:
+                failures.append("attestation_confirmed_at_invalid")
+            else:
+                if parsed.tzinfo is None or parsed.utcoffset() is None:
+                    failures.append("attestation_confirmed_at_not_timezone_aware")
+
+    # ---- what the declaration covers vs what probes proved ---------------
+    externally = notes.get("externally_confirmed")
+    if not isinstance(externally, list) or set(externally) != REQUIRED_EXTERNALLY_CONFIRMED:
+        failures.append("attestation_externally_confirmed_invalid")
+
+    machine = notes.get("machine_verified")
+    if not isinstance(machine, list):
+        failures.append("attestation_machine_verified_missing")
+    else:
+        observed = set(machine)
+        required = set(REQUIRED_MACHINE_VERIFIED)
+        if provider_type == "github_app":
+            required.add(APP_MACHINE_VERIFIED)
+        if not required <= observed:
+            failures.append("attestation_machine_verified_incomplete")
+        if observed - required - {APP_MACHINE_VERIFIED}:
+            failures.append("attestation_machine_verified_unexpected")
+
+    # ---- permissions_source coherence ------------------------------------
+    expected_source = ALLOWED_PERMISSIONS_SOURCES.get(
+        (str(provider_type), str(confirmation_source))
+    )
+    if expected_source is None:
+        failures.append("attestation_permissions_source_incoherent")
+    elif notes.get("permissions_source") != expected_source:
+        failures.append("attestation_permissions_source_invalid")
+
+    # ---- live probe record ------------------------------------------------
+    probes = notes.get("probes")
+    if not isinstance(probes, dict):
+        failures.append("attestation_probes_missing")
+        return
+
+    if probes.get("auth_probe_status") != 200:
+        failures.append("attestation_auth_probe_invalid")
+    if probes.get("oauth_scopes_header_present") is not False:
+        failures.append("attestation_oauth_scopes_header_present")
+    if probes.get("repository_probe_count") != len(repository_scopes):
+        failures.append("attestation_repository_probe_count_invalid")
+
+    read_probes = probes.get("repository_read_probes")
+    if not isinstance(read_probes, dict):
+        failures.append("attestation_repository_read_probes_missing")
+    else:
+        probed = {str(key).lower() for key in read_probes}
+        if probed != repository_scopes:
+            failures.append("attestation_repository_read_probes_incomplete")
+        for repository in sorted(read_probes):
+            record = read_probes[repository]
+            if not isinstance(record, dict):
+                failures.append("attestation_repository_read_probe_invalid")
+                continue
+            for name in REQUIRED_PROBE_STATUSES:
+                if record.get(name) != 200:
+                    failures.append(f"attestation_read_probe_status_invalid:{name}")
+            for name in REQUIRED_PROBE_COUNTS:
+                if not _is_non_negative_int(record.get(name)):
+                    failures.append(f"attestation_read_probe_count_invalid:{name}")
+
+    if (
+        provider_type == "fine_grained_token"
+        and probes.get("fine_grained_self_enumeration_available") is not False
+    ):
+        failures.append("attestation_fine_grained_self_enumeration_invalid")
+    if (
+        provider_type == "github_app"
+        and probes.get("installation_repository_count") != len(repository_scopes)
+    ):
+        failures.append("attestation_installation_repository_count_invalid")
+
+
+def _validate_canary(
+    payload: dict[str, Any],
+    repository_scopes: set[str],
+    failures: list[str],
+) -> None:
+    """Require the canary wiring that the DIRECT samples were actually taken on."""
+    canary = payload.get("canary")
+    if not isinstance(canary, dict):
+        failures.append("canary_missing")
+        return
+    if canary.get("direct_feature_enabled") is not True:
+        failures.append("canary_direct_feature_not_enabled")
+    tool_ids = canary.get("canary_tool_ids")
+    if not isinstance(tool_ids, list) or sorted(str(t) for t in tool_ids) != sorted(
+        EXPECTED_TOOLS
+    ):
+        failures.append("canary_tool_ids_invalid")
+    repositories = canary.get("canary_repositories")
+    if not isinstance(repositories, list) or {
+        str(item).lower() for item in repositories
+    } != repository_scopes:
+        failures.append("canary_repositories_not_provider_scopes")
+    if canary.get("wildcard_scopes") is not False:
+        failures.append("canary_wildcard_scopes")
+
+
+def _validate_window_basis(payload: dict[str, Any], failures: list[str]) -> str | None:
+    """Require the documented top-level mutation/window provenance."""
+    basis = payload.get("window_integrity_basis")
+    if not isinstance(basis, dict):
+        failures.append("window_integrity_basis_missing")
+        return None
+    if basis.get("direct_mutation_basis") != DIRECT_MUTATION_BASIS:
+        failures.append("direct_mutation_basis_invalid")
+    shadow_basis = basis.get("shadow_mutation_basis")
+    if shadow_basis not in ALLOWED_SHADOW_MUTATION_BASES:
+        failures.append("shadow_mutation_basis_unproven")
+        return None
+    return str(shadow_basis)
+
+
+def _validate_window(sample: dict[str, Any], *, prefix: str, failures: list[str]) -> None:
+    """Require the derived per-sample window facts, not a bare boolean."""
+    window = sample.get("window_integrity")
+    if not isinstance(window, dict):
+        failures.append(f"{prefix}:window_integrity_missing")
+        return
+    for name in REQUIRED_WINDOW_TRUE:
+        if window.get(name) is not True:
+            failures.append(f"{prefix}:window_integrity_invalid:{name}")
+    if window.get("attribution_ambiguity") is not False:
+        failures.append(f"{prefix}:window_attribution_ambiguous")
+    unexpected = set(window) - set(REQUIRED_WINDOW_TRUE) - {"attribution_ambiguity"}
+    if unexpected:
+        failures.append(f"{prefix}:window_integrity_unexpected_fields")
+
+
 def _validate_direct_sample(
     direct: Any,
     *,
@@ -231,6 +486,8 @@ def _validate_direct_sample(
 
     if direct.get("mutation_observed") is not False:
         failures.append(f"{prefix}:direct_mutation_observed")
+    if direct.get("mutation_basis") != DIRECT_MUTATION_BASIS:
+        failures.append(f"{prefix}:direct_mutation_basis_invalid")
     if direct.get("redirect_followed") is not False:
         failures.append(f"{prefix}:direct_redirect_followed")
 
@@ -239,6 +496,7 @@ def _validate_shadow_sample(
     shadow: Any,
     *,
     prefix: str,
+    shadow_mutation_basis: str | None,
     failures: list[str],
 ) -> None:
     if not isinstance(shadow, dict):
@@ -268,11 +526,15 @@ def _validate_shadow_sample(
 
     if shadow.get("token_usage_estimated") is not False:
         failures.append(f"{prefix}:shadow_token_usage_estimated")
-    source = shadow.get("token_usage_source")
-    if not isinstance(source, str) or not source.strip():
-        failures.append(f"{prefix}:shadow_token_source_missing")
+    if shadow.get("token_usage_source") != CANONICAL_TOKEN_USAGE_SOURCE:
+        failures.append(f"{prefix}:shadow_token_source_not_canonical")
     if shadow.get("mutation_observed") is not False:
         failures.append(f"{prefix}:shadow_mutation_observed")
+    if (
+        shadow_mutation_basis is None
+        or shadow.get("mutation_basis") != shadow_mutation_basis
+    ):
+        failures.append(f"{prefix}:shadow_mutation_basis_invalid")
 
 
 def _validate_comparison(
@@ -303,6 +565,7 @@ def _validate_comparison(
 def _validate_samples(
     payload: dict[str, Any],
     repository_scopes: set[str],
+    shadow_mutation_basis: str | None,
     failures: list[str],
 ) -> Counter[str]:
     samples = payload.get("samples")
@@ -350,6 +613,7 @@ def _validate_samples(
             failures.append(f"{prefix}:not_connected_jarvas")
         if sample.get("contaminated_window") is not False:
             failures.append(f"{prefix}:contaminated_window")
+        _validate_window(sample, prefix=prefix, failures=failures)
 
         _validate_direct_sample(
             sample.get("direct"),
@@ -359,6 +623,7 @@ def _validate_samples(
         _validate_shadow_sample(
             sample.get("v1_shadow"),
             prefix=prefix,
+            shadow_mutation_basis=shadow_mutation_basis,
             failures=failures,
         )
         _validate_comparison(
@@ -451,8 +716,18 @@ def validate_evidence(payload: dict[str, Any]) -> list[str]:
 
     _validate_runtime(payload, failures)
     repository_scopes = _validate_provider(payload, failures)
+    provider = payload.get("github_provider")
+    provider_type = provider.get("provider_type") if isinstance(provider, dict) else None
+    _validate_attestation(payload, provider_type, repository_scopes, failures)
+    _validate_canary(payload, repository_scopes, failures)
+    shadow_mutation_basis = _validate_window_basis(payload, failures)
     _validate_discovery(payload, failures)
-    tool_counts = _validate_samples(payload, repository_scopes, failures)
+    tool_counts = _validate_samples(
+        payload,
+        repository_scopes,
+        shadow_mutation_basis,
+        failures,
+    )
     _validate_aggregate(payload, tool_counts, failures)
     _validate_privacy(payload, failures)
 

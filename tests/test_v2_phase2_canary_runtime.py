@@ -36,6 +36,7 @@ from hermes_mcp_bridge.v2.github_canary import (
     GitHubCanaryRouter,
 )
 from hermes_mcp_bridge.v2.github_direct import (
+    GITHUB_DIRECT_DEFAULT_RESULT_FIELDS,
     GitHubDirectDenied,
     GitHubDirectReadExecutor,
     GitHubRepositoryScope,
@@ -1209,25 +1210,141 @@ def test_collector_plan_rejects_unexpected_tool() -> None:
     assert exc.value.code == "TARGETS_UNEXPECTED_TOOL"
 
 
+def _repo_shape(**overrides: Any) -> dict[str, Any]:
+    base = {
+        "full_name": REPOSITORY,
+        "private": True,
+        "visibility": "private",
+        "default_branch": "main",
+        "archived": False,
+        "html_url": f"https://github.com/{REPOSITORY}",
+        "updated_at": "2026-08-01T00:00:00Z",
+    }
+    base.update(overrides)
+    return base
+
+
 def test_collector_normalizes_both_sides_to_the_same_field_set() -> None:
     collector = _load_collector()
-    direct = {
-        "full_name": REPOSITORY,
-        "private": True,
-        "default_branch": "main",
-        "archived": False,
-        "html_url": "ignored-by-comparison",
-    }
-    shadow = {
-        "full_name": REPOSITORY,
-        "private": True,
-        "default_branch": "main",
-        "archived": False,
-        "extra_agentic_commentary": "ignored",
-    }
+    direct = _repo_shape()
+    shadow = _repo_shape(extra_commentary="ignored")
     assert collector.normalized_digest("github.get_repo", direct) == collector.normalized_digest(
         "github.get_repo", shadow
     )
+
+
+def test_comparison_fields_are_the_executor_default_result_fields() -> None:
+    """The comparison must be the FULL default shape, never a narrower subset."""
+    collector = _load_collector()
+    assert set(collector.COMPARISON_FIELDS) == set(GITHUB_DIRECT_DEFAULT_RESULT_FIELDS)
+    for tool_id, defaults in GITHUB_DIRECT_DEFAULT_RESULT_FIELDS.items():
+        compared = collector.COMPARISON_FIELDS[tool_id]
+        # every default result field of every tool enters the mapping
+        assert set(defaults) <= set(compared), tool_id
+        assert set(compared) == set(defaults), tool_id
+    assert set(collector.COMPARISON_FIELDS["github.get_checks"]) == {
+        "total_count",
+        "check_runs",
+    }
+    assert set(collector.COMPARISON_FIELDS["github.search"]) == {
+        "total_count",
+        "incomplete_results",
+        "items",
+    }
+
+
+def _checks(*runs: dict[str, Any]) -> dict[str, Any]:
+    return {"total_count": 7, "check_runs": list(runs)}
+
+
+def _run(name: str, conclusion: str = "success") -> dict[str, Any]:
+    return {
+        "app": "github-actions",
+        "completed_at": "2026-08-01T00:10:00Z",
+        "conclusion": conclusion,
+        "head_sha": "d" * 40,
+        "html_url": f"https://github.com/{REPOSITORY}/runs/{name}",
+        "id": 1,
+        "name": name,
+        "started_at": "2026-08-01T00:00:00Z",
+        "status": "completed",
+    }
+
+
+def test_changed_check_run_breaks_the_digest_with_equal_total_count() -> None:
+    """A different check run must NOT pass as a semantic match."""
+    collector = _load_collector()
+    a = _checks(_run("build"), _run("lint"))
+    b = _checks(_run("build"), _run("lint", conclusion="failure"))
+    assert a["total_count"] == b["total_count"]
+    assert collector.normalized_digest("github.get_checks", a) != collector.normalized_digest(
+        "github.get_checks", b
+    )
+
+
+def test_check_run_order_is_canonical_and_not_semantic() -> None:
+    collector = _load_collector()
+    a = _checks(_run("build"), _run("lint"))
+    b = _checks(_run("lint"), _run("build"))
+    assert collector.normalized_digest("github.get_checks", a) == collector.normalized_digest(
+        "github.get_checks", b
+    )
+
+
+def _search(*items: dict[str, Any]) -> dict[str, Any]:
+    return {"total_count": 4, "incomplete_results": False, "items": list(items)}
+
+
+def _item(number: int, title: str) -> dict[str, Any]:
+    return {
+        "comments": 0,
+        "created_at": "2026-08-01T00:00:00Z",
+        "html_url": f"https://github.com/{REPOSITORY}/issues/{number}",
+        "item_type": "issue",
+        "number": number,
+        "state": "open",
+        "title": title,
+        "updated_at": "2026-08-01T00:00:00Z",
+        "user": "pestoura",
+    }
+
+
+def test_changed_search_item_breaks_the_digest_with_equal_total_count() -> None:
+    collector = _load_collector()
+    a = _search(_item(1, "alpha"), _item(2, "beta"))
+    b = _search(_item(1, "alpha"), _item(2, "beta-renamed"))
+    assert a["total_count"] == b["total_count"]
+    assert collector.normalized_digest("github.search", a) != collector.normalized_digest(
+        "github.search", b
+    )
+
+
+def test_nested_structure_is_preserved_not_stringified() -> None:
+    """A list of dicts must stay structured through normalization."""
+    collector = _load_collector()
+    normalized = collector.normalize_for_comparison("github.get_checks", _checks(_run("build")))
+    assert isinstance(normalized["check_runs"], list)
+    assert isinstance(normalized["check_runs"][0], dict)
+    assert normalized["check_runs"][0]["name"] == "build"
+
+
+def test_missing_nested_field_is_not_normalized_away() -> None:
+    collector = _load_collector()
+    full = _checks(_run("build"))
+    missing = {"total_count": 7}
+    assert collector.normalized_digest(
+        "github.get_checks", full
+    ) != collector.normalized_digest("github.get_checks", missing)
+
+
+def test_shadow_prompt_requests_the_full_shape_and_nested_structure() -> None:
+    collector = _load_collector()
+    prompt = collector._shadow_prompt("github.get_checks", REPOSITORY, {"ref": "main"})
+    for field in GITHUB_DIRECT_DEFAULT_RESULT_FIELDS["github.get_checks"]:
+        assert field in prompt
+    assert "check_runs" in prompt
+    assert "no extra keys" in prompt
+    assert "semantically equivalent" in prompt
 
 
 def test_collector_detects_semantic_mismatch() -> None:

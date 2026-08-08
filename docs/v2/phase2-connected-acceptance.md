@@ -176,9 +176,37 @@ invoke it internally.
 
 ### Semantic comparison
 
-DIRECT and V1 results may differ in raw provider representation, so comparison
-must be performed over the same normalized field set used by the DIRECT result
-shaper.
+Comparison is performed over the **full default shaped result** of the DIRECT
+executor — not a narrower subset. The collector derives the compared field set
+from the executor's own public
+`GITHUB_DIRECT_DEFAULT_RESULT_FIELDS` mapping, so the two can never drift:
+
+```text
+github.get_repo    full_name, private, visibility, default_branch, archived,
+                   html_url, updated_at
+github.get_pr      number, title, state, draft, merged, user, head, base,
+                   html_url, updated_at
+github.get_issue   number, title, state, state_reason, user, labels, assignees,
+                   comments, is_pull_request, html_url, updated_at
+github.get_checks  total_count, check_runs
+github.search      total_count, incomplete_results, items
+```
+
+Reducing `github.get_checks`/`github.search` to `total_count` is explicitly not
+sufficient: two materially different result sets share a count. A changed check
+run or a changed search item must — and does — break the digest.
+
+Normalization is canonical and deterministic and preserves semantic structure:
+nested objects stay objects and arrays of objects stay arrays of objects (never
+stringified). Collections whose order is not semantic (`check_runs`, `items`,
+`labels`, `assignees`) are canonically ordered by each item's own canonical JSON
+text; the default shape contains no order-bearing array, and the
+`ORDER_SIGNIFICANT_FIELDS` set is kept explicit and empty so introducing one is
+a deliberate act. The identical rule is applied to both sides before SHA-256.
+
+The shadow prompt asks for exactly this shape — same keys, same nesting, no
+extra fields — describing nested structures (`head`/`base`, `check_runs`,
+`items`) by shape only, never by value. Prompts are never retained.
 
 Evidence must retain only digests and the boolean comparison result:
 
@@ -200,9 +228,59 @@ connected_jarvas = true
 contaminated_window = false
 ```
 
+`contaminated_window = false` is not accepted as a bare boolean. Each sample
+must carry the derived `window_integrity` record proving
+`direct_transport_dedicated`, `direct_call_delta_exact` and
+`shadow_session_scoped_accounting` are all true and
+`attribution_ambiguity` is false, with no extra fields.
+
+The document must also carry the top-level `window_integrity_basis`:
+
+```text
+direct_mutation_basis = executor_http_method_restricted_to_get
+shadow_mutation_basis = github_audit_log_reviewed | read_only_credential_enforced
+```
+
+`none` and `unknown` are rejected. Each sample's DIRECT `mutation_basis` must be
+the executor basis, and the V1 shadow `mutation_basis` must match the declared
+top-level shadow basis. V1 `token_usage_source` must be exactly the canonical
+`hermes_state_db:session_model_usage`, with `token_usage_estimated = false`.
+
 If unrelated activity makes provider-call, Hermes-call or token attribution
 ambiguous, the sample is rejected and must be recollected. The validator does
 not average away contaminated observations.
+
+## Provider provenance required by the validator
+
+`least_privilege = true` is likewise not accepted on its own. The evidence must
+carry `attestation_notes` proving:
+
+- `attestation_path_recorded = false` (no secret path is ever stored);
+- an external `declaration` with schema
+  `hermes-v2-phase2-provider-attestation/1`, `confirmation = true`, a
+  `confirmation_source` permitted for the provider type
+  (fine-grained token → `github_settings_ui`; GitHub App →
+  `github_app_settings_ui` or `installation_token_mint_response`) and a
+  timezone-aware ISO-8601 `confirmed_at`;
+- `externally_confirmed` exactly `exact_permission_map` and
+  `exact_repository_selection`;
+- `machine_verified` covering authentication, repository metadata read, pull
+  requests read, issues read and check runs read — plus
+  `installation_repository_set` for a GitHub App;
+- `permissions_source` coherent with the provider type and confirmation source;
+- live `probes`: `auth_probe_status = 200`,
+  `oauth_scopes_header_present = false`, `repository_probe_count` equal to the
+  number of provider repository scopes, `repository_read_probes` for all and
+  only those scopes with each metadata/pulls/issues/check-runs status `200` and
+  non-negative integer counts, `fine_grained_self_enumeration_available = false`
+  for a fine-grained token, and `installation_repository_count` equal to the
+  scope count for a GitHub App.
+
+No secret path or secret value is required, accepted or inspected.
+
+The `canary` block must additionally prove `direct_feature_enabled = true`,
+`canary_tool_ids` exactly the five DIRECT tools, `canary_repositories` exactly
+the provider repository scopes, and `wildcard_scopes = false`.
 
 ## Aggregate requirements
 
