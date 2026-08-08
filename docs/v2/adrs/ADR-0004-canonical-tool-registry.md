@@ -1,8 +1,8 @@
 # ADR-0004 — Canonical Tool Registry
 
-> **V2 · PHASE 1 CORE IMPLEMENTED · NOT YET ACCEPTED · NO IMPACT ON V1**
+> **V2 · PHASE 1 ACCEPTED · NO IMPACT ON V1**
 
-**Status:** Accepted in principle; Phase 1 core implemented, `REGISTRY_ACCEPTED` not declared.
+**Status:** Accepted. Phase 1 implementation and `REGISTRY_ACCEPTED` evidence validated on integrated `main` commit `4bc999084b88cc5ef5346f21c9f2e09717c63568`.
 
 ## Context
 Capabilities may come from native tools, CLI wrappers, APIs, plugins, internal MCPs or future connectors, each with different metadata.
@@ -28,9 +28,13 @@ canonical JSON serialization and a SHA-256 `capability_snapshot_hash`. Health
 states are `CONFIGURED`/`AVAILABLE`/`HEALTHY`/`READY`/`DEGRADED`/`UNAVAILABLE`/
 `DENIED`, where `DENIED` is the state this ADR called `UNAUTHORIZED`.
 
+The accepted implementation is covered by the Phase 1 fail-closed acceptance
+harness and durable release evidence indexed in `docs/v2/evidence/README.md`.
+
 ## Open questions
 Registry storage/format, signing and schema migration process — all still open
 questions **of this ADR**; they are not tracked by an OD entry (OD-003 is the
 durable queue/store decision, which is a different concern). Phase 1 chose
 in-process typed objects plus canonical JSON serialization, and deliberately
-did not choose a persistence backend.
+did not choose a persistence backend. `REGISTRY_ACCEPTED` does not close these
+questions.
