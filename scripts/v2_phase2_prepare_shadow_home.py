@@ -36,6 +36,7 @@ if str(ROOT / "src") not in sys.path:
 from hermes_mcp_bridge.v2.hermes_runtime import (  # noqa: E402
     HermesRuntimeError,
     resolve_hermes_python,
+    validate_hermes_python_hint,
 )
 from hermes_mcp_bridge.v2.shadow_isolation import (  # noqa: E402
     SHADOW_MCP_SERVER,
@@ -158,7 +159,28 @@ def _runtime_resolver_available() -> bool:
 
 
 def _ensure_hermes_runtime_python(args: argparse.Namespace, argv: list[str]) -> None:
-    """Re-exec under the Python proven to own the running Hermes console script."""
+    """Re-exec under the Python proven to own the running Hermes console script.
+
+    When the launcher supplies an explicit ``--hermes-python`` hint it is
+    validated fail-closed against the *real* Hermes roots before any shadow
+    configuration is written. The hint is only ever an argument: it is never
+    exported to the environment of this process or of any child.
+    """
+    hint = getattr(args, "hermes_python", None)
+    if hint:
+        try:
+            resolved_hint = validate_hermes_python_hint(
+                hint,
+                probe_home=os.environ.get("HOME", str(Path.home())),
+                probe_hermes_home=args.source_home,
+                path_env=os.environ.get("PATH", ""),
+            )
+        except HermesRuntimeError as exc:
+            raise ShadowHomeError(exc.code) from exc
+        if _runtime_resolver_available():
+            return
+        _reexec(resolved_hint, args, argv)
+
     if _runtime_resolver_available():
         return
     hermes_bin = shutil.which("hermes")
@@ -180,10 +202,14 @@ def _ensure_hermes_runtime_python(args: argparse.Namespace, argv: list[str]) -> 
         raise ShadowHomeError("HERMES_RUNTIME_PYTHON_UNRESOLVED") from exc
     if resolved == current:
         raise ShadowHomeError("HERMES_TOOLSET_RESOLVER_UNAVAILABLE")
+    _reexec(resolved, args, argv)
 
-    # Re-exec with a minimal environment.  All provider material required by
-    # the shadow is read selectively from source_home/.env below; broad caller
-    # credentials must not become part of the compatibility handoff.
+
+def _reexec(resolved: Path, args: argparse.Namespace, argv: list[str]) -> None:
+    """Re-exec this helper under ``resolved`` with a minimal environment."""
+    # All provider material required by the shadow is read selectively from
+    # source_home/.env below; broad caller credentials must not become part of
+    # the compatibility handoff, and the interpreter hint is never exported.
     env = {
         "HOME": os.environ.get("HOME", str(Path.home())),
         "HERMES_HOME": str(Path(args.source_home).expanduser().resolve()),
@@ -354,6 +380,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--repository", required=True)
     parser.add_argument("--api-port", required=True, type=int)
     parser.add_argument("--api-key-out", required=True)
+    # Optional explicit interpreter hint resolved by the launcher against the
+    # real Hermes runtime roots. Omitted, the legacy console-script resolution
+    # path is used unchanged.
+    parser.add_argument("--hermes-python", required=False, default=None)
     return parser
 
 

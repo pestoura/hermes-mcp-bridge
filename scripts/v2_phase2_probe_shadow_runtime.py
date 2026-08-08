@@ -8,7 +8,6 @@ import contextlib
 import json
 import os
 import re
-import shutil
 import stat
 import subprocess
 import sys
@@ -25,7 +24,7 @@ if str(ROOT / "src") not in sys.path:
 
 from hermes_mcp_bridge.v2.hermes_runtime import (  # noqa: E402
     HermesRuntimeError,
-    resolve_hermes_python,
+    validate_hermes_python_hint,
 )
 from hermes_mcp_bridge.v2.shadow_isolation import (  # noqa: E402
     SHADOW_HERMES_TOOL_NAMES,
@@ -90,16 +89,19 @@ def _get_json(client: httpx.Client, path: str, attempts: int = 30) -> tuple[int,
     raise ProbeError(f"SHADOW_PROBE_UNAVAILABLE_{last_status or 'NO_RESPONSE'}")
 
 
-def _resolve_hermes_runtime_python(shadow_home: Path) -> Path:
-    """Resolve the interpreter that actually owns the installed Hermes CLI."""
-    hermes_bin = shutil.which("hermes")
-    if not hermes_bin:
-        raise ProbeError("SHADOW_HERMES_EXECUTABLE_MISSING")
+def _validated_hermes_runtime_python(hint: str, shadow_home: Path) -> Path:
+    """Revalidate the launcher-supplied interpreter hint under the shadow env.
+
+    The hint is resolved by the launcher *before* the shadow HOME exists, using
+    the real managed layout. It is not trusted here: it must still be an
+    absolute executable that imports the required Hermes modules while running
+    with HOME/HERMES_HOME pointing at the disposable shadow home.
+    """
     try:
-        return resolve_hermes_python(
-            hermes_bin,
-            home=shadow_home,
-            hermes_home=shadow_home,
+        return validate_hermes_python_hint(
+            hint,
+            probe_home=shadow_home,
+            probe_hermes_home=shadow_home,
             path_env=os.environ.get("PATH", ""),
         )
     except HermesRuntimeError as exc:
@@ -114,10 +116,11 @@ def _probe_hermes_resolver(args: argparse.Namespace) -> dict:
     if not (shadow_home / "config.yaml").is_file():
         raise ProbeError("SHADOW_CONFIG_MISSING")
 
-    # Do not trust a guessed sibling Python path supplied by an older launcher.
-    # Resolve the interpreter from the actual Hermes console script and prove it
-    # can import the same resolver/API modules before using it for introspection.
-    hermes_python = _resolve_hermes_runtime_python(shadow_home)
+    # The launcher resolves the managed Hermes interpreter against the real
+    # runtime roots before the shadow home exists and passes it as an explicit
+    # argument. Revalidate it here under the shadow environment; never derive
+    # managed layout candidates from the shadow home.
+    hermes_python = _validated_hermes_runtime_python(args.hermes_python, shadow_home)
 
     # The child reports only names/booleans from an allowlisted contract. It
     # never serializes config values, environment values, paths or credentials.
@@ -329,9 +332,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--repository", required=True)
     parser.add_argument("--source-commit", required=True)
     parser.add_argument("--json-out", required=True)
-    # Retained for launcher/backward compatibility. The probe deliberately does
-    # not trust this path; it resolves the interpreter from the Hermes console
-    # script and proves the required imports itself.
+    # Explicit interpreter hint resolved by the launcher against the real Hermes
+    # runtime roots, before the shadow HOME transition. Never an env var, never
+    # trusted blindly: it is revalidated under the shadow environment.
     parser.add_argument("--hermes-python", required=True)
     parser.add_argument("--shadow-home", required=True)
     return parser
