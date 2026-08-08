@@ -345,11 +345,22 @@ code.
 **CANARY/COLLECTOR IMPLEMENTED · CONNECTED CREDENTIAL BLOCKED.**
 
 The repo-side runtime, the collector and the fail-closed validator now exist and
-are covered by hermetic tests. The connected gate remains **unsatisfied** for one
-reason only: the sole GitHub credential currently available on the Jarvas host is
-a **classic broad PAT**, which this contract explicitly refuses as least-privilege
-evidence. The 15 connected samples must not be collected until a GitHub App
-installation credential or a fine-grained least-privilege token exists.
+are covered by hermetic tests. The connected gate remains **unsatisfied**
+primarily because the sole GitHub credential currently available on the Jarvas
+host is a **classic broad PAT**, which this contract explicitly refuses as
+least-privilege evidence. That external blocker — the absence of a
+least-privilege GitHub App installation credential or fine-grained token for
+DIRECT — is the current/principal blocker. It is **not** the only thing the
+connected run must still establish: once the credential blocker is resolved, the
+connected run must also provide a **real** V1 shadow `mutation_observed = false`
+basis, not merely assert it. `github_audit_log_reviewed` may be used only after a
+genuine review of the GitHub audit evidence applicable to the window in question;
+`read_only_credential_enforced` may be used only when the credential actually
+used by the V1 shadow is itself read-only. `--shadow-mutation-basis` is **not** a
+bypass flag: if no basis can be substantiated, the collector must remain blocked
+(`SHADOW_MUTATION_BASIS_UNPROVEN`). The 15 connected samples must not be
+collected until a GitHub App installation credential or a fine-grained
+least-privilege token exists.
 
 Unblocking sequence:
 
@@ -362,8 +373,14 @@ Unblocking sequence:
    or an inode substitution is never followed);
 2b. write the sanitized `--provider-attestation` document confirming the exact
    permission map and repository selection;
-3. run the collector against the live runtime with the state DB for real V1
-   token accounting;
+3. establish the V1 shadow mutation basis for the connected run — this must be a
+   **real** basis, not an asserted one: review the applicable GitHub audit
+   evidence and use `github_audit_log_reviewed` only after that genuine review, or
+   confirm the credential effectively used by the V1 shadow is read-only and use
+   `read_only_credential_enforced`; if neither can be substantiated the collector
+   stays blocked (`SHADOW_MUTATION_BASIS_UNPROVEN`);
+3b. run the collector against the live runtime with the state DB for real V1
+   token accounting, passing the substantiated `--shadow-mutation-basis`;
 4. run the validator on the produced document.
 
 ChatGPT's own GitHub connector is a different trust/credential boundary and is
@@ -484,11 +501,22 @@ token sample is reproduced in this repository or in any evidence.
 Neither `contaminated_window` nor `mutation_observed` is a hardcoded literal.
 
 - `contaminated_window` is derived by the collector's window-integrity object
-  from the isolation actually used: a dedicated transport per DIRECT sample, an
-  exact one-call provider delta per sample, and `session_id`-scoped token
-  accounting for the V1 shadow. With those three there is no attribution
-  ambiguity between the two sides; if any fails, the collector aborts with
-  `WINDOW_INTEGRITY_UNPROVEN` rather than claiming a clean window.
+  from the isolation actually used. The DIRECT side runs through a single
+  `CountingTransport` that is exclusive to the collector/DIRECT path: it is
+  instantiated once for the run and handed only to the DIRECT executor, and is
+  **not** shared with the V1 surface, the V1 agentic shadow, or any other
+  operation. All 15 samples execute **sequentially** on that same
+  collector-exclusive transport; the transport is reused between samples rather
+  than recreated per sample, so there is no "new transport per sample". Each
+  sample still computes its own before/after counters
+  (`before_calls = transport.calls` and `direct_calls = transport.calls -
+  before_calls`) and the collector aborts with
+  `DIRECT_API_CALL_COUNT_INVALID` unless `direct_calls == 1`, i.e. an exact
+  one-provider-call delta. Combined with `session_id`-scoped V1 token accounting
+  (read from `hermes_state_db:session_model_usage`), there is no attribution
+  ambiguity between the two sides; if any of these conditions fails, the
+  collector aborts with `WINDOW_INTEGRITY_UNPROVEN` rather than claiming a clean
+  window.
 - DIRECT `mutation_observed` is derived from the executor's own structure: it
   exposes only the five reads and routes every request through a single GET
   helper, so no non-GET request can be emitted (`mutation_basis =
@@ -506,3 +534,9 @@ supported matrix. The 11 Phase 1 failures observed there reproduce on
 `origin/main` and are therefore not a regression from this branch; they are not
 addressed here. Python 3.11/3.12 is not available on this host, so the supported
 matrix is confirmed by GitHub Actions after the PR.
+
+GitHub Actions confirmation (separate from the unsupported local 3.13 run): PR #52
+CI run #203 and the post-merge `main` CI run #204 both confirmed the Python
+3.11/3.12 matrix **GREEN**. The historical note about the 11 Phase 1 failures on
+the local Python 3.13.5 run is retained unchanged above and was not altered by
+this CI confirmation.
