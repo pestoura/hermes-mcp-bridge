@@ -103,8 +103,13 @@ def test_mint_writes_exact_scope_token_and_sanitized_attestation(tmp_path, monke
         "confirmation_source": "installation_token_mint_response",
         "confirmed_at": result.confirmed_at,
     }
-    assert "token" not in result.summary()
-    assert "path" not in json.dumps(result.summary()).lower()
+    summary = result.summary()
+    assert "token" not in summary
+    assert "jwt" not in summary
+    assert "private_key" not in summary
+    assert "authorization" not in summary
+    assert summary["secret_values_stored_in_output"] is False
+    assert summary["secret_paths_stored_in_output"] is False
     assert result.repository == REPOSITORY
     assert result.installation_id == 4242
 
