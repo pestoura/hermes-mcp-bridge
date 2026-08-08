@@ -21,6 +21,7 @@ from .governance import observe_approval_tool_result, refresh_approvals_pending
 from .instrumentation import instrument_all_tools as _base_instrument_all_tools
 from .logging import log_event
 from .metrics import BOUNDED_LABEL_VALUES, get_registry
+from .sqlite import instrument_sqlite_registries, sqlite_instrumentation_coverage
 from .state_governance import (
     observe_state_tool_result,
     refresh_locks_active,
@@ -44,7 +45,6 @@ _STATE_TOOLS = frozenset(
     }
 )
 
-# Keep the reason label finite while extending the pre-existing SSE reason domain.
 BOUNDED_LABEL_VALUES["reason"] = frozenset(BOUNDED_LABEL_VALUES["reason"] | _ADMISSION_REASONS)
 
 
@@ -70,6 +70,28 @@ def _set_coverage(*, expected: int, instrumented: int) -> None:
         _metric_gauge(
             "bridge_instrumentation_coverage_ratio",
             "Ratio of instrumented MCP tools to expected registered tools.",
+        ).set(float(ratio))
+    except Exception:
+        return
+
+
+def _set_sqlite_coverage() -> None:
+    try:
+        coverage = sqlite_instrumentation_coverage()
+        expected = int(coverage["expected"])
+        covered = int(coverage["covered"])
+        _metric_gauge(
+            "bridge_sqlite_expected_operations",
+            "Expected SQLite-backed registry methods in the current 1.x instrumentation contract.",
+        ).set(float(expected))
+        _metric_gauge(
+            "bridge_sqlite_instrumented_operations",
+            "SQLite-backed registry methods covered by operation timing.",
+        ).set(float(covered))
+        ratio = 1.0 if expected == 0 else covered / expected
+        _metric_gauge(
+            "bridge_sqlite_instrumentation_coverage_ratio",
+            "Ratio of instrumented to expected SQLite-backed registry methods.",
         ).set(float(ratio))
     except Exception:
         return
@@ -182,6 +204,7 @@ async def _augment_readiness(result: Any) -> Any:
     refresh_approvals_pending()
     refresh_locks_active()
     set_quota_not_enforced()
+    _set_sqlite_coverage()
     augmented = dict(result)
     components = dict(augmented.get("components") or {})
     components["admission"] = admission
@@ -238,6 +261,7 @@ def _instrumented_count(tools: dict[str, Any]) -> int:
 
 
 def instrument_all_tools(mcp_server: Any) -> int:
+    instrument_sqlite_registries()
     newly_instrumented = _base_instrument_all_tools(mcp_server)
     expected = 0
     covered = 0
@@ -246,6 +270,7 @@ def instrument_all_tools(mcp_server: Any) -> int:
         tools = getattr(manager, "_tools", None)
         if not isinstance(tools, dict):
             _set_coverage(expected=0, instrumented=0)
+            _set_sqlite_coverage()
             return newly_instrumented
         expected = len(tools)
         covered = _instrumented_count(tools)
@@ -273,6 +298,7 @@ def instrument_all_tools(mcp_server: Any) -> int:
         refresh_approvals_pending()
         refresh_locks_active()
         set_quota_not_enforced()
+        _set_sqlite_coverage()
     finally:
         _set_coverage(expected=expected, instrumented=covered)
     return newly_instrumented
