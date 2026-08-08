@@ -35,6 +35,7 @@ if str(ROOT / "src") not in sys.path:
 
 from hermes_mcp_bridge.v2.hermes_runtime import (  # noqa: E402
     HermesRuntimeError,
+    absolute_invocation_path,
     resolve_hermes_python,
     validate_hermes_python_hint,
 )
@@ -271,7 +272,11 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
     if not provider or not default_model:
         raise ShadowHomeError("SOURCE_MODEL_CONFIG_INCOMPLETE")
 
-    mcp_python = Path(args.mcp_python).expanduser().resolve()
+    # The shadow MCP interpreter is normally a virtualenv ``bin/python``, which
+    # is a symlink to the base interpreter. Resolving it here would drop the
+    # venv site-packages from the launched MCP server, so the absolute
+    # invocation path is preserved and validated without dereferencing.
+    mcp_python = absolute_invocation_path(args.mcp_python)
     mcp_script = Path(args.mcp_script).expanduser().resolve()
     token_file = Path(args.token_file).expanduser().resolve()
     if not mcp_python.is_file() or not os.access(mcp_python, os.X_OK):
