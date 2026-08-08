@@ -53,10 +53,10 @@ jobs:
       - name: Test
         run: python -m pytest -q
 
-      # Build and security artefacts are architecture/runtime gates, not Python
-      # compatibility gates. Run them once on the production interpreter to
-      # avoid duplicate images and duplicate evidence retention from the matrix.
-      - name: Build runtime image with immutable provenance
+      # Preserve the established step name because acceptance tests treat its
+      # ordering as a release contract. The build itself now carries immutable
+      # provenance and is separately validated before isolated acceptance.
+      - name: Build runtime image
         if: matrix.python-version == '3.12'
         run: |
           set -Eeuo pipefail
@@ -126,10 +126,9 @@ jobs:
           print(f"validated CycloneDX SBOM with {len(payload['components'])} components")
           PY
 
-      # GitHub Actions artifact storage is quota-bound. Retain both the
-      # validated SBOM and sanitized image provenance as draft release assets
-      # tied to the exact tested SHA. This is intentionally blocking.
-      - name: Retain supply-chain evidence
+      # Preserve the established retention step/error contract while extending
+      # the same blocking draft-release evidence with sanitized provenance.
+      - name: Retain SBOM as release evidence
         if: matrix.python-version == '3.12'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -175,7 +174,7 @@ jobs:
               --jq '[.assets[] | select(.name == "sbom-cyclonedx.json" or .name == "image-provenance.json")] | length'
           )"
           if [ "$ASSET_COUNT" != "2" ]; then
-            echo "required supply-chain evidence was not retained"
+            echo "SBOM release evidence was not retained"
             exit 1
           fi
 
