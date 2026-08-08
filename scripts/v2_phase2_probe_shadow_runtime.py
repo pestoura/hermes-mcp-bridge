@@ -7,7 +7,9 @@ import argparse
 import contextlib
 import json
 import os
+import re
 import stat
+import subprocess
 import sys
 import time
 from datetime import UTC, datetime
@@ -24,8 +26,9 @@ from hermes_mcp_bridge.v2.shadow_isolation import (  # noqa: E402
     SHADOW_HERMES_TOOL_NAMES,
     SHADOW_HTTP_METHODS,
     SHADOW_ISOLATION_SCHEMA,
+    SHADOW_MCP_SERVER,
+    SHADOW_MCP_TOOL_NAMES,
     SHADOW_SERVER_CONTRACT,
-    SHADOW_TOOLSET,
     validate_shadow_isolation,
 )
 
@@ -82,6 +85,101 @@ def _get_json(client: httpx.Client, path: str, attempts: int = 30) -> tuple[int,
     raise ProbeError(f"SHADOW_PROBE_UNAVAILABLE_{last_status or 'NO_RESPONSE'}")
 
 
+def _probe_hermes_resolver(args: argparse.Namespace) -> dict:
+    """Re-run the installed Hermes platform resolver against the shadow config."""
+    hermes_python = Path(args.hermes_python).expanduser().resolve()
+    shadow_home = Path(args.shadow_home).expanduser().resolve()
+    if not hermes_python.is_file() or not os.access(hermes_python, os.X_OK):
+        raise ProbeError("SHADOW_HERMES_PYTHON_INVALID")
+    if not shadow_home.is_dir() or stat.S_IMODE(shadow_home.stat().st_mode) != 0o700:
+        raise ProbeError("SHADOW_HOME_PERMISSIONS_INVALID")
+    if not (shadow_home / "config.yaml").is_file():
+        raise ProbeError("SHADOW_CONFIG_MISSING")
+
+    # The child reports only names/booleans from an allowlisted contract. It
+    # never serializes config values, environment values, paths or credentials.
+    child = r'''
+import json
+import sys
+
+from hermes_cli.config import load_config
+from hermes_cli.tools_config import _get_platform_tools
+
+server = sys.argv[1]
+expected_tools = json.loads(sys.argv[2])
+config = load_config() or {}
+servers = config.get("mcp_servers") or {}
+server_cfg = servers.get(server) if isinstance(servers, dict) else None
+platform = (config.get("platform_toolsets") or {}).get("api_server")
+resolved = sorted(str(item) for item in _get_platform_tools(config, "api_server"))
+exact = bool(
+    isinstance(servers, dict)
+    and sorted(str(name) for name in servers) == [server]
+    and isinstance(server_cfg, dict)
+    and server_cfg.get("enabled", True) is True
+    and platform == [server]
+    and isinstance(server_cfg.get("tools"), dict)
+    and server_cfg["tools"].get("include") == expected_tools
+    and server_cfg["tools"].get("resources") is False
+    and server_cfg["tools"].get("prompts") is False
+    and server_cfg.get("supports_parallel_tool_calls") is False
+)
+print(json.dumps({"resolved": resolved, "config_exact": exact}, sort_keys=True))
+'''
+    env = {
+        "HOME": str(shadow_home),
+        "HERMES_HOME": str(shadow_home),
+        "PATH": os.environ.get("PATH", ""),
+        "USER": os.environ.get("USER", "estourpm"),
+        "LANG": os.environ.get("LANG", "C.UTF-8"),
+    }
+    try:
+        completed = subprocess.run(
+            [
+                str(hermes_python),
+                "-c",
+                child,
+                SHADOW_MCP_SERVER,
+                json.dumps(list(SHADOW_MCP_TOOL_NAMES)),
+            ],
+            env=env,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ProbeError("SHADOW_RESOLVER_PROBE_FAILED") from exc
+    if completed.returncode != 0:
+        raise ProbeError("SHADOW_RESOLVER_PROBE_FAILED")
+
+    # Hermes may emit warnings before the final JSON line. Never surface them;
+    # only accept the final line if it is the small, secret-free contract.
+    lines = [line.strip() for line in completed.stdout.splitlines() if line.strip()]
+    if not lines:
+        raise ProbeError("SHADOW_RESOLVER_OUTPUT_INVALID")
+    try:
+        payload = json.loads(lines[-1])
+    except json.JSONDecodeError as exc:
+        raise ProbeError("SHADOW_RESOLVER_OUTPUT_INVALID") from exc
+    if not isinstance(payload, dict) or set(payload) != {"resolved", "config_exact"}:
+        raise ProbeError("SHADOW_RESOLVER_OUTPUT_INVALID")
+    resolved = payload.get("resolved")
+    if (
+        not isinstance(resolved, list)
+        or any(not isinstance(item, str) for item in resolved)
+        or any(re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", item) is None for item in resolved)
+    ):
+        raise ProbeError("SHADOW_RESOLVER_OUTPUT_INVALID")
+    if resolved != [SHADOW_MCP_SERVER]:
+        raise ProbeError("SHADOW_EFFECTIVE_TOOLSETS_NOT_EXACT")
+    if payload.get("config_exact") is not True:
+        raise ProbeError("SHADOW_MCP_SERVER_CONFIG_NOT_EXACT")
+    return payload
+
+
 def probe(args: argparse.Namespace) -> dict:
     base_url = _loopback_url(args.url)
     api_key = _read_private_file(Path(args.api_key_file))
@@ -123,15 +221,21 @@ def probe(args: argparse.Namespace) -> dict:
     data = toolsets.get("data")
     if not isinstance(data, list):
         raise ProbeError("SHADOW_TOOLSETS_PAYLOAD_INVALID")
-    enabled = [item for item in data if isinstance(item, dict) and item.get("enabled") is True]
-    if len(enabled) != 1 or enabled[0].get("name") != SHADOW_TOOLSET:
-        raise ProbeError("SHADOW_EFFECTIVE_TOOLSETS_NOT_EXACT")
-    tools = enabled[0].get("tools")
-    observed_tools = sorted(str(item) for item in tools) if isinstance(tools, list) else []
-    if observed_tools != sorted(SHADOW_HERMES_TOOL_NAMES):
-        raise ProbeError("SHADOW_EFFECTIVE_TOOLS_NOT_EXACT")
+    native_enabled = sorted(
+        str(item.get("name"))
+        for item in data
+        if isinstance(item, dict) and item.get("enabled") is True
+    )
+    # /v1/toolsets intentionally lists configurable/native toolsets and omits
+    # dynamic MCP servers. A mechanically isolated MCP-only shadow must expose
+    # zero enabled native entries here.
+    if native_enabled:
+        raise ProbeError("SHADOW_NATIVE_TOOLSETS_NOT_EMPTY")
+
     if sessions.get("object") != "list" or not isinstance(sessions.get("data"), list):
         raise ProbeError("SHADOW_SESSION_DB_INVALID")
+
+    resolver = _probe_hermes_resolver(args)
 
     report = {
         "schema": SHADOW_ISOLATION_SCHEMA,
@@ -141,8 +245,14 @@ def probe(args: argparse.Namespace) -> dict:
         "api_platform": "api_server",
         "api_bind_loopback": True,
         "api_auth_required": True,
-        "effective_toolsets": [SHADOW_TOOLSET],
-        "effective_tools": observed_tools,
+        "effective_toolsets": list(resolver["resolved"]),
+        "native_toolsets_enabled": native_enabled,
+        # These names are derived only after the same installed Hermes resolver
+        # and exact MCP include/resources/prompts config have been verified.
+        # The 15-sample collector then proves the tools are actually callable.
+        "effective_tools": sorted(SHADOW_HERMES_TOOL_NAMES),
+        "resolver_exact": True,
+        "mcp_server_config_exact": True,
         "repository_scopes": [args.repository],
         "credential_provider_type": "github_app",
         "credential_capability": "github.read",
@@ -196,6 +306,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--repository", required=True)
     parser.add_argument("--source-commit", required=True)
     parser.add_argument("--json-out", required=True)
+    parser.add_argument("--hermes-python", required=True)
+    parser.add_argument("--shadow-home", required=True)
     return parser
 
 
