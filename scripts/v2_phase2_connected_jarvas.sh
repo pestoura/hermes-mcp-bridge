@@ -95,6 +95,41 @@ raise SystemExit(2)
 ' "$field" 2>/dev/null
 }
 
+# Same boundary for the shadow probe: only its stable status/reason vocabulary is
+# allowed to cross the launcher boundary. Raw HTTP responses and gateway logs are
+# never emitted.
+shadow_output_field() {
+  local field="$1"
+  "$VENV/bin/python" -c '
+import json
+import re
+import sys
+
+field = sys.argv[1]
+try:
+    payload = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(2)
+if not isinstance(payload, dict):
+    raise SystemExit(2)
+if field == "reason":
+    value = payload.get("reason")
+    if (
+        payload.get("status") == "SHADOW_ISOLATION_BLOCKED"
+        and isinstance(value, str)
+        and re.fullmatch(r"[A-Z0-9_]{1,160}", value)
+    ):
+        print(value)
+        raise SystemExit(0)
+elif field == "status":
+    value = payload.get("status")
+    if value == "SHADOW_ISOLATION_PROVEN":
+        print(value)
+        raise SystemExit(0)
+raise SystemExit(2)
+' "$field" 2>/dev/null
+}
+
 for cmd in git openssl python3 hermes setsid readlink; do
   command -v "$cmd" >/dev/null 2>&1 || blocked "RUNTIME_COMMAND_MISSING"
 done
@@ -208,27 +243,41 @@ done
 : >"$SHADOW_BRIDGE_LOG"
 chmod 600 "$SHADOW_HERMES_LOG" "$SHADOW_BRIDGE_LOG"
 
-# Start Hermes with an empty inherited environment. The only secrets it can
-# resolve are the model-provider material intentionally written into the
-# disposable home. The MCP subprocess separately receives only the read-only
-# GitHub token-file path declared in its private config.
+# Start Hermes with an empty inherited environment. The CLI contract requires
+# `hermes gateway run` for the foreground runtime; bare `hermes gateway` is only
+# the gateway command family and does not establish the API-server process.
 setsid env -i \
   HOME="$SHADOW_HOME" \
   HERMES_HOME="$SHADOW_HOME" \
   PATH="$PATH" \
   USER="${USER:-estourpm}" \
   LANG="${LANG:-C.UTF-8}" \
-  "$HERMES_BIN" gateway >"$SHADOW_HERMES_LOG" 2>&1 &
+  "$HERMES_BIN" gateway run >"$SHADOW_HERMES_LOG" 2>&1 &
 SHADOW_HERMES_PID=$!
 
 SHADOW_API_URL="http://127.0.0.1:$SHADOW_API_PORT"
-"$VENV/bin/python" "$SRC/scripts/v2_phase2_probe_shadow_runtime.py" \
-  --url "$SHADOW_API_URL" \
-  --api-key-file "$SHADOW_API_KEY" \
-  --repository "$REPOSITORY" \
-  --source-commit "$SOURCE_COMMIT" \
-  --json-out "$SHADOW_ISOLATION" >/dev/null \
-  || blocked "SHADOW_ISOLATION_NOT_PROVEN"
+SHADOW_PROBE_OUTPUT=''
+if ! SHADOW_PROBE_OUTPUT="$(
+  "$VENV/bin/python" "$SRC/scripts/v2_phase2_probe_shadow_runtime.py" \
+    --url "$SHADOW_API_URL" \
+    --api-key-file "$SHADOW_API_KEY" \
+    --repository "$REPOSITORY" \
+    --source-commit "$SOURCE_COMMIT" \
+    --json-out "$SHADOW_ISOLATION" 2>/dev/null
+)"; then
+  SHADOW_REASON="$(
+    printf '%s' "$SHADOW_PROBE_OUTPUT" | shadow_output_field reason || true
+  )"
+  SHADOW_PROBE_OUTPUT=''
+  [[ -n "$SHADOW_REASON" ]] || SHADOW_REASON='SHADOW_ISOLATION_NOT_PROVEN'
+  blocked "$SHADOW_REASON"
+fi
+SHADOW_STATUS="$(
+  printf '%s' "$SHADOW_PROBE_OUTPUT" | shadow_output_field status || true
+)"
+SHADOW_PROBE_OUTPUT=''
+[[ "$SHADOW_STATUS" == 'SHADOW_ISOLATION_PROVEN' ]] \
+  || blocked "SHADOW_ISOLATION_OUTPUT_INVALID"
 
 [[ -s "$SHADOW_ISOLATION" && "$(stat -c '%a' "$SHADOW_ISOLATION")" == '600' ]] \
   || blocked "SHADOW_ISOLATION_EVIDENCE_INVALID"
@@ -320,8 +369,8 @@ rm -f -- "$EVIDENCE" "$GATE"
 
 [[ -s "$EVIDENCE" ]] || blocked "CONNECTED_EVIDENCE_NOT_PRODUCED"
 
-# Promotion now requires BOTH the original connected contract and the companion
-# live isolation proof bound to the same source commit and repository scope.
+# Promotion requires both the connected evidence contract and the live
+# shadow-isolation proof, bound to the same source commit and repository scope.
 if ! "$VENV/bin/python" "$SRC/scripts/validate_v2_phase2_connected_gate.py" \
   "$EVIDENCE" \
   --shadow-isolation "$SHADOW_ISOLATION" \
