@@ -12,13 +12,11 @@ acceptance are complete.
 ```text
 Typed GitHub operation
         ↓
-canonical Tool Registry
-        ↓
-fail-closed PolicyEngine
+canonical Tool Registry / direct-read classification
         ↓
 exact repository scope
         ↓
-github.read readiness
+fail-closed PolicyEngine + capability/github.read readiness
         ↓
 GitHubAuthorizationProvider
         ↓
@@ -31,7 +29,9 @@ explicit result shaping + byte budget
 GitHubDirectResult
 ```
 
-There is no Hermes client, prompt, agent or LLM in this path.
+There is no Hermes client, prompt, agent or LLM in this path. Repository scope
+is checked before policy/readiness so an out-of-scope request cannot learn the
+internal state of `github.read` and cannot trigger authorization resolution.
 
 ## Typed tools
 
@@ -104,12 +104,16 @@ implementation in the repository is an in-memory static test provider; it is
 A DIRECT call is denied before authorization material is resolved when:
 
 - the tool is unknown/not DIRECT/not read-only;
+- the repository is outside the exact allow-list;
 - policy is not `ALLOW`;
-- required capability/credential readiness is not `READY`;
-- the repository is outside the exact allow-list.
+- required capability/credential readiness is not `READY`.
 
-If those gates pass but material cannot be resolved, execution still fails
-closed with `CREDENTIAL_MATERIAL_UNAVAILABLE`.
+The repository-scope check happens before the readiness broker is consulted.
+Hermetic tests assert that an out-of-scope request performs zero readiness
+lookups, zero authorization resolutions and zero HTTP requests.
+
+If all gates pass but material cannot be resolved, execution still fails closed
+with `CREDENTIAL_MATERIAL_UNAVAILABLE`.
 
 ## Result shaping
 
