@@ -55,10 +55,33 @@ jobs:
 
       # Build and security artefacts are architecture/runtime gates, not Python
       # compatibility gates. Run them once on the production interpreter to
-      # avoid duplicate images and duplicate SBOM retention from the matrix.
-      - name: Build runtime image
+      # avoid duplicate images and duplicate evidence retention from the matrix.
+      - name: Build runtime image with immutable provenance
         if: matrix.python-version == '3.12'
-        run: docker build --tag hermes-mcp-bridge:ci .
+        run: |
+          set -Eeuo pipefail
+          CREATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          docker build \
+            --build-arg OCI_IMAGE_REVISION="${{ github.sha }}" \
+            --build-arg OCI_IMAGE_VERSION="1.0.0" \
+            --build-arg OCI_IMAGE_CREATED="$CREATED" \
+            --build-arg BRIDGE_BUILD_ID="${{ github.run_id }}.${{ github.run_attempt }}" \
+            --build-arg BRIDGE_SCHEMA_VERSION="0.6.1" \
+            --build-arg BRIDGE_CONTRACT_VERSION="1.0.0" \
+            --tag hermes-mcp-bridge:ci \
+            .
+
+      - name: Validate image provenance
+        if: matrix.python-version == '3.12'
+        run: |
+          python scripts/validate_image_provenance.py \
+            --image hermes-mcp-bridge:ci \
+            --revision "${{ github.sha }}" \
+            --version "1.0.0" \
+            --build-id "${{ github.run_id }}.${{ github.run_attempt }}" \
+            --schema-version "0.6.1" \
+            --contract-version "1.0.0" \
+            --output image-provenance.json
 
       - name: Accept candidate in isolated Docker stack
         if: matrix.python-version == '3.12'
@@ -103,10 +126,10 @@ jobs:
           print(f"validated CycloneDX SBOM with {len(payload['components'])} components")
           PY
 
-      # GitHub Actions artifact storage is quota-bound. Retain the validated
-      # SBOM instead as a draft release asset tied to the exact tested SHA.
-      # This step is intentionally blocking: release evidence is mandatory.
-      - name: Retain SBOM as release evidence
+      # GitHub Actions artifact storage is quota-bound. Retain both the
+      # validated SBOM and sanitized image provenance as draft release assets
+      # tied to the exact tested SHA. This is intentionally blocking.
+      - name: Retain supply-chain evidence
         if: matrix.python-version == '3.12'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -115,41 +138,47 @@ jobs:
           set -Eeuo pipefail
 
           SBOM_SHA256="$(sha256sum sbom-cyclonedx.json | awk '{print $1}')"
+          PROVENANCE_SHA256="$(sha256sum image-provenance.json | awk '{print $1}')"
           NOTES_FILE="$(mktemp)"
           trap 'rm -f "$NOTES_FILE"' EXIT
 
           cat >"$NOTES_FILE" <<EOF
-          CycloneDX SBOM retained for Hermes MCP Bridge 1.0.0 acceptance.
+          Supply-chain evidence retained for Hermes MCP Bridge 1.0.0 acceptance.
 
           Tested commit: ${{ github.sha }}
+          Build ID: ${{ github.run_id }}.${{ github.run_attempt }}
           Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           SBOM SHA-256: ${SBOM_SHA256}
+          Provenance SHA-256: ${PROVENANCE_SHA256}
           EOF
 
           if gh release view "$EVIDENCE_TAG" >/dev/null 2>&1; then
             gh release upload \
               "$EVIDENCE_TAG" \
               sbom-cyclonedx.json \
+              image-provenance.json \
               --clobber
           else
             gh release create \
               "$EVIDENCE_TAG" \
               sbom-cyclonedx.json \
+              image-provenance.json \
               --draft \
               --target "${{ github.sha }}" \
-              --title "SBOM evidence ${{ github.sha }}" \
+              --title "Supply-chain evidence ${{ github.sha }}" \
               --notes-file "$NOTES_FILE"
           fi
 
           ASSET_COUNT="$(
             gh release view "$EVIDENCE_TAG" \
               --json assets \
-              --jq '.assets | map(select(.name == "sbom-cyclonedx.json")) | length'
+              --jq '[.assets[] | select(.name == "sbom-cyclonedx.json" or .name == "image-provenance.json")] | length'
           )"
-          if [ "$ASSET_COUNT" != "1" ]; then
-            echo "SBOM release evidence was not retained"
+          if [ "$ASSET_COUNT" != "2" ]; then
+            echo "required supply-chain evidence was not retained"
             exit 1
           fi
 
-          printf 'retained_sbom_tag=%s\n' "$EVIDENCE_TAG"
+          printf 'retained_evidence_tag=%s\n' "$EVIDENCE_TAG"
           printf 'retained_sbom_sha256=%s\n' "$SBOM_SHA256"
+          printf 'retained_provenance_sha256=%s\n' "$PROVENANCE_SHA256"
