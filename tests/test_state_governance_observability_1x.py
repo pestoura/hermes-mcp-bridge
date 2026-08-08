@@ -8,7 +8,11 @@ from datetime import UTC, datetime, timedelta
 from hermes_mcp_bridge.locks import LockRegistry
 from hermes_mcp_bridge.models import LockType, ResourceLock
 from hermes_mcp_bridge.observability import state_governance
-from hermes_mcp_bridge.observability.metrics import get_registry, render_prometheus
+from hermes_mcp_bridge.observability.metrics import (
+    BOUNDED_LABEL_VALUES,
+    get_registry,
+    render_prometheus,
+)
 
 
 def setup_function() -> None:
@@ -101,7 +105,7 @@ def test_real_lock_expiry_transition_is_counted_once(tmp_path) -> None:
     assert counter.value(outcome="expired") == 1.0
 
 
-def test_checkpoint_and_continuation_events_are_event_only() -> None:
+def test_checkpoint_and_continuation_events_reuse_global_outcomes() -> None:
     state_governance.observe_state_tool_result(
         "hermes_checkpoint_create",
         {"checkpoint_id": "checkpoint-secret", "execution_id": "run-secret"},
@@ -118,10 +122,10 @@ def test_checkpoint_and_continuation_events_are_event_only() -> None:
     registry = get_registry()
     assert registry.counter(
         "bridge_checkpoint_events_total", "unused"
-    ).value(outcome="created") == 1.0
+    ).value(outcome="success") == 1.0
     continuation = registry.counter("bridge_continuation_events_total", "unused")
-    assert continuation.value(outcome="created") == 1.0
-    assert continuation.value(outcome="unsupported") == 1.0
+    assert continuation.value(outcome="success") == 1.0
+    assert continuation.value(outcome="skipped") == 1.0
 
     text = render_prometheus()
     assert "checkpoint-secret" not in text
@@ -129,7 +133,7 @@ def test_checkpoint_and_continuation_events_are_event_only() -> None:
     assert "run-secret" not in text
 
 
-def test_saga_events_and_compensations_are_bounded(monkeypatch) -> None:
+def test_saga_events_reuse_global_outcomes_and_stay_bounded(monkeypatch) -> None:
     monkeypatch.setattr(state_governance, "_saga_duration_from_result", lambda _result: 2.5)
     state_governance.observe_state_tool_result(
         "hermes_saga_start",
@@ -142,14 +146,13 @@ def test_saga_events_and_compensations_are_bounded(monkeypatch) -> None:
 
     registry = get_registry()
     events = registry.counter("bridge_saga_events_total", "unused")
-    assert events.value(outcome="started") == 1.0
-    assert events.value(outcome="compensated") == 1.0
+    assert events.value(outcome="success") == 2.0
     assert registry.counter(
         "bridge_saga_compensations_total", "unused"
-    ).value(outcome="compensated") == 1.0
+    ).value(outcome="success") == 1.0
     duration = registry.histogram(
         "bridge_saga_duration_seconds", "unused"
-    ).snapshot(outcome="compensated")
+    ).snapshot(outcome="success")
     assert duration == {"count": 1, "sum": 2.5}
 
     text = render_prometheus()
@@ -180,5 +183,6 @@ def test_quota_status_is_explicitly_not_enforced() -> None:
 
 
 def test_state_governance_cardinality_remains_bounded() -> None:
+    assert len(BOUNDED_LABEL_VALUES["outcome"]) <= 40
     health = get_registry().health()
     assert health["unbounded_labels"] == []
