@@ -28,6 +28,21 @@ def test_jarvas_launcher_pins_exact_launcher_checkout_commit() -> None:
     assert "git clone -q --depth 1" not in text
 
 
+def test_jarvas_launcher_preserves_only_sanitized_mint_reason() -> None:
+    text = _text()
+    assert "mint_output_field()" in text
+    assert 're.fullmatch(r"[A-Z0-9_]{1,128}", value)' in text
+    assert 'payload.get("status") == "GITHUB_APP_INSTALLATION_TOKEN_BLOCKED"' in text
+    assert 'value == "GITHUB_APP_INSTALLATION_TOKEN_MINTED"' in text
+    expected_reason_parse = (
+        'MINT_REASON="$(printf \'%s\' "$MINT_OUTPUT" | mint_output_field reason || true)"'
+    )
+    assert expected_reason_parse in text
+    assert 'blocked "$MINT_REASON"' in text
+    assert 'MINT_OUTPUT=\'\'' in text
+    assert '--attestation-out "$ATTESTATION" >/dev/null' not in text
+
+
 def test_jarvas_launcher_derives_read_only_basis_from_live_shadow_probe() -> None:
     text = _text()
     assert "HERMES_V2_SHADOW_MUTATION_BASIS" not in text

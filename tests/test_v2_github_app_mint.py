@@ -114,6 +114,48 @@ def test_mint_writes_exact_scope_token_and_sanitized_attestation(tmp_path, monke
     assert result.installation_id == 4242
 
 
+@pytest.mark.parametrize(
+    ("operation", "status_code", "expected"),
+    [
+        ("discovery", 401, "INSTALLATION_DISCOVERY_JWT_REJECTED"),
+        ("discovery", 403, "INSTALLATION_DISCOVERY_FORBIDDEN"),
+        ("discovery", 404, "INSTALLATION_NOT_FOUND_FOR_REPOSITORY"),
+        ("discovery", 422, "INSTALLATION_DISCOVERY_REQUEST_REJECTED"),
+        ("mint", 401, "INSTALLATION_TOKEN_JWT_REJECTED"),
+        ("mint", 403, "INSTALLATION_TOKEN_FORBIDDEN"),
+        ("mint", 404, "INSTALLATION_TOKEN_INSTALLATION_NOT_FOUND"),
+        ("mint", 422, "INSTALLATION_TOKEN_SCOPE_REJECTED"),
+        ("mint", 500, "MINT_HTTP_500"),
+    ],
+)
+def test_http_failure_codes_are_actionable_and_secret_free(operation, status_code, expected):
+    code = mintmod._http_failure_code(operation, status_code)
+    assert code == expected
+    assert code.isascii()
+    assert all(char.isupper() or char.isdigit() or char == "_" for char in code)
+
+
+def test_mint_rejects_discovery_404_with_specific_code(tmp_path, monkeypatch):
+    _private_dir(tmp_path)
+    key = _key(tmp_path)
+    monkeypatch.setattr(mintmod, "build_app_jwt", lambda issuer, path: "test.jwt.value")
+
+    client = httpx.Client(
+        base_url=mintmod.GITHUB_API_BASE_URL,
+        transport=httpx.MockTransport(lambda request: httpx.Response(404, json={})),
+    )
+    with pytest.raises(mintmod.GitHubAppMintError) as exc:
+        mintmod.mint_installation_token(
+            issuer="Iv1.non-secret-client-id",
+            private_key_path=key,
+            repository=REPOSITORY,
+            token_output_path=tmp_path / "direct.token",
+            attestation_output_path=tmp_path / "attestation.json",
+            client=client,
+        )
+    assert exc.value.code == "INSTALLATION_NOT_FOUND_FOR_REPOSITORY"
+
+
 def test_mint_rejects_unexpected_installation_permission_before_token_request(
     tmp_path, monkeypatch
 ):

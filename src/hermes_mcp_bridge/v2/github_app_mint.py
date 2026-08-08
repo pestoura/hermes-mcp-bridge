@@ -166,6 +166,29 @@ def _json_object(response: httpx.Response, code: str) -> dict[str, Any]:
     return value
 
 
+def _http_failure_code(operation: str, status_code: int) -> str:
+    """Map provider HTTP status to a secret-free, actionable failure code."""
+
+    known = {
+        "discovery": {
+            401: "INSTALLATION_DISCOVERY_JWT_REJECTED",
+            403: "INSTALLATION_DISCOVERY_FORBIDDEN",
+            404: "INSTALLATION_NOT_FOUND_FOR_REPOSITORY",
+            422: "INSTALLATION_DISCOVERY_REQUEST_REJECTED",
+        },
+        "mint": {
+            401: "INSTALLATION_TOKEN_JWT_REJECTED",
+            403: "INSTALLATION_TOKEN_FORBIDDEN",
+            404: "INSTALLATION_TOKEN_INSTALLATION_NOT_FOUND",
+            422: "INSTALLATION_TOKEN_SCOPE_REJECTED",
+        },
+    }
+    operation_codes = known.get(operation)
+    if operation_codes is None:
+        raise GitHubAppMintError("HTTP_FAILURE_CLASSIFICATION_INVALID")
+    return operation_codes.get(status_code, f"{operation.upper()}_HTTP_{status_code}")
+
+
 def _normalize_permissions(value: Any) -> dict[str, str]:
     if not isinstance(value, dict):
         return {}
@@ -259,7 +282,9 @@ def mint_installation_token(
             headers=_headers(jwt),
         )
         if installation_response.status_code != 200:
-            raise GitHubAppMintError("INSTALLATION_DISCOVERY_FAILED")
+            raise GitHubAppMintError(
+                _http_failure_code("discovery", installation_response.status_code)
+            )
         installation = _json_object(installation_response, "INSTALLATION_RESPONSE_INVALID")
 
         installation_id = installation.get("id")
@@ -279,7 +304,7 @@ def mint_installation_token(
             },
         )
         if mint_response.status_code != 201:
-            raise GitHubAppMintError("INSTALLATION_TOKEN_MINT_FAILED")
+            raise GitHubAppMintError(_http_failure_code("mint", mint_response.status_code))
         minted = _json_object(mint_response, "INSTALLATION_TOKEN_RESPONSE_INVALID")
 
         token = minted.get("token")
