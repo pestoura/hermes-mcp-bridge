@@ -4,6 +4,12 @@
 Run this helper with the Python interpreter belonging to the installed Hermes
 runtime. It copies only model-provider material needed for inference, never
 messaging/integration credentials, and writes no secret value to stdout.
+
+The launcher historically guessed that interpreter as ``$(dirname hermes)/python``.
+That is not reliable for console-script shims.  If this helper starts under a
+Python that cannot import the same Hermes modules as the gateway executable, it
+locates the console script's real interpreter and re-execs itself before any
+shadow configuration is written.
 """
 
 from __future__ import annotations
@@ -27,6 +33,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
+from hermes_mcp_bridge.v2.hermes_runtime import (  # noqa: E402
+    HermesRuntimeError,
+    resolve_hermes_python,
+)
 from hermes_mcp_bridge.v2.shadow_isolation import (  # noqa: E402
     SHADOW_MCP_SERVER,
     SHADOW_MCP_TOOL_NAMES,
@@ -137,6 +147,55 @@ def _matching_custom_providers(source: dict[str, Any], provider: str) -> list[An
         if identity == provider:
             matches.append(_sanitize_config_value(item))
     return matches
+
+
+def _runtime_resolver_available() -> bool:
+    try:
+        from hermes_cli.tools_config import _get_platform_tools
+    except Exception:
+        return False
+    return callable(_get_platform_tools)
+
+
+def _ensure_hermes_runtime_python(args: argparse.Namespace, argv: list[str]) -> None:
+    """Re-exec under the Python proven to own the running Hermes console script."""
+    if _runtime_resolver_available():
+        return
+    hermes_bin = shutil.which("hermes")
+    if not hermes_bin:
+        raise ShadowHomeError("HERMES_RUNTIME_EXECUTABLE_MISSING")
+    try:
+        resolved = resolve_hermes_python(
+            hermes_bin,
+            home=os.environ.get("HOME", str(Path.home())),
+            hermes_home=args.source_home,
+            path_env=os.environ.get("PATH", ""),
+        )
+    except HermesRuntimeError as exc:
+        raise ShadowHomeError(exc.code) from exc
+
+    try:
+        current = Path(sys.executable).resolve(strict=True)
+    except OSError as exc:
+        raise ShadowHomeError("HERMES_RUNTIME_PYTHON_UNRESOLVED") from exc
+    if resolved == current:
+        raise ShadowHomeError("HERMES_TOOLSET_RESOLVER_UNAVAILABLE")
+
+    # Re-exec with a minimal environment.  All provider material required by
+    # the shadow is read selectively from source_home/.env below; broad caller
+    # credentials must not become part of the compatibility handoff.
+    env = {
+        "HOME": os.environ.get("HOME", str(Path.home())),
+        "HERMES_HOME": str(Path(args.source_home).expanduser().resolve()),
+        "PATH": os.environ.get("PATH", ""),
+        "USER": os.environ.get("USER", "estourpm"),
+        "LANG": os.environ.get("LANG", "C.UTF-8"),
+    }
+    os.execve(
+        str(resolved),
+        [str(resolved), str(Path(__file__).resolve()), *argv],
+        env,
+    )
 
 
 def _constrain_platform_to_shadow_mcp(target: dict[str, Any]) -> int:
@@ -299,8 +358,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
+    args = build_parser().parse_args(raw_argv)
     try:
+        _ensure_hermes_runtime_python(args, raw_argv)
         result = prepare(args)
     except ShadowHomeError as exc:
         print(json.dumps({"status": "SHADOW_HOME_BLOCKED", "reason": exc.code}))

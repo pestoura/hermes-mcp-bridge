@@ -1,0 +1,160 @@
+"""Resolve the Python interpreter that actually owns the installed Hermes CLI.
+
+The Phase 2 acceptance launcher must introspect the exact Hermes runtime that
+serves the connected API.  Guessing ``$(dirname hermes)/python`` is unsafe:
+console-script shims and symlinks may live beside a different Python executable.
+
+This module follows the resolved console script's shebang first, then bounded
+fallback candidates, and accepts an interpreter only when it can import the
+Hermes modules required by the connected shadow proof.  Candidate paths are
+never emitted by the public/sanitized launcher contract.
+"""
+
+from __future__ import annotations
+
+import os
+import shlex
+import shutil
+import stat
+import subprocess
+import sys
+from pathlib import Path
+from typing import Iterable
+
+
+class HermesRuntimeError(RuntimeError):
+    """Stable, secret-free Hermes runtime resolution failure."""
+
+    __slots__ = ("code",)
+
+    def __init__(self, code: str) -> None:
+        self.code = code
+        super().__init__(code)
+
+
+def _unique_existing_executables(values: Iterable[str | Path | None]) -> list[Path]:
+    seen: set[str] = set()
+    result: list[Path] = []
+    for raw in values:
+        if raw is None:
+            continue
+        text = str(raw).strip()
+        if not text:
+            continue
+        path = Path(text).expanduser()
+        try:
+            resolved = path.resolve(strict=True)
+            info = resolved.stat()
+        except OSError:
+            continue
+        if not stat.S_ISREG(info.st_mode) or not os.access(resolved, os.X_OK):
+            continue
+        key = str(resolved)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(resolved)
+    return result
+
+
+def _shebang_python(hermes_bin: Path, *, path_env: str) -> Path | None:
+    try:
+        first = hermes_bin.open("rb").readline(4096).decode("utf-8", errors="replace").strip()
+    except OSError:
+        return None
+    if not first.startswith("#!"):
+        return None
+    try:
+        parts = shlex.split(first[2:].strip())
+    except ValueError:
+        return None
+    if not parts:
+        return None
+
+    command = parts[0]
+    if Path(command).name == "env":
+        # Console scripts normally use either ``/usr/bin/env python3`` or an
+        # absolute interpreter.  Support ``env -S ...`` defensively while only
+        # considering python-like command tokens.
+        tokens = parts[1:]
+        if tokens[:1] == ["-S"]:
+            tokens = tokens[1:]
+        for token in tokens:
+            if token.startswith("-"):
+                continue
+            if "python" not in Path(token).name.lower():
+                return None
+            hit = shutil.which(token, path=path_env)
+            return Path(hit).resolve() if hit else None
+        return None
+
+    if "python" not in Path(command).name.lower():
+        return None
+    candidate = Path(command).expanduser()
+    try:
+        return candidate.resolve(strict=True)
+    except OSError:
+        return None
+
+
+def _supports_required_hermes_modules(candidate: Path, *, env: dict[str, str]) -> bool:
+    code = (
+        "from hermes_cli.tools_config import _get_platform_tools; "
+        "import gateway.platforms.api_server; "
+        "assert callable(_get_platform_tools)"
+    )
+    try:
+        completed = subprocess.run(
+            [str(candidate), "-c", code],
+            env=env,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=15,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return completed.returncode == 0
+
+
+def resolve_hermes_python(
+    hermes_bin: str | Path,
+    *,
+    home: str | Path,
+    hermes_home: str | Path,
+    path_env: str | None = None,
+) -> Path:
+    """Return the interpreter proven to own the installed Hermes runtime."""
+    try:
+        executable = Path(hermes_bin).expanduser().resolve(strict=True)
+        info = executable.stat()
+    except OSError as exc:
+        raise HermesRuntimeError("HERMES_RUNTIME_EXECUTABLE_INVALID") from exc
+    if not stat.S_ISREG(info.st_mode) or not os.access(executable, os.X_OK):
+        raise HermesRuntimeError("HERMES_RUNTIME_EXECUTABLE_INVALID")
+
+    path_value = path_env if path_env is not None else os.environ.get("PATH", "")
+    shebang = _shebang_python(executable, path_env=path_value)
+    sibling = executable.parent
+    candidates = _unique_existing_executables(
+        [
+            shebang,
+            sibling / "python",
+            sibling / "python3",
+            shutil.which("python3", path=path_value),
+            shutil.which("python", path=path_value),
+            sys.executable,
+        ]
+    )
+    probe_env = {
+        "HOME": str(Path(home).expanduser().resolve()),
+        "HERMES_HOME": str(Path(hermes_home).expanduser().resolve()),
+        "PATH": path_value,
+        "USER": os.environ.get("USER", "estourpm"),
+        "LANG": os.environ.get("LANG", "C.UTF-8"),
+    }
+    for candidate in candidates:
+        if _supports_required_hermes_modules(candidate, env=probe_env):
+            return candidate
+    raise HermesRuntimeError("HERMES_RUNTIME_PYTHON_UNRESOLVED")
