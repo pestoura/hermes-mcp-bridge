@@ -12,10 +12,16 @@ import pytest
 
 from hermes_mcp_bridge import contracts
 from hermes_mcp_bridge.v2.credentials import (
+    CredentialBroker,
     CredentialCapabilityStatus,
     StaticCredentialBroker,
 )
-from hermes_mcp_bridge.v2.enums import CapabilityState, ExecutionMode, MutationClass, SecurityTier
+from hermes_mcp_bridge.v2.enums import (
+    CapabilityState,
+    ExecutionMode,
+    MutationClass,
+    SecurityTier,
+)
 from hermes_mcp_bridge.v2.github_auth import (
     GitHubAuthorization,
     GitHubAuthorizationError,
@@ -59,7 +65,28 @@ class RecordingTransport:
         return httpx.MockTransport(self)
 
 
-def _broker(state: CapabilityState = CapabilityState.READY) -> StaticCredentialBroker:
+class CountingCredentialBroker:
+    """Test broker proving resource scope is checked before readiness."""
+
+    def __init__(self, state: CapabilityState = CapabilityState.READY) -> None:
+        self.status_calls = 0
+        self._delegate = _broker(state)
+
+    def status(
+        self,
+        credential_capability_id: str,
+    ) -> CredentialCapabilityStatus | None:
+        self.status_calls += 1
+        return self._delegate.status(credential_capability_id)
+
+    def is_ready(self, credential_capability_id: str) -> bool:
+        status = self.status(credential_capability_id)
+        return bool(status and status.is_ready)
+
+
+def _broker(
+    state: CapabilityState = CapabilityState.READY,
+) -> StaticCredentialBroker:
     return StaticCredentialBroker(
         [
             CredentialCapabilityStatus(
@@ -73,7 +100,12 @@ def _broker(state: CapabilityState = CapabilityState.READY) -> StaticCredentialB
 
 def _auth_provider(*, include: bool = True) -> StaticGitHubAuthorizationProvider:
     entries = (
-        {(GITHUB_READ_CREDENTIAL_CAPABILITY, REPOSITORY): GitHubAuthorization(TOKEN)}
+        {
+            (
+                GITHUB_READ_CREDENTIAL_CAPABILITY,
+                REPOSITORY,
+            ): GitHubAuthorization(TOKEN)
+        }
         if include
         else {}
     )
@@ -84,7 +116,7 @@ def _executor(
     recording: RecordingTransport,
     *,
     scope: GitHubRepositoryScope | None = None,
-    broker: StaticCredentialBroker | None = None,
+    broker: CredentialBroker | None = None,
     provider: StaticGitHubAuthorizationProvider | None = None,
     rules: PolicyRuleSet | None = None,
     max_result_bytes: int = 64 * 1024,
@@ -93,14 +125,23 @@ def _executor(
         registry=build_github_direct_read_registry(),
         rules=rules if rules is not None else github_direct_read_policy_rules(),
         credential_broker=broker if broker is not None else _broker(),
-        authorization_provider=provider if provider is not None else _auth_provider(),
-        scope=scope if scope is not None else GitHubRepositoryScope([REPOSITORY]),
+        authorization_provider=(
+            provider if provider is not None else _auth_provider()
+        ),
+        scope=(
+            scope if scope is not None else GitHubRepositoryScope([REPOSITORY])
+        ),
         transport=recording.transport(),
         max_result_bytes=max_result_bytes,
     )
 
 
-def _response(payload: dict[str, Any], *, status: int = 200, headers: dict[str, str] | None = None) -> httpx.Response:
+def _response(
+    payload: dict[str, Any],
+    *,
+    status: int = 200,
+    headers: dict[str, str] | None = None,
+) -> httpx.Response:
     return httpx.Response(status, json=payload, headers=headers or {})
 
 
@@ -132,7 +173,8 @@ def _repo_payload(**overrides: Any) -> dict[str, Any]:
 
 def test_registry_contains_exact_five_phase2_tools() -> None:
     registry = build_github_direct_read_registry()
-    assert tuple(tool.tool_id for tool in registry.ordered()) == GITHUB_DIRECT_READ_TOOL_IDS
+    tool_ids = tuple(tool.tool_id for tool in registry.ordered())
+    assert tool_ids == GITHUB_DIRECT_READ_TOOL_IDS
     assert len(registry) == 5
     for tool in registry.ordered():
         assert tool.execution_mode is ExecutionMode.DIRECT
@@ -199,7 +241,11 @@ def test_authorization_material_and_provider_are_redacted() -> None:
 async def test_policy_denial_happens_before_auth_resolution_and_network() -> None:
     recording = RecordingTransport()
     provider = _auth_provider()
-    executor = _executor(recording, provider=provider, rules=PolicyRuleSet([]))
+    executor = _executor(
+        recording,
+        provider=provider,
+        rules=PolicyRuleSet([]),
+    )
 
     with pytest.raises(GitHubDirectDenied, match="POLICY_MISSING_POLICY_RULE"):
         await executor.get_repo("pestoura", "hermes-mcp-bridge")
@@ -209,18 +255,21 @@ async def test_policy_denial_happens_before_auth_resolution_and_network() -> Non
 
 
 @pytest.mark.asyncio
-async def test_scope_denial_happens_before_auth_resolution_and_network() -> None:
+async def test_scope_denial_precedes_readiness_auth_and_network() -> None:
     recording = RecordingTransport()
     provider = _auth_provider()
+    broker = CountingCredentialBroker()
     executor = _executor(
         recording,
         provider=provider,
+        broker=broker,
         scope=GitHubRepositoryScope(["pestoura/allowed-only"]),
     )
 
     with pytest.raises(GitHubDirectDenied, match="RESOURCE_SCOPE_DENIED"):
         await executor.get_repo("pestoura", "hermes-mcp-bridge")
 
+    assert broker.status_calls == 0
     assert provider.resolve_calls == 0
     assert recording.requests == []
 
@@ -235,7 +284,8 @@ async def test_non_ready_credential_denies_before_auth_resolution_and_network() 
         broker=_broker(CapabilityState.DEGRADED),
     )
 
-    with pytest.raises(GitHubDirectDenied, match="POLICY_CREDENTIAL_CAPABILITY_NOT_READY"):
+    pattern = "POLICY_CREDENTIAL_CAPABILITY_NOT_READY"
+    with pytest.raises(GitHubDirectDenied, match=pattern):
         await executor.get_repo("pestoura", "hermes-mcp-bridge")
 
     assert provider.resolve_calls == 0
@@ -261,7 +311,7 @@ async def test_missing_authorization_material_fails_closed_without_network() -> 
 
 
 @pytest.mark.asyncio
-async def test_get_repo_uses_fixed_github_headers_get_only_and_shapes_result() -> None:
+async def test_get_repo_uses_fixed_headers_get_only_and_shapes_result() -> None:
     recording = RecordingTransport(
         [
             _response(
@@ -273,7 +323,10 @@ async def test_get_repo_uses_fixed_github_headers_get_only_and_shapes_result() -
             )
         ]
     )
-    result = await _executor(recording).get_repo("pestoura", "hermes-mcp-bridge")
+    result = await _executor(recording).get_repo(
+        "pestoura",
+        "hermes-mcp-bridge",
+    )
 
     assert len(recording.requests) == 1
     request = recording.requests[0]
@@ -306,14 +359,22 @@ async def test_get_repo_uses_fixed_github_headers_get_only_and_shapes_result() -
 async def test_get_repo_select_is_explicit_and_unknown_fields_fail() -> None:
     recording = RecordingTransport([_response(_repo_payload())])
     result = await _executor(recording).get_repo(
-        "pestoura", "hermes-mcp-bridge", select=["full_name", "language", "license"]
+        "pestoura",
+        "hermes-mcp-bridge",
+        select=["full_name", "language", "license"],
     )
-    assert result.data == {"full_name": REPOSITORY, "language": "Python", "license": "MIT"}
+    assert result.data == {
+        "full_name": REPOSITORY,
+        "language": "Python",
+        "license": "MIT",
+    }
 
     recording = RecordingTransport([_response(_repo_payload())])
     with pytest.raises(GitHubDirectDenied, match="INVALID_RESULT_SELECTION"):
         await _executor(recording).get_repo(
-            "pestoura", "hermes-mcp-bridge", select=["clone_url"]
+            "pestoura",
+            "hermes-mcp-bridge",
+            select=["clone_url"],
         )
 
 
@@ -334,20 +395,30 @@ async def test_get_pr_uses_pull_endpoint_and_body_is_opt_in() -> None:
         "updated_at": "2026-08-08T10:00:00Z",
     }
     recording = RecordingTransport([_response(payload)])
-    result = await _executor(recording).get_pr("pestoura", "hermes-mcp-bridge", 48)
+    result = await _executor(recording).get_pr(
+        "pestoura",
+        "hermes-mcp-bridge",
+        48,
+    )
     assert recording.requests[0].url.path.endswith("/pulls/48")
     assert "body" not in result.data
     assert result.data["merged"] is True
 
     recording = RecordingTransport([_response(payload)])
     selected = await _executor(recording).get_pr(
-        "pestoura", "hermes-mcp-bridge", 48, select=["number", "body"]
+        "pestoura",
+        "hermes-mcp-bridge",
+        48,
+        select=["number", "body"],
     )
-    assert selected.data == {"number": 48, "body": "sensitive project prose"}
+    assert selected.data == {
+        "number": 48,
+        "body": "sensitive project prose",
+    }
 
 
 @pytest.mark.asyncio
-async def test_get_issue_normalizes_labels_assignees_and_pull_request_marker() -> None:
+async def test_get_issue_normalizes_labels_assignees_and_pr_marker() -> None:
     payload = {
         "number": 43,
         "title": "Evidence",
@@ -365,7 +436,11 @@ async def test_get_issue_normalizes_labels_assignees_and_pull_request_marker() -
         "closed_at": "2026-08-08T09:00:00Z",
     }
     recording = RecordingTransport([_response(payload)])
-    result = await _executor(recording).get_issue("pestoura", "hermes-mcp-bridge", 43)
+    result = await _executor(recording).get_issue(
+        "pestoura",
+        "hermes-mcp-bridge",
+        43,
+    )
     assert recording.requests[0].url.path.endswith("/issues/43")
     assert result.data["labels"] == ["enhancement", "v2"]
     assert result.data["assignees"] == ["pestoura"]
@@ -393,7 +468,10 @@ async def test_get_checks_uses_encoded_ref_and_bounded_page() -> None:
     }
     recording = RecordingTransport([_response(payload)])
     result = await _executor(recording).get_checks(
-        "pestoura", "hermes-mcp-bridge", "heads/feature", per_page=17
+        "pestoura",
+        "hermes-mcp-bridge",
+        "heads/feature",
+        per_page=17,
     )
     request = recording.requests[0]
     assert request.method == "GET"
@@ -416,7 +494,9 @@ async def test_search_is_repository_scoped_and_structured() -> None:
                 "state": "closed",
                 "comments": 0,
                 "user": {"login": "pestoura"},
-                "html_url": "https://github.com/pestoura/hermes-mcp-bridge/issues/43",
+                "html_url": (
+                    "https://github.com/pestoura/hermes-mcp-bridge/issues/43"
+                ),
                 "created_at": "2026-08-08T08:00:00Z",
                 "updated_at": "2026-08-08T09:00:00Z",
                 "body": "not returned by search",
@@ -434,17 +514,21 @@ async def test_search_is_repository_scoped_and_structured() -> None:
     )
     request = recording.requests[0]
     assert request.url.path == "/search/issues"
-    assert request.url.params["q"] == (
+    expected_query = (
         "phase evidence repo:pestoura/hermes-mcp-bridge is:issue state:closed"
     )
+    assert request.url.params["q"] == expected_query
     assert request.url.params["per_page"] == "7"
     assert result.data["items"][0]["item_type"] == "issue"
     assert "body" not in result.data["items"][0]
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("text", ["repo:evil/repo", "foo OR bar", "(foo)", "state:open"])
-async def test_search_rejects_qualifier_or_boolean_injection_before_credentials(text: str) -> None:
+@pytest.mark.parametrize(
+    "text",
+    ["repo:evil/repo", "foo OR bar", "(foo)", "state:open"],
+)
+async def test_search_rejects_injection_before_credentials(text: str) -> None:
     recording = RecordingTransport()
     provider = _auth_provider()
     executor = _executor(recording, provider=provider)
@@ -460,7 +544,10 @@ async def test_redirect_is_not_followed() -> None:
         [httpx.Response(301, headers={"Location": "https://evil.example/steal"})]
     )
     with pytest.raises(GitHubDirectError, match="REDIRECT_BLOCKED") as exc_info:
-        await _executor(recording).get_repo("pestoura", "hermes-mcp-bridge")
+        await _executor(recording).get_repo(
+            "pestoura",
+            "hermes-mcp-bridge",
+        )
     assert exc_info.value.status_code == 301
     assert len(recording.requests) == 1
     assert recording.requests[0].url.host == "api.github.com"
@@ -472,7 +559,11 @@ async def test_redirect_is_not_followed() -> None:
     [
         (401, {}, "AUTHENTICATION_FAILED"),
         (403, {"X-RateLimit-Remaining": "10"}, "FORBIDDEN"),
-        (403, {"X-RateLimit-Remaining": "0", "Retry-After": "60"}, "RATE_LIMITED"),
+        (
+            403,
+            {"X-RateLimit-Remaining": "0", "Retry-After": "60"},
+            "RATE_LIMITED",
+        ),
         (404, {}, "NOT_FOUND"),
         (410, {}, "GONE"),
         (422, {}, "INVALID_REQUEST"),
@@ -481,13 +572,18 @@ async def test_redirect_is_not_followed() -> None:
     ],
 )
 async def test_http_errors_are_categorized_and_never_include_token(
-    status: int, headers: dict[str, str], code: str
+    status: int,
+    headers: dict[str, str],
+    code: str,
 ) -> None:
     recording = RecordingTransport(
         [httpx.Response(status, text=f"server echoed {TOKEN}", headers=headers)]
     )
     with pytest.raises(GitHubDirectError) as exc_info:
-        await _executor(recording).get_repo("pestoura", "hermes-mcp-bridge")
+        await _executor(recording).get_repo(
+            "pestoura",
+            "hermes-mcp-bridge",
+        )
     error = exc_info.value
     assert error.code == code
     assert TOKEN not in str(error)
@@ -500,16 +596,24 @@ async def test_http_errors_are_categorized_and_never_include_token(
 async def test_invalid_json_and_non_object_json_fail_closed() -> None:
     recording = RecordingTransport([httpx.Response(200, content=b"not-json")])
     with pytest.raises(GitHubDirectError, match="INVALID_UPSTREAM_JSON"):
-        await _executor(recording).get_repo("pestoura", "hermes-mcp-bridge")
+        await _executor(recording).get_repo(
+            "pestoura",
+            "hermes-mcp-bridge",
+        )
 
     recording = RecordingTransport([httpx.Response(200, json=[1, 2, 3])])
     with pytest.raises(GitHubDirectError, match="INVALID_UPSTREAM_SHAPE"):
-        await _executor(recording).get_repo("pestoura", "hermes-mcp-bridge")
+        await _executor(recording).get_repo(
+            "pestoura",
+            "hermes-mcp-bridge",
+        )
 
 
 @pytest.mark.asyncio
 async def test_result_budget_is_enforced_after_shaping() -> None:
-    recording = RecordingTransport([_response(_repo_payload(description="x" * 5000))])
+    recording = RecordingTransport(
+        [_response(_repo_payload(description="x" * 5000))]
+    )
     with pytest.raises(GitHubDirectError, match="RESULT_BUDGET_EXCEEDED"):
         await _executor(recording, max_result_bytes=1024).get_repo(
             "pestoura",
@@ -525,11 +629,23 @@ async def test_result_budget_is_enforced_after_shaping() -> None:
         ("get_pr", ("pestoura", "hermes-mcp-bridge", 0), {}),
         ("get_issue", ("pestoura", "hermes-mcp-bridge", -1), {}),
         ("get_checks", ("pestoura", "hermes-mcp-bridge", ""), {}),
-        ("get_checks", ("pestoura", "hermes-mcp-bridge", "main"), {"per_page": 101}),
-        ("search", ("pestoura", "hermes-mcp-bridge", "query"), {"per_page": 31}),
+        (
+            "get_checks",
+            ("pestoura", "hermes-mcp-bridge", "main"),
+            {"per_page": 101},
+        ),
+        (
+            "search",
+            ("pestoura", "hermes-mcp-bridge", "query"),
+            {"per_page": 31},
+        ),
     ],
 )
-async def test_invalid_arguments_fail_before_network(method: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> None:
+async def test_invalid_arguments_fail_before_network(
+    method: str,
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+) -> None:
     recording = RecordingTransport()
     executor = _executor(recording)
     with pytest.raises(GitHubDirectDenied):
@@ -538,7 +654,8 @@ async def test_invalid_arguments_fail_before_network(method: str, args: tuple[An
 
 
 def test_phase2_source_has_no_v1_wiring_change() -> None:
-    server_source = (ROOT / "src" / "hermes_mcp_bridge" / "server.py").read_text(encoding="utf-8")
+    server_path = ROOT / "src" / "hermes_mcp_bridge" / "server.py"
+    server_source = server_path.read_text(encoding="utf-8")
     assert "github_direct" not in server_source
     assert "GITHUB_DIRECT_READ_TOOL_IDS" not in server_source
 
@@ -547,4 +664,11 @@ def test_result_object_has_no_token_or_llm_accounting_fields() -> None:
     from hermes_mcp_bridge.v2.github_direct import GitHubDirectResult
 
     fields = set(GitHubDirectResult.__dataclass_fields__)
-    assert not {"token", "authorization", "input_tokens", "output_tokens", "total_tokens"} & fields
+    forbidden = {
+        "token",
+        "authorization",
+        "input_tokens",
+        "output_tokens",
+        "total_tokens",
+    }
+    assert not forbidden & fields
