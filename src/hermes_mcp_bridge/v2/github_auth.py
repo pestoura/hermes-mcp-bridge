@@ -88,7 +88,8 @@ class StaticGitHubAuthorizationProvider:
         )
 
     def __repr__(self) -> str:
-        return f"StaticGitHubAuthorizationProvider(entries={len(self._entries)}, material=<redacted>)"
+        count = len(self._entries)
+        return f"StaticGitHubAuthorizationProvider(entries={count}, material=<redacted>)"
 
 
 __all__ = [
