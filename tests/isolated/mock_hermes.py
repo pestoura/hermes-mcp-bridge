@@ -65,14 +65,22 @@ class Handler(BaseHTTPRequestHandler):
             )
             return
         if self.path in {"/health", "/health/detailed"}:
-            self._json(
-                HTTPStatus.OK,
-                {
-                    "status": "ok",
-                    "active_api_runs": 0,
-                    "mode": "isolated-read-only",
-                },
-            )
+            payload: dict[str, Any] = {
+                "status": "ok",
+                "active_api_runs": 0,
+                "mode": "isolated-read-only",
+            }
+            if self.path == "/health/detailed":
+                # Detailed health is the admission source of truth in 1.x.
+                # The isolated happy-path fixture explicitly models a Gateway
+                # that is running and able to accept new work.
+                payload.update(
+                    {
+                        "gateway_state": "running",
+                        "active_delegations": 0,
+                    }
+                )
+            self._json(HTTPStatus.OK, payload)
             return
         if self.path == "/v1/capabilities":
             self._json(

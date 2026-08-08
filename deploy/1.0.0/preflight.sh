@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Read-only GO/NO-GO preflight for the 1.0.0 rollout.
+# Read-only GO/NO-GO preflight for the 1.0.0/1.x rollout.
 
 set -Eeuo pipefail
 
@@ -21,6 +21,7 @@ MIN_FREE_KB="${MIN_FREE_KB:-5242880}"
 SBOM_FILE="${SBOM_FILE:-}"
 SBOM_SHA256="${SBOM_SHA256:-}"
 ROLLBACK_BRIDGE_VERSION="${ROLLBACK_BRIDGE_VERSION:-0.9.0}"
+OBSERVABILITY_COMPOSE_FILE="${OBSERVABILITY_COMPOSE_FILE:-$HERE/compose.observability.yml}"
 
 require_cmd docker df awk stat python3 curl jq sha256sum
 
@@ -50,6 +51,7 @@ else
 fi
 
 require_file "$BRIDGE_ENV_FILE"
+require_file "$OBSERVABILITY_COMPOSE_FILE"
 [ -d "$BRIDGE_STATE_DIR" ] || fail "state dir ausente"
 state_db="$BRIDGE_STATE_DIR/state.sqlite3"
 validate_state_db_read_only "$state_db"
@@ -64,18 +66,30 @@ fi
 env_has_nonempty "$BRIDGE_ENV_FILE" "HERMES_BRIDGE_HMAC_KEY_ID" \
   || fail "HERMES_BRIDGE_HMAC_KEY_ID obrigatorio para rastreio de rotacao"
 
+# Metrics are a promoted 1.x capability and may be enabled. They remain
+# loopback-only in compose.observability.yml and remote exposure is rejected.
+if env_is_truthy "$BRIDGE_ENV_FILE" "BRIDGE_METRICS_ALLOW_REMOTE"; then
+  fail "BRIDGE_METRICS_ALLOW_REMOTE deve permanecer false em producao"
+fi
+if env_is_truthy "$BRIDGE_ENV_FILE" "BRIDGE_METRICS_ENABLED"; then
+  ok "metrics aprovadas e preservadas; binding remoto continua proibido"
+else
+  ok "metrics desativadas por configuracao"
+fi
+
+# Retry, circuit breaker and tracing are separate gates. The base 1.x rollout
+# must not activate any of them implicitly while observability is promoted.
 for flag in \
-  BRIDGE_METRICS_ENABLED \
   BRIDGE_TRACING_ENABLED \
   BRIDGE_TRACING_EXPORT \
   BRIDGE_RETRY_ENABLED \
   BRIDGE_CIRCUIT_ENABLED
 do
   if env_is_truthy "$BRIDGE_ENV_FILE" "$flag"; then
-    fail "$flag deve permanecer desativado no rollout base 1.0.0"
+    fail "$flag exige gate separada e deve permanecer desativado neste rollout"
   fi
 done
-ok "metrics/tracing/retry/circuit permanecem desativados"
+ok "tracing/retry/circuit permanecem desativados"
 
 # The base rollout is current-key only. A bounded previous-key rotation is a
 # separate operational gate after the base candidate is accepted.
@@ -114,5 +128,9 @@ ok "espaco em disco suficiente (${avail_kb}KB livres)"
 export CANDIDATE_REVISION="$EXPECTED_SHA_1_0_0"
 compose_config_check "$HERE/compose.candidate.yml"
 compose_config_check "$HERE/compose.rollback.yml"
+docker compose --env-file "$BRIDGE_ENV_FILE" -p "$COMPOSE_PROJECT" \
+  -f "$HERE/compose.candidate.yml" -f "$OBSERVABILITY_COMPOSE_FILE" config >/dev/null \
+  || fail "compose candidate + observability invalido"
+ok "compose candidate + observability preserva o configuration contract"
 
 log "HERMES_BRIDGE_1_0_0_PREFLIGHT_GO"

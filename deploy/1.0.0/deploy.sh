@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Controlled 1.0.0 deployment. DRY-RUN BY DEFAULT.
+# Controlled 1.0.0/1.x deployment. DRY-RUN BY DEFAULT.
 #
 # Mutation requires EXECUTE_DEPLOYMENT=YES and EXPECTED_SHA == REQUIRED_SHA.
 
@@ -11,6 +11,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 REQUIRED_SHA="${REQUIRED_SHA:-}"
 COMPOSE_FILE="${COMPOSE_FILE:-$HERE/compose.candidate.yml}"
+OBSERVABILITY_COMPOSE_FILE="${OBSERVABILITY_COMPOSE_FILE:-$HERE/compose.observability.yml}"
+BRIDGE_ENV_FILE="${BRIDGE_ENV_FILE:-/home/estourpm/hermes-mcp-bridge/.env}"
 CANDIDATE_IMAGE="${CANDIDATE_IMAGE:-hermes-mcp-bridge:1.0.0-candidate}"
 BACKUP_DIR="${BACKUP_DIR:-/home/estourpm/hermes-mcp-bridge-deploy/1.0.0/backups}"
 EVIDENCE_DIR="${EVIDENCE_DIR:-/home/estourpm/hermes-mcp-bridge-deploy/1.0.0/evidence}"
@@ -21,10 +23,24 @@ SBOM_SHA256="${SBOM_SHA256:-}"
 
 require_cmd docker python3 date sha256sum
 require_file "$COMPOSE_FILE"
+require_file "$OBSERVABILITY_COMPOSE_FILE"
+require_file "$BRIDGE_ENV_FILE"
 [ -n "$REQUIRED_SHA" ] || fail "REQUIRED_SHA obrigatorio, inclusive em dry-run"
+
+# Keep the canonical compose call contract used by the 1.0 rollout while making
+# this deploy command configuration-preserving. The additive overlay is always
+# applied for the candidate; rollback.sh continues to use the base helper from
+# lib.sh and its separately pinned rollback compose.
+compose() {
+  local file="$1"; shift
+  docker compose --env-file "$BRIDGE_ENV_FILE" -p "$COMPOSE_PROJECT" \
+    -f "$file" -f "$OBSERVABILITY_COMPOSE_FILE" "$@"
+}
 
 EXPECTED_SHA_1_0_0="$REQUIRED_SHA" \
 CANDIDATE_IMAGE="$CANDIDATE_IMAGE" \
+BRIDGE_ENV_FILE="$BRIDGE_ENV_FILE" \
+OBSERVABILITY_COMPOSE_FILE="$OBSERVABILITY_COMPOSE_FILE" \
 SBOM_FILE="$SBOM_FILE" \
 SBOM_SHA256="$SBOM_SHA256" \
   bash "$HERE/preflight.sh" || fail "preflight NO-GO"
@@ -35,10 +51,10 @@ if ! is_execute_mode "$REQUIRED_SHA"; then
   log "DRY_RUN: passos previstos:"
   log "  1. backup SQLite verificado -> $BACKUP_DIR"
   log "  2. restore real em destino isolado e cleanup"
-  log "  3. docker compose -p $COMPOSE_PROJECT -f $COMPOSE_FILE up -d"
+  log "  3. docker compose candidate + observability up -d"
   log "  4. aguardar health com budget derivado"
-  log "  5. validar contrato 1.0.0, seguranca e features desativadas"
-  compose_config_check "$COMPOSE_FILE"
+  log "  5. validar contrato 1.x, seguranca e feature gates"
+  compose "$COMPOSE_FILE" config >/dev/null || fail "compose candidate + observability invalido"
   log "DEPLOY_1_0_0: DRY_RUN OK"
   exit 0
 fi
@@ -77,10 +93,16 @@ running_image_id="$(docker inspect "$CONTAINER_NAME" --format '{{.Image}}')"
   || fail "contentor nao esta no ID imutavel da candidata"
 ok "ID imutavel da candidata confirmado no contentor"
 
+expect_metrics=0
+if env_is_truthy "$BRIDGE_ENV_FILE" "BRIDGE_METRICS_ENABLED"; then
+  expect_metrics=1
+fi
+
 MCP_PORT="${MCP_PORT:-8765}" \
 EXPECT_BRIDGE_VERSION="$BRIDGE_VERSION" \
 EXPECT_TOOL_COUNT="$EXPECTED_TOOL_COUNT" \
 EXPECT_SCHEMA_VERSION="$SCHEMA_VERSION" \
+EXPECT_METRICS_ENABLED="$expect_metrics" \
 REQUIRE_1_0_SECURITY=1 \
   bash "$HERE/validate.sh" || fail "validacao falhou; executar rollback.sh"
 
