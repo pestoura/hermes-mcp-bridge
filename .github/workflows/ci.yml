@@ -67,16 +67,58 @@ jobs:
             phase1-registry-acceptance.json \
             --json-out phase1-registry-gate.json
 
-      - name: Retain Phase 1 registry acceptance artifact
+      - name: Retain Phase 1 registry acceptance evidence
         if: matrix.python-version == '3.12'
-        uses: actions/upload-artifact@v4
-        with:
-          name: phase1-registry-acceptance-${{ github.sha }}
-          path: |
-            phase1-registry-acceptance.json
-            phase1-registry-gate.json
-          if-no-files-found: error
-          retention-days: 30
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PHASE1_EVIDENCE_TAG: phase1-registry-evidence-${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+
+          EVIDENCE_SHA256="$(sha256sum phase1-registry-acceptance.json | awk '{print $1}')"
+          GATE_SHA256="$(sha256sum phase1-registry-gate.json | awk '{print $1}')"
+          NOTES_FILE="$(mktemp)"
+          trap 'rm -f "$NOTES_FILE"' EXIT
+
+          cat >"$NOTES_FILE" <<EOF
+          V2 Phase 1 canonical registry acceptance evidence.
+
+          Tested commit: ${{ github.sha }}
+          Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          Evidence SHA-256: ${EVIDENCE_SHA256}
+          Gate SHA-256: ${GATE_SHA256}
+          EOF
+
+          if gh release view "$PHASE1_EVIDENCE_TAG" >/dev/null 2>&1; then
+            gh release upload \
+              "$PHASE1_EVIDENCE_TAG" \
+              phase1-registry-acceptance.json \
+              phase1-registry-gate.json \
+              --clobber
+          else
+            gh release create \
+              "$PHASE1_EVIDENCE_TAG" \
+              phase1-registry-acceptance.json \
+              phase1-registry-gate.json \
+              --draft \
+              --target "${{ github.sha }}" \
+              --title "V2 Phase 1 registry evidence ${{ github.sha }}" \
+              --notes-file "$NOTES_FILE"
+          fi
+
+          PHASE1_ASSET_COUNT="$(
+            gh release view "$PHASE1_EVIDENCE_TAG" \
+              --json assets \
+              --jq '[.assets[] | select(.name == "phase1-registry-acceptance.json" or .name == "phase1-registry-gate.json")] | length'
+          )"
+          if [ "$PHASE1_ASSET_COUNT" != "2" ]; then
+            echo "Phase 1 registry acceptance evidence was not retained"
+            exit 1
+          fi
+
+          printf 'retained_phase1_evidence_tag=%s\n' "$PHASE1_EVIDENCE_TAG"
+          printf 'retained_phase1_evidence_sha256=%s\n' "$EVIDENCE_SHA256"
+          printf 'retained_phase1_gate_sha256=%s\n' "$GATE_SHA256"
 
       # Preserve the established step name because acceptance tests treat its
       # ordering as a release contract. The build itself now carries immutable
