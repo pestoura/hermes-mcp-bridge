@@ -52,6 +52,17 @@ def _absolute_without_resolving(path: str | Path) -> Path:
     return Path(os.path.abspath(os.fspath(Path(path).expanduser())))
 
 
+def absolute_invocation_path(path: str | Path) -> Path:
+    """Public: absolutise an interpreter path without dereferencing symlinks.
+
+    ``Path.resolve()``/``readlink -f`` would replace a virtualenv ``bin/python``
+    symlink with the system interpreter, silently dropping the venv
+    site-packages. Callers that must invoke an interpreter inside a virtualenv
+    use this helper instead and validate the target separately.
+    """
+    return _absolute_without_resolving(path)
+
+
 def _unique_existing_executables(values: Iterable[str | Path | None]) -> list[Path]:
     seen: set[str] = set()
     result: list[Path] = []
