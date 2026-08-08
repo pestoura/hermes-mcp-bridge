@@ -14,32 +14,47 @@ scripts/v2_phase2_connected_jarvas.sh
 It removes ad-hoc shell steps from the Phase 2 connected gate while preserving a
 fail-closed evidence boundary.
 
+## Source integrity
+
+The connected run is bound to the **exact Git commit of the checkout containing
+the launcher**. The launcher resolves its repository root from its own script
+location, records the exact 40-hex `HEAD`, rejects a locally modified launcher,
+and then creates a separate clean checkout detached at that same commit. All
+mint, shadow, collector and validator code used by the run comes from the pinned
+checkout.
+
+This prevents a moving `main` ref from changing the code under test between
+review/CI and connected Jarvas execution. The `source_commit` recorded in the
+connected evidence is therefore the same commit that supplied the reviewed
+launcher.
+
 ## What it automates
 
 From the actual Jarvas host the launcher:
 
-1. verifies the private acceptance runtime and GitHub App private-key posture;
-2. creates a clean temporary checkout of the current accepted `main`;
-3. rotates the short-lived GitHub App installation token with
+1. binds the run to the exact clean launcher checkout commit;
+2. verifies the private acceptance runtime and GitHub App private-key posture;
+3. creates a clean temporary checkout detached at that exact commit;
+4. rotates the short-lived GitHub App installation token with
    `v2_github_app_mint.py`;
-4. regenerates sanitized provider attestation from the verified mint response;
-5. creates a disposable isolated Hermes home without modifying the live Hermes
+5. regenerates sanitized provider attestation from the verified mint response;
+6. creates a disposable isolated Hermes home without modifying the live Hermes
    home;
-6. starts that Hermes runtime with an empty inherited environment and only the
+7. starts that Hermes runtime with an empty inherited environment and only the
    model material required for inference;
-7. exposes exactly one dynamic API-server toolset, `mcp-phase2-read`, backed by
+8. exposes exactly one dynamic API-server toolset, `mcp-phase2-read`, backed by
    five fixed-repository GitHub GET tools;
-8. probes the **live** `/health`, `/v1/capabilities`, `/v1/toolsets` and session
+9. probes the **live** `/health`, `/v1/capabilities`, `/v1/toolsets` and session
    database readiness endpoints and fails closed on any unexpected tool/capability;
-9. starts a disposable instance of the unchanged 27-tool V1 Bridge pointed at
-   that isolated Hermes runtime;
-10. builds the exact five-tool target topology for
+10. starts a disposable instance of the unchanged 27-tool V1 Bridge pointed at
+    that isolated Hermes runtime;
+11. builds the exact five-tool target topology for
     `pestoura/hermes-mcp-bridge`;
-11. executes the connected collector for exactly three repetitions per tool,
+12. executes the connected collector for exactly three repetitions per tool,
     using the isolated Hermes `state.db` for real V1 token accounting;
-12. runs the original connected evidence validator and the companion live shadow
+13. runs the original connected evidence validator and the companion live shadow
     isolation validator through `validate_v2_phase2_connected_gate.py`;
-13. prints only a sanitized aggregate gate summary.
+14. prints only a sanitized aggregate gate summary.
 
 No PEM, App JWT, installation token, authorization header, environment dump,
 prompt text, raw provider output, V1 output or secret path is printed or retained
@@ -87,7 +102,7 @@ The launcher uses stable repository-scoped reads:
 - repository metadata for `pestoura/hermes-mcp-bridge`;
 - merged PR `#54`;
 - issue `#51`;
-- checks for the exact source commit under test;
+- checks for the exact pinned source commit under test;
 - repository-scoped search for `DIRECT_READ_ACCEPTED`.
 
 The collector expands these five intents to exactly 15 samples and compares the
