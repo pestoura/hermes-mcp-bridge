@@ -211,7 +211,9 @@ def validate_evidence(payload: dict[str, Any]) -> list[str]:
         projection_hash = projection.get("projection_hash")
         if not isinstance(projection_hash, str) or not _SHA256_RE.fullmatch(projection_hash):
             failures.append("projection_hash_invalid")
-        snapshot_hash = snapshot.get("capability_snapshot_hash") if isinstance(snapshot, dict) else None
+        snapshot_hash = (
+            snapshot.get("capability_snapshot_hash") if isinstance(snapshot, dict) else None
+        )
         if projection.get("capability_snapshot_hash") != snapshot_hash:
             failures.append("projection_snapshot_hash_mismatch")
         excluded = projection.get("excluded_reason_codes")
