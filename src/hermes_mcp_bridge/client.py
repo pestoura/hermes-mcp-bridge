@@ -23,6 +23,12 @@ import httpx
 from . import client_base as _base
 from .client_base import HermesAPIError
 from .observability import get_registry, log_event, record_upstream
+from .observability.execution import (
+    observe_poll_wait,
+    observe_retry,
+    observe_serialization,
+    observe_sse_wait,
+)
 from .resilience.circuit import CircuitOpenError, Clock, get_breaker
 from .resilience.http_circuit import (
     circuit_posture,
@@ -73,6 +79,7 @@ def _record_retry(
             endpoint_class=endpoint_class,
             reason=reason,
         )
+        observe_retry()
         log_event(
             "bridge.upstream.retry",
             endpoint_class=endpoint_class,
@@ -91,7 +98,7 @@ def _record_retry(
 
 
 class HermesClient(_base.HermesClient):
-    """Legacy client plus bounded retry and safe logical circuit breaking."""
+    """Legacy client plus bounded retry, circuit breaking and 1.x latency evidence."""
 
     def __init__(
         self,
@@ -116,6 +123,192 @@ class HermesClient(_base.HermesClient):
         """Return the non-sensitive effective circuit configuration and state."""
 
         return circuit_posture(self._settings)
+
+    @staticmethod
+    def _decode(response: httpx.Response, *, expected: set[int]) -> dict[str, Any]:
+        """Measure the real JSON decoding/validation boundary, fail-open."""
+
+        started = time.perf_counter()
+        try:
+            return _base.HermesClient._decode(response, expected=expected)
+        finally:
+            with suppress(Exception):
+                observe_serialization(time.perf_counter() - started)
+
+    async def _wait_for_run_connected(
+        self,
+        execution_id: str,
+        *,
+        max_wait_seconds: float,
+        fallback_session_id: str | None,
+        agent: str | None,
+        subagents: list[str] | None,
+        progress_callback: ProgressCallback,
+    ) -> Any:
+        """Preserve connected wait semantics while measuring actual SSE wait time."""
+
+        loop = asyncio.get_running_loop()
+        started_at = loop.time()
+        deadline = started_at + max_wait_seconds
+        queue: asyncio.Queue[dict[str, Any] | _base._EventStreamEnd] = asyncio.Queue()
+        reader_task = asyncio.create_task(self._read_run_events(execution_id, queue))
+        terminal_event_seen = False
+        stream_error: str | None = None
+        next_heartbeat_at = started_at + self._settings.hermes_progress_interval_seconds
+
+        try:
+            while True:
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    break
+                timeout = min(self._settings.hermes_progress_interval_seconds, remaining)
+                wait_started = time.perf_counter()
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=timeout)
+                except TimeoutError:
+                    observe_sse_wait(time.perf_counter() - wait_started)
+                    latest = await self.get_run(
+                        execution_id,
+                        fallback_session_id=fallback_session_id,
+                        agent=agent,
+                        subagents=subagents,
+                    )
+                    await self._notify_progress(
+                        progress_callback,
+                        {
+                            "event": "bridge.heartbeat",
+                            "run_id": execution_id,
+                            "status": latest.status.value,
+                            "elapsed_seconds": round(loop.time() - started_at, 1),
+                        },
+                    )
+                    next_heartbeat_at = (
+                        loop.time() + self._settings.hermes_progress_interval_seconds
+                    )
+                    if latest.status in _base.TERMINAL_STATUSES:
+                        return latest
+                    continue
+                else:
+                    observe_sse_wait(time.perf_counter() - wait_started)
+
+                if isinstance(item, _base._EventStreamEnd):
+                    stream_error = item.error
+                    break
+
+                await self._notify_progress(progress_callback, item)
+                event_type = str(item.get("event") or "")
+                if event_type in _base._TERMINAL_EVENT_TYPES:
+                    terminal_event_seen = True
+                    break
+                if loop.time() >= next_heartbeat_at:
+                    await self._notify_progress(
+                        progress_callback,
+                        {
+                            "event": "bridge.heartbeat",
+                            "run_id": execution_id,
+                            "status": "running",
+                            "elapsed_seconds": round(loop.time() - started_at, 1),
+                        },
+                    )
+                    next_heartbeat_at = (
+                        loop.time() + self._settings.hermes_progress_interval_seconds
+                    )
+        finally:
+            if not reader_task.done():
+                reader_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await reader_task
+
+        if terminal_event_seen:
+            return await self.get_run(
+                execution_id,
+                fallback_session_id=fallback_session_id,
+                agent=agent,
+                subagents=subagents,
+            )
+
+        remaining = max(0.0, deadline - loop.time())
+        _base.record_sse_fallback(stream_error or "stream_ended")
+        await self._notify_progress(
+            progress_callback,
+            {
+                "event": "bridge.event_stream_fallback",
+                "run_id": execution_id,
+                "error": stream_error,
+                "remaining_seconds": round(remaining, 1),
+            },
+        )
+        return await self._wait_for_run_polling(
+            execution_id,
+            max_wait_seconds=remaining,
+            fallback_session_id=fallback_session_id,
+            agent=agent,
+            subagents=subagents,
+            progress_callback=progress_callback,
+            started_at=started_at,
+        )
+
+    async def _wait_for_run_polling(
+        self,
+        execution_id: str,
+        *,
+        max_wait_seconds: float,
+        fallback_session_id: str | None = None,
+        agent: str | None = None,
+        subagents: list[str] | None = None,
+        progress_callback: ProgressCallback | None = None,
+        started_at: float | None = None,
+    ) -> Any:
+        """Preserve polling semantics while measuring actual inter-poll wait time."""
+
+        loop = asyncio.get_running_loop()
+        started_at = loop.time() if started_at is None else started_at
+        deadline = loop.time() + max_wait_seconds
+        next_progress_at = loop.time() + self._settings.hermes_progress_interval_seconds
+        latest = await self.get_run(
+            execution_id,
+            fallback_session_id=fallback_session_id,
+            agent=agent,
+            subagents=subagents,
+        )
+        while latest.status not in _base.TERMINAL_STATUSES:
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                await self._notify_progress(
+                    progress_callback,
+                    {
+                        "event": "bridge.wait_expired",
+                        "run_id": execution_id,
+                        "status": latest.status.value,
+                        "elapsed_seconds": round(loop.time() - started_at, 1),
+                    },
+                )
+                break
+            sleep_for = min(self._settings.hermes_run_poll_interval_seconds, remaining)
+            wait_started = time.perf_counter()
+            await asyncio.sleep(sleep_for)
+            observe_poll_wait(time.perf_counter() - wait_started)
+            _base.record_polling_iteration()
+            latest = await self.get_run(
+                execution_id,
+                fallback_session_id=fallback_session_id,
+                agent=agent,
+                subagents=subagents,
+            )
+            if loop.time() >= next_progress_at and latest.status not in _base.TERMINAL_STATUSES:
+                await self._notify_progress(
+                    progress_callback,
+                    {
+                        "event": "bridge.heartbeat",
+                        "run_id": execution_id,
+                        "status": latest.status.value,
+                        "elapsed_seconds": round(loop.time() - started_at, 1),
+                    },
+                )
+                next_progress_at = (
+                    loop.time() + self._settings.hermes_progress_interval_seconds
+                )
+        return latest
 
     async def _send(
         self,
