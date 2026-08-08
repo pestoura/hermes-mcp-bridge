@@ -5,7 +5,10 @@ from __future__ import annotations
 import pytest
 
 from hermes_mcp_bridge.observability.metrics import get_registry, render_prometheus
-from hermes_mcp_bridge.observability.operational_intelligence import classify_admission
+from hermes_mcp_bridge.observability.operational_intelligence import (
+    classify_admission,
+    instrument_all_tools,
+)
 
 
 def test_admission_classifier_distinguishes_running_from_draining() -> None:
@@ -85,8 +88,12 @@ async def test_readiness_running_sets_admission_metric(monkeypatch) -> None:
 
 
 def test_instrumentation_coverage_is_complete_for_contract() -> None:
-    # Importing server registers and instruments the canonical 27-tool contract.
-    from hermes_mcp_bridge import server  # noqa: F401
+    # The test suite intentionally resets the metrics registry between tests.
+    # Re-running instrumentation must therefore be idempotent and republish the
+    # actual current 27/27 coverage without wrapping tools a second time.
+    from hermes_mcp_bridge import server
+
+    instrument_all_tools(server.mcp)
 
     text = render_prometheus()
     assert "bridge_expected_tools 27" in text
