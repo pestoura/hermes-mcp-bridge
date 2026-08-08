@@ -8,6 +8,8 @@ The roadmap is gated. A phase is not promoted merely because code exists; its ac
 
 **Deliverables:** dated current architecture; representative v1 token/latency/API-call benchmark; runtime capability inventory; threat model; hardening findings; trust boundaries.
 
+**Implementation status (2026-08-08):** AS-IS/runtime/security baseline is documented and the connected benchmark/evidence harness is implemented under `scripts/v2_phase0_benchmark.py` plus the fail-closed validator `scripts/validate_v2_phase0_evidence.py`. The phase remains **NOT ACCEPTED** until real Jarvas/Hermes evidence passes the validator; code-only readiness is not promotion evidence.
+
 **Gate:** `BASELINE_ACCEPTED`.
 
 ## PHASE 1 — Tool Registry

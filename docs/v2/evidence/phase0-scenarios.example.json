@@ -1,0 +1,23 @@
+{
+  "schema_version": "1",
+  "scenarios": [
+    {
+      "id": "github_read_known_repo",
+      "category": "read",
+      "prompt": "Use the existing v1 GitHub execution path to read a known sandbox repository and return only a small stable fact such as its default branch. Do not modify anything.",
+      "repetitions": 3
+    },
+    {
+      "id": "github_disposable_mutation",
+      "category": "mutation",
+      "prompt": "BENCHMARK TEMPLATE: replace this with an operation against an isolated disposable GitHub sandbox resource. Create one temporary resource, verify it, and clean it up in the same controlled benchmark. Do not use a production repository.",
+      "repetitions": 3
+    },
+    {
+      "id": "bounded_agentic_reasoning",
+      "category": "agentic",
+      "prompt": "Perform a short bounded reasoning task that requires no external tool and return a compact deterministic-format answer. Do not mutate state.",
+      "repetitions": 3
+    }
+  ]
+}
