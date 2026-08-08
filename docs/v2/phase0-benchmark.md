@@ -1,6 +1,15 @@
 # V2 Phase 0 — Connected Benchmark and Acceptance Evidence
 
-> **V2 · PHASE 0 · EVIDENCE HARNESS · NO V1 SEMANTIC CHANGE**
+> **V2 · PHASE 0 · GATE `BASELINE_ACCEPTED` (2026-08-08) · NO V1 SEMANTIC CHANGE**
+
+**Status:** the connected benchmark was executed against the real v1 runtime and the
+fail-closed validator returned `BASELINE_ACCEPTED`. The accepted evidence and its digests are
+indexed in `docs/v2/evidence/README.md`:
+
+- `docs/v2/evidence/phase0-connected-baseline-20260808.json`
+- `docs/v2/evidence/phase0-connected-baseline-gate-20260808.json`
+
+The rest of this document describes the harness contract and the rules the evidence had to satisfy.
 
 Phase 0 is complete only when the real v1 path has representative, sanitized evidence for
 latency, Hermes/tool/API-call behaviour and LLM token usage. The broad 2026-08-08 audit is

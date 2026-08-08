@@ -1,10 +1,12 @@
 # Hermes MCP Bridge v2 — Architecture Baseline
 
-> **V2 · PLANNED · NOT IMPLEMENTED · NO IMPACT ON V1**
+> **V2 · IMPLEMENTATION IN PROGRESS · PHASE 0 ACCEPTED · V1 TOOL CONTRACT AND SEMANTICS PRESERVED**
 >
 > Baseline date: **2026-08-08**. Repository: `pestoura/hermes-mcp-bridge`.
 
-This directory records the planned evolution of the existing Hermes MCP Bridge into a **Hermes Execution Gateway / Secure Execution Control Plane**. It is documentation only. The operational v1 remains the current implementation and is not modified by this baseline.
+This directory records the evolution of the existing Hermes MCP Bridge into a **Hermes Execution Gateway / Secure Execution Control Plane**. V2 implementation is in progress under gated phases: Phase 0 (AS-IS + connected baseline) is **ACCEPTED** as of 2026-08-08 with real runtime evidence, and Phase 1 (Tool Registry) is next. The operational v1 remains the current execution path; its tool contract and semantics are preserved and unchanged by this work.
+
+See `evidence/README.md` for the Phase 0 acceptance evidence index and `roadmap.md` for phase gates.
 
 ## Core principle
 
