@@ -16,10 +16,11 @@ import inspect
 import threading
 import time
 from collections import OrderedDict
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager, suppress
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
-from typing import Any, Callable, Iterator
+from typing import Any
 
 from .logging import log_event
 from .metrics import get_registry
@@ -75,7 +76,7 @@ _current_call: ContextVar[ExecutionCallStats | None] = ContextVar(
     "bridge_execution_call_stats", default=None
 )
 _lock = threading.RLock()
-_tracked: "OrderedDict[str, _ExecutionStats]" = OrderedDict()
+_tracked: OrderedDict[str, _ExecutionStats] = OrderedDict()
 
 
 def _metric_histogram(name: str, help_text: str, buckets: tuple[float, ...] | None = None) -> Any:
