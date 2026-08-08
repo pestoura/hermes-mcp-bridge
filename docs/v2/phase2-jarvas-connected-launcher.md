@@ -2,7 +2,8 @@
 
 > **Status:** credential provisioning completed by the operator; repository-side
 > mint/rotation helper is integrated and GREEN; `DIRECT_READ_ACCEPTED` remains
-> deliberately undeclared until the real connected collector and validator pass.
+> deliberately undeclared until the real connected collector and strict combined
+> promotion gate pass.
 
 The canonical Jarvas-side launcher is:
 
@@ -10,63 +11,74 @@ The canonical Jarvas-side launcher is:
 scripts/v2_phase2_connected_jarvas.sh
 ```
 
-It exists to remove ad-hoc shell steps from the Phase 2 connected gate while
-preserving the same fail-closed evidence contract.
+It removes ad-hoc shell steps from the Phase 2 connected gate while preserving a
+fail-closed evidence boundary.
 
 ## What it automates
 
 From the actual Jarvas host the launcher:
 
 1. verifies the private acceptance runtime and GitHub App private-key posture;
-2. resolves the active Hermes `state.db` from `HERMES_HOME` or the canonical
-   default Hermes home without printing the path;
-3. creates a clean temporary checkout of the current accepted `main`;
-4. rotates the short-lived GitHub App installation token with
+2. creates a clean temporary checkout of the current accepted `main`;
+3. rotates the short-lived GitHub App installation token with
    `v2_github_app_mint.py`;
-5. regenerates the sanitized provider attestation from the verified mint
-   response;
-6. configures only the file-backed DIRECT secret provider;
-7. builds the exact five-tool target topology for
-   `pestoura/hermes-mcp-bridge`;
-8. executes the connected collector for exactly three repetitions per tool;
-9. runs `validate_v2_phase2_direct_read_evidence.py`;
-10. prints only a sanitized aggregate gate summary.
+4. regenerates sanitized provider attestation from the verified mint response;
+5. creates a disposable isolated Hermes home without modifying the live Hermes
+   home;
+6. starts that Hermes runtime with an empty inherited environment and only the
+   model material required for inference;
+7. exposes exactly one dynamic API-server toolset, `mcp-phase2-read`, backed by
+   five fixed-repository GitHub GET tools;
+8. probes the **live** `/health`, `/v1/capabilities`, `/v1/toolsets` and session
+   database readiness endpoints and fails closed on any unexpected tool/capability;
+9. starts a disposable instance of the unchanged 27-tool V1 Bridge pointed at
+   that isolated Hermes runtime;
+10. builds the exact five-tool target topology for
+    `pestoura/hermes-mcp-bridge`;
+11. executes the connected collector for exactly three repetitions per tool,
+    using the isolated Hermes `state.db` for real V1 token accounting;
+12. runs the original connected evidence validator and the companion live shadow
+    isolation validator through `validate_v2_phase2_connected_gate.py`;
+13. prints only a sanitized aggregate gate summary.
 
 No PEM, App JWT, installation token, authorization header, environment dump,
 prompt text, raw provider output, V1 output or secret path is printed or retained
 as acceptance evidence.
 
-## V1 shadow non-mutation basis remains evidence, not a switch
+## V1 shadow non-mutation is mechanically derived
 
-The launcher intentionally defaults to:
-
-```text
-HERMES_V2_SHADOW_MUTATION_BASIS=none
-```
-
-and therefore fails closed with `SHADOW_MUTATION_BASIS_UNPROVEN` before any
-connected sample unless one of the canonical bases has actually been
-established for the run window:
+The launcher no longer accepts `HERMES_V2_SHADOW_MUTATION_BASIS` from the
+operator. The automated path always uses:
 
 ```text
-github_audit_log_reviewed
 read_only_credential_enforced
 ```
 
-Supplying either value is not, by itself, proof. The meaning remains identical
-to the Phase 2 acceptance contract:
+but only **after** the live isolated Hermes probe has proved that the effective
+API-server tool surface is exactly:
 
-- `github_audit_log_reviewed` may be used only after applicable GitHub audit /
-  security evidence for the collection window has actually been reviewed;
-- `read_only_credential_enforced` may be used only if the GitHub credential
-  effectively reachable by the V1 shadow during that window is constrained to
-  read-only authority.
+```text
+mcp_phase2_read_github_get_checks
+mcp_phase2_read_github_get_issue
+mcp_phase2_read_github_get_pr
+mcp_phase2_read_github_get_repo
+mcp_phase2_read_github_search
+```
+
+The MCP server fixes the repository scope and delegates every provider operation
+to the existing GET-only `GitHubDirectReadExecutor`. It has no shell, filesystem,
+browser, code execution, messaging or mutation API.
 
 The current upstream Hermes Runs API does not expose a per-run toolset or
-credential restriction field. The V1 bridge's `expected_actions` and
-`resource_scopes` inputs are advisory/preflight metadata and are not a runtime
-sandbox for the upstream agent. They must therefore not be repurposed as false
-proof of non-mutation.
+credential restriction field. The V1 Bridge's `expected_actions` and
+`resource_scopes` remain advisory/preflight metadata; the launcher does not
+misrepresent them as a runtime sandbox.
+
+Full rationale and evidence contract:
+
+```text
+docs/v2/phase2-isolated-readonly-shadow.md
+```
 
 ## Canonical targets
 
@@ -83,8 +95,23 @@ full normalized DIRECT result shape with the V1 agentic shadow result.
 
 ## Promotion rule
 
-The launcher may print `DIRECT_READ_ACCEPTED` only when the canonical validator
-returns zero failures. Until that happens:
+The original validator:
+
+```text
+scripts/validate_v2_phase2_direct_read_evidence.py
+```
+
+remains mandatory but is no longer the sole automated promotion authority. The
+canonical launcher promotes only through:
+
+```text
+scripts/validate_v2_phase2_connected_gate.py
+```
+
+which requires both the complete connected evidence contract and the live
+shadow-isolation proof bound to the same source commit and repository scopes.
+
+Until that strict gate returns zero failures:
 
 ```text
 PHASE2_CONNECTED_EVIDENCE_PENDING
@@ -92,5 +119,5 @@ DIRECT_READ_ACCEPTED_NOT_DECLARED
 PHASE3_NOT_STARTED
 ```
 
-This launcher does not weaken the prerequisite gate and is not CI/mock evidence.
-It must be executed against the real Jarvas/Hermes runtime.
+This launcher is not CI/mock evidence. It must execute against the real
+Jarvas/Hermes runtime.
