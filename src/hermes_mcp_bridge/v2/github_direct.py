@@ -16,8 +16,9 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any, Literal
 from urllib.parse import quote
 
@@ -432,6 +433,25 @@ _CHECKS_DEFAULT = ("total_count", "check_runs")
 _SEARCH_ALLOWED = frozenset({"total_count", "incomplete_results", "items"})
 _SEARCH_DEFAULT = ("total_count", "incomplete_results", "items")
 
+#: Public, read-only view of the **default result shaping** applied by
+#: :class:`GitHubDirectReadExecutor` when a caller passes no ``select``.
+#:
+#: This is the single source of truth for "what a DIRECT result contains by
+#: default". Consumers that must reason about the full default shape — notably
+#: the connected acceptance collector, which compares a DIRECT result against
+#: the V1 shadow result — read it from here instead of duplicating the tuples,
+#: so the two can never drift apart. It is a ``MappingProxyType`` over immutable
+#: tuples: exporting it changes no executor default and no executor semantics.
+GITHUB_DIRECT_DEFAULT_RESULT_FIELDS: Mapping[str, tuple[str, ...]] = MappingProxyType(
+    {
+        "github.get_repo": _REPO_DEFAULT,
+        "github.get_pr": _PR_DEFAULT,
+        "github.get_issue": _ISSUE_DEFAULT,
+        "github.get_checks": _CHECKS_DEFAULT,
+        "github.search": _SEARCH_DEFAULT,
+    }
+)
+
 
 class GitHubDirectReadExecutor:
     """Async deterministic executor for the five Phase 2 GitHub read tools."""
@@ -828,6 +848,7 @@ __all__ = [
     "GITHUB_ACCEPT",
     "GITHUB_API_BASE_URL",
     "GITHUB_API_VERSION",
+    "GITHUB_DIRECT_DEFAULT_RESULT_FIELDS",
     "GitHubDirectDenied",
     "GitHubDirectError",
     "GitHubDirectReadExecutor",
