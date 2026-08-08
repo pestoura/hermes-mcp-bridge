@@ -1,9 +1,10 @@
 # Capability Projection
 
-> **V2 · PHASE 1 CORE IMPLEMENTED · NOT YET ACCEPTED · NO IMPACT ON V1**
+> **V2 · PHASE 1 STATIC MODEL ACCEPTED · NO IMPACT ON V1**
 
 Phase 1 implements a **static, deterministic** projection in
-`hermes_mcp_bridge.v2.projection`. `REGISTRY_ACCEPTED` is not declared.
+`hermes_mcp_bridge.v2.projection`. This Phase 1 model is covered by
+`REGISTRY_ACCEPTED`; dynamic projection remains deferred.
 
 Hermes may contain hundreds of internal tools and skills. The external client must receive only a policy-approved subset.
 
@@ -40,7 +41,9 @@ Static projection is simpler and auditable; dynamic projection can reduce contex
 **Phase 1 decision:** static projection. `project_capabilities(registry, rules,
 credential_broker, context)` is a pure function of its inputs and produces a
 list ordered by `tool_id` plus a `projection_hash` and the
-`capability_snapshot_hash` it was computed against. Dynamic projection remains
+`capability_snapshot_hash` it was computed against. This implementation was
+accepted on integrated `main` commit
+`4bc999084b88cc5ef5346f21c9f2e09717c63568`. Dynamic projection remains
 deferred (OD-013), as does the discovery/refresh protocol (OD-012).
 
 ## Phase 1 projection rules
@@ -78,6 +81,13 @@ deferred (OD-013), as does the discovery/refresh protocol (OD-012).
   authorization decision and is deliberately not serialized, so the
   principal/tenant model (OD-007) stays open.
 
+## Acceptance evidence
+
+The accepted projection surface was exercised by the Phase 1 collector and
+fail-closed validator: the projected tool set, exact field allow-list,
+excluded-tool reason codes and projection/snapshot hashes are retained in the
+durable evidence release indexed by `docs/v2/evidence/README.md`.
+
 ## Internal MCP proxying
 
-An internal MCP server such as Home Assistant may be projected through normalized typed tools, but internal MCP metadata is not trusted automatically. Tool names, schemas, risk classification and policy actions must be normalized and independently governed by the canonical registry.
+An internal MCP server such as Home Assistant may be projected through normalized typed tools, but internal MCP metadata is not trusted automatically. Tool names, schemas, risk classification and policy actions must be normalized and independently governed by the canonical registry. OD-014 remains open.
