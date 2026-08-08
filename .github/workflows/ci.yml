@@ -53,6 +53,31 @@ jobs:
       - name: Test
         run: python -m pytest -q
 
+      - name: Generate Phase 1 registry acceptance evidence
+        if: matrix.python-version == '3.12'
+        run: |
+          python scripts/v2_phase1_registry_acceptance.py \
+            --source-commit "${{ github.sha }}" \
+            --json-out phase1-registry-acceptance.json
+
+      - name: Validate Phase 1 registry acceptance evidence
+        if: matrix.python-version == '3.12'
+        run: |
+          python scripts/validate_v2_phase1_registry_evidence.py \
+            phase1-registry-acceptance.json \
+            --json-out phase1-registry-gate.json
+
+      - name: Retain Phase 1 registry acceptance artifact
+        if: matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase1-registry-acceptance-${{ github.sha }}
+          path: |
+            phase1-registry-acceptance.json
+            phase1-registry-gate.json
+          if-no-files-found: error
+          retention-days: 30
+
       # Preserve the established step name because acceptance tests treat its
       # ordering as a release contract. The build itself now carries immutable
       # provenance and is separately validated before isolated acceptance.
