@@ -9,6 +9,7 @@ Phase 2 ``github.read`` contract.
 from __future__ import annotations
 
 import base64
+import contextlib
 import json
 import os
 import shutil
@@ -214,10 +215,8 @@ def _atomic_write(path: str | Path, payload: bytes, *, mode: int = 0o600) -> Non
         if fd >= 0:
             os.close(fd)
         if temporary is not None:
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(temporary)
-            except OSError:
-                pass
 
 
 def _validate_expiry(value: Any) -> str:
@@ -249,7 +248,11 @@ def mint_installation_token(
     owner, repo_name, canonical_repo = _validate_repository(repository)
     jwt = build_app_jwt(issuer, private_key_path)
     owns_client = client is None
-    http = client or httpx.Client(base_url=GITHUB_API_BASE_URL, timeout=30.0, follow_redirects=False)
+    http = client or httpx.Client(
+        base_url=GITHUB_API_BASE_URL,
+        timeout=30.0,
+        follow_redirects=False,
+    )
     try:
         installation_response = http.get(
             f"/repos/{owner}/{repo_name}/installation",
