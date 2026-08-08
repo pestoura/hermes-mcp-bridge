@@ -56,6 +56,7 @@ def valid_shadow() -> dict[str, Any]:
             "health_status": 200,
             "capabilities_status": 200,
             "toolsets_status": 200,
+            "sessions_status": 200,
         },
         "confirmed_at": "2026-08-08T15:30:00+00:00",
     }
