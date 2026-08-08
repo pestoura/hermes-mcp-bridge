@@ -9,6 +9,7 @@ messaging/integration credentials, and writes no secret value to stdout.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import copy
 import json
 import os
@@ -26,7 +27,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
-from hermes_mcp_bridge.v2.shadow_isolation import SHADOW_MCP_TOOL_NAMES, SHADOW_TOOLSET  # noqa: E402
+from hermes_mcp_bridge.v2.shadow_isolation import (  # noqa: E402
+    SHADOW_MCP_TOOL_NAMES,
+    SHADOW_TOOLSET,
+)
 
 _SENSITIVE_KEY_RE = re.compile(r"(?:api[_-]?key|authorization|bearer|password|secret|token)$", re.I)
 
@@ -59,10 +63,8 @@ def _atomic_private_write(path: Path, content: str) -> None:
         os.replace(tmp, path)
         path.chmod(0o600)
     finally:
-        try:
+        with contextlib.suppress(FileNotFoundError):
             tmp.unlink()
-        except FileNotFoundError:
-            pass
 
 
 def _sanitize_config_value(value: Any) -> Any:
