@@ -9,6 +9,10 @@ umask 077
 # exactly five fixed-repository GitHub GET tools. The launcher therefore derives
 # read_only_credential_enforced from a live isolation proof instead of accepting
 # it as an operator-supplied string.
+#
+# Source integrity rule: the connected run is pinned to the exact Git commit of
+# the checkout containing this launcher. A clean internal checkout of that same
+# commit is used for every executable/validator involved in the evidence run.
 
 CLIENT_ID='Iv23lioR4qNOECla5a43'
 REPOSITORY='pestoura/hermes-mcp-bridge'
@@ -61,6 +65,19 @@ for cmd in git openssl python3 hermes setsid readlink; do
   command -v "$cmd" >/dev/null 2>&1 || blocked "RUNTIME_COMMAND_MISSING"
 done
 
+# Bind the acceptance run to the exact commit containing the launcher itself.
+# This eliminates a race in which `main` could advance between launcher review
+# and connected execution. A locally modified launcher is also rejected.
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+CHECKOUT_ROOT="$(git -C "$SCRIPT_DIR/.." rev-parse --show-toplevel 2>/dev/null)" \
+  || blocked "LAUNCHER_CHECKOUT_UNAVAILABLE"
+ACCEPTED_SOURCE_COMMIT="$(git -C "$CHECKOUT_ROOT" rev-parse HEAD 2>/dev/null)" \
+  || blocked "LAUNCHER_SOURCE_COMMIT_UNAVAILABLE"
+[[ "$ACCEPTED_SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]] \
+  || blocked "LAUNCHER_SOURCE_COMMIT_INVALID"
+git -C "$CHECKOUT_ROOT" diff --quiet -- scripts/v2_phase2_connected_jarvas.sh \
+  || blocked "LAUNCHER_WORKTREE_MODIFIED"
+
 [[ -d "$BASE" ]] || blocked "ACCEPTANCE_RUNTIME_NOT_PROVISIONED"
 [[ -f "$PEM" ]] || blocked "GITHUB_APP_PRIVATE_KEY_MISSING"
 [[ -x "$VENV/bin/python" ]] || blocked "ACCEPTANCE_PYTHON_RUNTIME_MISSING"
@@ -79,11 +96,16 @@ HERMES_PY="$(dirname "$HERMES_BIN")/python"
 unset BRIDGE_V2_GITHUB_DIRECT_READ_TOKEN || true
 export BRIDGE_V2_GITHUB_DIRECT_READ_TOKEN_FILE="$TOKEN"
 
+# Re-fetch the repository into a private disposable directory, but execute only
+# the commit already bound above. Do not follow moving refs during acceptance.
 SRC="$(mktemp -d "$BASE/source.XXXXXX")"
-git clone -q --depth 1 https://github.com/pestoura/hermes-mcp-bridge.git "$SRC" \
+git clone -q --no-checkout https://github.com/pestoura/hermes-mcp-bridge.git "$SRC" \
   || blocked "SOURCE_CLONE_FAILED"
+git -C "$SRC" checkout -q --detach "$ACCEPTED_SOURCE_COMMIT" \
+  || blocked "SOURCE_COMMIT_UNAVAILABLE"
 SOURCE_COMMIT="$(git -C "$SRC" rev-parse HEAD)"
-[[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || blocked "SOURCE_COMMIT_INVALID"
+[[ "$SOURCE_COMMIT" == "$ACCEPTED_SOURCE_COMMIT" ]] \
+  || blocked "SOURCE_COMMIT_MISMATCH"
 
 # Reinstall the exact source under test into the private acceptance venv without
 # resolving dependencies from the network.
