@@ -213,23 +213,36 @@ def _operational_wrapper(tool_name: str, fn: Any) -> Any:
     return wrapper
 
 
+def _instrumented_count(tools: dict[str, Any]) -> int:
+    """Count actual coverage, including already-instrumented idempotent calls."""
+
+    count = 0
+    for tool in tools.values():
+        fn = getattr(tool, "fn", None)
+        if fn is not None and getattr(fn, "__bridge_instrumented__", False):
+            count += 1
+    return count
+
+
 def instrument_all_tools(mcp_server: Any) -> int:
     """Instrument all tools, then add 1.x operational-intelligence wrappers.
 
-    The returned count remains the base instrumentation count so existing startup
-    semantics are unchanged. Coverage is exported separately and CI can require
-    it to equal the registered tool count.
+    The returned count remains the number newly instrumented by the base wrapper,
+    preserving existing startup semantics. Coverage metrics use the actual current
+    state, so a repeated/idempotent invocation cannot falsely report 0/27.
     """
 
-    instrumented = _base_instrument_all_tools(mcp_server)
+    newly_instrumented = _base_instrument_all_tools(mcp_server)
     expected = 0
+    covered = 0
     try:
         manager = mcp_server._tool_manager
         tools = getattr(manager, "_tools", None)
         if not isinstance(tools, dict):
-            _set_coverage(expected=0, instrumented=instrumented)
-            return instrumented
+            _set_coverage(expected=0, instrumented=0)
+            return newly_instrumented
         expected = len(tools)
+        covered = _instrumented_count(tools)
         for tool_name in ("hermes_readiness", "hermes_prompt", "hermes_submit"):
             tool = tools.get(tool_name)
             fn = getattr(tool, "fn", None) if tool is not None else None
@@ -244,6 +257,9 @@ def instrument_all_tools(mcp_server: Any) -> int:
             with suppress(Exception):
                 server = importlib.import_module("hermes_mcp_bridge.server")
                 setattr(server, tool_name, wrapped)
+        # functools.wraps preserves the base instrumentation marker, so the
+        # count remains stable after adding the operational wrapper.
+        covered = _instrumented_count(tools)
     finally:
-        _set_coverage(expected=expected, instrumented=instrumented)
-    return instrumented
+        _set_coverage(expected=expected, instrumented=covered)
+    return newly_instrumented
