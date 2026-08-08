@@ -165,6 +165,36 @@ raise SystemExit(2)
 ' "$field" 2>/dev/null
 }
 
+# The collector emits exactly one sanitized JSON document on any controlled
+# failure. Only a gate=DIRECT_READ_BLOCKED reason matching the stable bounded
+# vocabulary is allowed across this boundary; raw stdout is never echoed.
+collector_output_field() {
+  local field="$1"
+  "$VENV/bin/python" -c '
+import json
+import re
+import sys
+
+field = sys.argv[1]
+try:
+    payload = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(2)
+if not isinstance(payload, dict):
+    raise SystemExit(2)
+if field == "reason":
+    value = payload.get("reason")
+    if (
+        payload.get("gate") == "DIRECT_READ_BLOCKED"
+        and isinstance(value, str)
+        and re.fullmatch(r"[A-Z0-9_]{1,64}", value)
+    ):
+        print(value)
+        raise SystemExit(0)
+raise SystemExit(2)
+' "$field" 2>/dev/null
+}
+
 for cmd in git openssl python3 hermes setsid readlink; do
   command -v "$cmd" >/dev/null 2>&1 || blocked "RUNTIME_COMMAND_MISSING"
 done
@@ -427,17 +457,38 @@ EOF
 chmod 600 "$TARGETS"
 rm -f -- "$EVIDENCE" "$GATE"
 
-"$VENV/bin/python" "$SRC/scripts/v2_phase2_direct_read_acceptance.py" \
-  --url "$SHADOW_BRIDGE_URL" \
-  --targets "$TARGETS" \
-  --json-out "$EVIDENCE" \
-  --source-commit "$SOURCE_COMMIT" \
-  --direct-core-commit "$SOURCE_COMMIT" \
-  --provider-type github_app \
-  --provider-attestation "$ATTESTATION" \
-  --shadow-mutation-basis read_only_credential_enforced \
-  --hermes-state-db "$SHADOW_HOME/state.db" >/dev/null \
-  || blocked "CONNECTED_EVIDENCE_COLLECTION_FAILED"
+# Capture ONLY the collector's sanitized JSON contract. stderr is discarded so
+# no traceback, path or argument value can cross the launcher boundary, and the
+# captured stdout is cleared immediately after the whitelisted reason has been
+# extracted. A controlled failure (exit 2 with the documented
+# DIRECT_READ_BLOCKED contract) propagates its own bounded reason; an abnormal
+# exit without contract maps to a distinct stable code instead of collapsing
+# every real blocker into one opaque value.
+COLLECTOR_OUTPUT=''
+COLLECTOR_STATUS=0
+COLLECTOR_OUTPUT="$(
+  "$VENV/bin/python" "$SRC/scripts/v2_phase2_direct_read_acceptance.py" \
+    --url "$SHADOW_BRIDGE_URL" \
+    --targets "$TARGETS" \
+    --json-out "$EVIDENCE" \
+    --source-commit "$SOURCE_COMMIT" \
+    --direct-core-commit "$SOURCE_COMMIT" \
+    --provider-type github_app \
+    --provider-attestation "$ATTESTATION" \
+    --shadow-mutation-basis read_only_credential_enforced \
+    --hermes-state-db "$SHADOW_HOME/state.db" 2>/dev/null
+)" || COLLECTOR_STATUS=$?
+if [[ "$COLLECTOR_STATUS" -ne 0 ]]; then
+  COLLECTOR_REASON="$(
+    printf '%s' "$COLLECTOR_OUTPUT" | collector_output_field reason || true
+  )"
+  COLLECTOR_OUTPUT=''
+  if [[ -n "$COLLECTOR_REASON" ]]; then
+    blocked "$COLLECTOR_REASON"
+  fi
+  blocked "CONNECTED_EVIDENCE_COLLECTION_ABNORMAL_EXIT"
+fi
+COLLECTOR_OUTPUT=''
 
 [[ -s "$EVIDENCE" ]] || blocked "CONNECTED_EVIDENCE_NOT_PRODUCED"
 

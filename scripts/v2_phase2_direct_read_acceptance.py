@@ -226,14 +226,93 @@ def direct_mutation_observed(executor: GitHubDirectReadExecutor) -> bool:
     return False
 
 
+#: Functional phases of the collector. A non-zero ``SystemExit`` or an
+#: unexpected exception raised inside a phase is reported as that phase only,
+#: never as an exception message, argument value or filesystem path.
+PHASE_PRECONDITION = "PRECONDITION"
+PHASE_DIRECT_COLLECTION = "DIRECT_COLLECTION"
+PHASE_SHADOW_COLLECTION = "SHADOW_COLLECTION"
+PHASE_TOKEN_ACCOUNTING = "TOKEN_ACCOUNTING"
+PHASE_VALIDATION = "VALIDATION"
+COLLECTOR_PHASES: tuple[str, ...] = (
+    PHASE_PRECONDITION,
+    PHASE_DIRECT_COLLECTION,
+    PHASE_SHADOW_COLLECTION,
+    PHASE_TOKEN_ACCOUNTING,
+    PHASE_VALIDATION,
+)
+
+#: Maximum reason length accepted by the launcher and the blocked contract.
+REASON_MAX_LENGTH = 64
+BLOCKED_GATE = "DIRECT_READ_BLOCKED"
+UNSPECIFIED_REASON_TOKEN = "UNSPECIFIED"
+
+_current_phase = PHASE_PRECONDITION
+
+
+def sanitize_reason(value: Any) -> str:
+    """Normalize any reason into a bounded ``^[A-Z0-9_]{1,64}$`` token.
+
+    Foreign values (provider error codes, tool identifiers, exception text)
+    can never cross this boundary verbatim: every character outside the stable
+    vocabulary is collapsed to ``_`` and the result is truncated. An empty or
+    unusable input degrades to :data:`UNSPECIFIED_REASON_TOKEN` rather than to
+    an unbounded or leaking string.
+    """
+    text = "" if value is None else str(value)
+    normalized = "".join(
+        char if ("A" <= char <= "Z" or "0" <= char <= "9" or char == "_") else "_"
+        for char in text.upper()
+    )
+    normalized = normalized.strip("_")
+    while "__" in normalized:
+        normalized = normalized.replace("__", "_")
+    normalized = normalized[:REASON_MAX_LENGTH].strip("_")
+    return normalized or UNSPECIFIED_REASON_TOKEN
+
+
+def _tool_token(tool_id: Any) -> str:
+    """Map a KNOWN tool id onto a stable token; anything else is unspecified."""
+    if isinstance(tool_id, str) and tool_id in set(GITHUB_DIRECT_READ_TOOL_IDS):
+        return sanitize_reason(tool_id)
+    return UNSPECIFIED_REASON_TOKEN
+
+
+def _foreign_token(value: Any) -> str:
+    """Bound a foreign value (provider/router code) to a short stable token."""
+    text = "" if value is None else str(value)
+    if not text.strip():
+        return UNSPECIFIED_REASON_TOKEN
+    return sanitize_reason(text)[:32].strip("_") or UNSPECIFIED_REASON_TOKEN
+
+
+def current_phase() -> str:
+    return _current_phase
+
+
+def enter_phase(phase: str) -> None:
+    """Record the functional phase used to attribute an uncontrolled failure."""
+    global _current_phase
+    _current_phase = phase if phase in COLLECTOR_PHASES else PHASE_PRECONDITION
+
+
+def phase_exit_reason(phase: str) -> str:
+    return sanitize_reason(f"COLLECTOR_EXIT_{phase}")
+
+
+def phase_exception_reason(phase: str, exc: BaseException) -> str:
+    """Reason built from the phase and the exception CLASS only."""
+    return sanitize_reason(f"COLLECTOR_FAILURE_{phase}_{type(exc).__name__}")
+
+
 class CollectorError(RuntimeError):
     """Fail-closed collection failure carrying a stable, secret-free code."""
 
     __slots__ = ("code",)
 
     def __init__(self, code: str) -> None:
-        self.code = code
-        super().__init__(code)
+        self.code = sanitize_reason(code)
+        super().__init__(self.code)
 
     def __str__(self) -> str:
         return f"collection failed: {self.code}"
@@ -618,6 +697,7 @@ async def _run_shadow(session: Any, prompt: str, wait_seconds: float) -> Any:
 
 
 async def collect(args: argparse.Namespace) -> dict[str, Any]:
+    enter_phase(PHASE_PRECONDITION)
     spec = json.loads(Path(args.targets).read_text(encoding="utf-8"))
     plan = build_plan(spec)
     repositories = sorted({item["repository"] for item in plan})
@@ -699,6 +779,7 @@ async def collect(args: argparse.Namespace) -> dict[str, Any]:
                 arguments = item["arguments"]
 
                 # ---- DIRECT (no Hermes client involved) ----
+                enter_phase(PHASE_DIRECT_COLLECTION)
                 before_calls = transport.calls
                 before_redirects = transport.redirects
                 direct_started = time.monotonic()
@@ -709,9 +790,13 @@ async def collect(args: argparse.Namespace) -> dict[str, Any]:
                 )
                 direct_latency = (time.monotonic() - direct_started) * 1000.0
                 if decision.path is not ExecutionPath.DIRECT:
-                    raise CollectorError(f"DIRECT_NOT_TAKEN_{decision.fallback_reason.value}")
+                    raise CollectorError(
+                        f"DIRECT_NOT_TAKEN_{_foreign_token(decision.fallback_reason.value)}"
+                    )
                 if not decision.succeeded or decision.result is None:
-                    raise CollectorError(f"DIRECT_FAILED_{decision.error_code}")
+                    raise CollectorError(
+                        f"DIRECT_FAILED_{_foreign_token(decision.error_code)}"
+                    )
                 direct_calls = transport.calls - before_calls
                 direct_redirects = transport.redirects - before_redirects
                 if direct_calls != 1:
@@ -721,6 +806,7 @@ async def collect(args: argparse.Namespace) -> dict[str, Any]:
                 direct_digest = normalized_digest(tool_id, result.data)
 
                 # ---- V1 agentic shadow ----
+                enter_phase(PHASE_SHADOW_COLLECTION)
                 shadow_started = time.monotonic()
                 shadow_raw = await _run_shadow(
                     session,
@@ -733,6 +819,7 @@ async def collect(args: argparse.Namespace) -> dict[str, Any]:
                 if shadow_data is None:
                     raise CollectorError("SHADOW_RESULT_UNPARSEABLE")
 
+                enter_phase(PHASE_TOKEN_ACCOUNTING)
                 session_id = _top_level_session_id(shadow_payload)
                 if session_id is None:
                     raise CollectorError("SHADOW_SESSION_ID_MISSING")
@@ -740,9 +827,10 @@ async def collect(args: argparse.Namespace) -> dict[str, Any]:
                 if tokens is None:
                     raise CollectorError("SHADOW_TOKEN_ACCOUNTING_UNAVAILABLE")
 
+                enter_phase(PHASE_VALIDATION)
                 shadow_digest = normalized_digest(tool_id, shadow_data)
                 if shadow_digest != direct_digest:
-                    raise CollectorError(f"SEMANTIC_MISMATCH_{tool_id}")
+                    raise CollectorError(f"SEMANTIC_MISMATCH_{_tool_token(tool_id)}")
 
                 window = WindowIntegrity(
                     direct_transport_dedicated=True,
@@ -797,6 +885,7 @@ async def collect(args: argparse.Namespace) -> dict[str, Any]:
     finally:
         await streamable.__aexit__(None, None, None)
 
+    enter_phase(PHASE_VALIDATION)
     if len(samples) != EXPECTED_SAMPLE_COUNT:
         raise CollectorError("SAMPLE_TOPOLOGY_INVALID")
 
@@ -865,8 +954,52 @@ async def collect(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
+class ArgumentContractError(SystemExit):
+    """Usage failure carrying a sanitized reason instead of argparse output.
+
+    It stays a ``SystemExit`` so callers driving :func:`build_parser` directly
+    keep observing the argparse contract, while :func:`main` recognizes it and
+    emits the bounded blocked document. No usage text, argument value or path
+    is ever produced.
+    """
+
+    def __init__(self, reason: str = "ARGUMENTS_INVALID") -> None:
+        self.reason = sanitize_reason(reason)
+        super().__init__(2)
+
+
+class BlockedArgumentParser(argparse.ArgumentParser):
+    """Argparse parser that never writes usage, values or paths to stderr.
+
+    Any usage failure is converted into the same bounded, sanitized
+    ``DIRECT_READ_BLOCKED`` contract the rest of the collector emits, with a
+    stable reason supplied by the caller (never the argparse message, which
+    can echo a supplied value or path).
+    """
+
+    def error(self, message: str) -> Any:
+        # argparse contract: never print usage/values, fail closed instead.
+        raise ArgumentContractError()
+
+    def exit(self, status: int = 0, message: str | None = None) -> Any:
+        if status:
+            raise ArgumentContractError()
+        raise SystemExit(status)
+
+    def _print_message(self, message: str, file: Any = None) -> None:
+        if file is sys.stderr:
+            return
+        super()._print_message(message, file)
+
+
+def emit_blocked(reason: Any) -> int:
+    """Emit exactly one bounded, sanitized blocked document and return 2."""
+    print(json.dumps({"gate": BLOCKED_GATE, "reason": sanitize_reason(reason)}, sort_keys=True))
+    return 2
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = BlockedArgumentParser(description=__doc__, add_help=True)
     parser.add_argument("--url", default="http://127.0.0.1:8765/mcp")
     parser.add_argument("--targets", required=True)
     parser.add_argument("--json-out", required=True)
@@ -911,21 +1044,38 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
+def _parse_and_check(argv: list[str] | None) -> argparse.Namespace:
+    """Parse arguments and enforce preconditions with stable, path-free reasons."""
+    enter_phase(PHASE_PRECONDITION)
     parser = build_parser()
     args = parser.parse_args(argv)
     if not Path(args.hermes_state_db).is_file():
-        parser.error("--hermes-state-db must point to an existing SQLite file")
+        raise CollectorError("HERMES_STATE_DB_NOT_A_FILE")
     if not Path(args.targets).is_file():
-        parser.error("--targets must point to an existing JSON file")
+        raise CollectorError("TARGETS_FILE_NOT_FOUND")
     if not Path(args.provider_attestation).is_file():
-        parser.error("--provider-attestation must point to an existing JSON file")
+        raise CollectorError("PROVIDER_ATTESTATION_FILE_NOT_FOUND")
+    return args
 
+
+def main(argv: list[str] | None = None) -> int:
+    enter_phase(PHASE_PRECONDITION)
     try:
+        args = _parse_and_check(argv)
         report = asyncio.run(collect(args))
     except CollectorError as exc:
-        print(json.dumps({"gate": "DIRECT_READ_BLOCKED", "reason": exc.code}))
-        return 2
+        return emit_blocked(exc.code)
+    except ArgumentContractError as exc:
+        return emit_blocked(exc.reason)
+    except SystemExit as exc:
+        code = exc.code
+        if code in (0, None):
+            raise
+        return emit_blocked(phase_exit_reason(current_phase()))
+    except KeyboardInterrupt:
+        return emit_blocked(phase_exit_reason(current_phase()))
+    except BaseException as exc:  # sanitized fail-closed boundary
+        return emit_blocked(phase_exception_reason(current_phase(), exc))
 
     text = json.dumps(report, indent=2, sort_keys=True)
     Path(args.json_out).write_text(text + "\n", encoding="utf-8")
