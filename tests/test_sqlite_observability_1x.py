@@ -7,13 +7,13 @@ import sqlite3
 import pytest
 
 from hermes_mcp_bridge.approvals import ApprovalRegistry
-from hermes_mcp_bridge.models import ApprovalRecord, ApprovalStatus
 from hermes_mcp_bridge.observability.metrics import get_registry, render_prometheus
 from hermes_mcp_bridge.observability.sqlite import (
     instrument_sqlite_registries,
     observe_sqlite,
     sqlite_instrumentation_coverage,
 )
+from hermes_mcp_bridge.protocol import ApprovalRecord, ApprovalStatus
 
 
 def setup_function() -> None:
@@ -44,6 +44,7 @@ def test_real_approval_registry_operations_record_latency_and_return_inflight_to
         resource="resource-must-not-escape",
         principal="principal-must-not-escape",
         decision=ApprovalStatus.REQUESTED,
+        created_at="2026-08-08T00:00:00+00:00",
     )
     registry.create(approval)
     loaded = registry.get(approval.approval_id)
