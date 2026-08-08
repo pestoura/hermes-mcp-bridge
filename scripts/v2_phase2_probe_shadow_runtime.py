@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import stat
@@ -103,7 +104,11 @@ def probe(args: argparse.Namespace) -> dict:
     if capabilities.get("platform") != "hermes-agent":
         raise ProbeError("SHADOW_CAPABILITIES_PLATFORM_INVALID")
     auth = capabilities.get("auth")
-    if not isinstance(auth, dict) or auth.get("type") != "bearer" or auth.get("required") is not True:
+    if (
+        not isinstance(auth, dict)
+        or auth.get("type") != "bearer"
+        or auth.get("required") is not True
+    ):
         raise ProbeError("SHADOW_API_AUTH_NOT_REQUIRED")
     runtime = capabilities.get("runtime")
     if not isinstance(runtime, dict) or runtime.get("tool_execution") != "server":
@@ -180,10 +185,8 @@ def _atomic_private_json(path: Path, payload: dict) -> None:
         os.replace(tmp, path)
         path.chmod(0o600)
     finally:
-        try:
+        with contextlib.suppress(FileNotFoundError):
             tmp.unlink()
-        except FileNotFoundError:
-            pass
 
 
 def build_parser() -> argparse.ArgumentParser:
