@@ -1,0 +1,18 @@
+# Additive overlay for the 1.x production configuration contract.
+#
+# The base candidate remains fail-closed. This overlay is applied with Docker
+# Compose --env-file so approved observability flags survive upgrades instead
+# of being overwritten by empty environment values in compose.candidate.yml.
+# Metrics stay loopback-only regardless of the env-file contents.
+services:
+  hermes-mcp-bridge:
+    environment:
+      BRIDGE_METRICS_ENABLED: "${BRIDGE_METRICS_ENABLED:-false}"
+      BRIDGE_METRICS_HOST: 127.0.0.1
+      BRIDGE_METRICS_PORT: "${BRIDGE_METRICS_PORT:-9464}"
+      BRIDGE_METRICS_ALLOW_REMOTE: "false"
+      BRIDGE_METRICS_TOKEN: "${BRIDGE_METRICS_TOKEN:-}"
+      BRIDGE_TRACING_ENABLED: "${BRIDGE_TRACING_ENABLED:-false}"
+      BRIDGE_TRACING_EXPORT: "${BRIDGE_TRACING_EXPORT:-false}"
+      BRIDGE_RETRY_ENABLED: "${BRIDGE_RETRY_ENABLED:-false}"
+      BRIDGE_CIRCUIT_ENABLED: "${BRIDGE_CIRCUIT_ENABLED:-false}"
