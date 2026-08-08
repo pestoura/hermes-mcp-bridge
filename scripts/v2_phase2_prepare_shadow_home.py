@@ -28,8 +28,8 @@ if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
 from hermes_mcp_bridge.v2.shadow_isolation import (  # noqa: E402
+    SHADOW_MCP_SERVER,
     SHADOW_MCP_TOOL_NAMES,
-    SHADOW_TOOLSET,
 )
 
 _SENSITIVE_KEY_RE = re.compile(r"(?:api[_-]?key|authorization|bearer|password|secret|token)$", re.I)
@@ -139,6 +139,32 @@ def _matching_custom_providers(source: dict[str, Any], provider: str) -> list[An
     return matches
 
 
+def _constrain_platform_to_shadow_mcp(target: dict[str, Any]) -> int:
+    """Use the installed Hermes resolver itself to suppress every non-MCP toolset."""
+    try:
+        from hermes_cli.tools_config import _get_platform_tools
+    except Exception as exc:
+        raise ShadowHomeError("HERMES_TOOLSET_RESOLVER_UNAVAILABLE") from exc
+
+    try:
+        preliminary = set(_get_platform_tools(target, "api_server"))
+    except Exception as exc:
+        raise ShadowHomeError("HERMES_TOOLSET_RESOLUTION_FAILED") from exc
+    if SHADOW_MCP_SERVER not in preliminary:
+        raise ShadowHomeError("SHADOW_MCP_SERVER_NOT_RESOLVED")
+
+    disabled = sorted(preliminary - {SHADOW_MCP_SERVER})
+    target.setdefault("agent", {})["disabled_toolsets"] = disabled
+
+    try:
+        final = set(_get_platform_tools(target, "api_server"))
+    except Exception as exc:
+        raise ShadowHomeError("HERMES_TOOLSET_RESOLUTION_FAILED") from exc
+    if final != {SHADOW_MCP_SERVER}:
+        raise ShadowHomeError("SHADOW_PLATFORM_TOOLSETS_NOT_EXACT")
+    return len(disabled)
+
+
 def prepare(args: argparse.Namespace) -> dict[str, Any]:
     source_home = Path(args.source_home).expanduser().resolve()
     shadow_home = Path(args.shadow_home).expanduser().resolve()
@@ -184,9 +210,12 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
     custom = _matching_custom_providers(source, provider)
     if custom:
         target["custom_providers"] = custom
-    target["platform_toolsets"] = {"api_server": [SHADOW_TOOLSET]}
+
+    # Current Hermes treats the MCP server key itself as the platform toolset
+    # allowlist entry. It is not a /v1/toolsets configurable/native toolset.
+    target["platform_toolsets"] = {"api_server": [SHADOW_MCP_SERVER]}
     target["mcp_servers"] = {
-        "phase2-read": {
+        SHADOW_MCP_SERVER: {
             "command": str(mcp_python),
             "args": [str(mcp_script)],
             "env": {
@@ -202,26 +231,13 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
         }
     }
     target["terminal"] = {"home_mode": "profile"}
-    target["agent"] = {
-        # Defense-in-depth. The platform allow-list and live /v1/toolsets probe
-        # are the authoritative boundary; this list prevents accidental future
-        # fallback to broad built-ins during config migrations.
-        "disabled_toolsets": [
-            "browser",
-            "code_execution",
-            "computer_use",
-            "file",
-            "homeassistant",
-            "image_gen",
-            "kanban",
-            "memory",
-            "messaging",
-            "skills",
-            "terminal",
-            "todo",
-            "web",
-        ]
-    }
+    target["agent"] = {"disabled_toolsets": []}
+
+    # Hermes can auto-enable recently shipped, plugin and recovered native
+    # toolsets even when an MCP server is explicitly listed. Derive the exact
+    # suppression set using the installed resolver, then verify the result is
+    # mechanically reduced to this one MCP server before persisting config.
+    disabled_toolset_count = _constrain_platform_to_shadow_mcp(target)
 
     _atomic_private_write(
         shadow_home / "config.yaml",
@@ -261,8 +277,9 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
         "model_configured": True,
         "provider_env_names_copied": sorted(copied_provider_env),
         "oauth_auth_store_copied": auth_copied,
-        "platform_toolset": SHADOW_TOOLSET,
+        "platform_toolset": SHADOW_MCP_SERVER,
         "mcp_tool_count": len(SHADOW_MCP_TOOL_NAMES),
+        "disabled_non_mcp_toolset_count": disabled_toolset_count,
         "messaging_credentials_copied": False,
         "integration_credentials_copied": False,
     }
