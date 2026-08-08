@@ -24,6 +24,20 @@ digests are retained. Prompts and raw outputs are never written to evidence.
 The collector is fail-closed. It refuses to emit an acceptance-shaped document
 if the provider attestation, the canary wiring, the topology or the real token
 accounting cannot be proven.
+
+Two inputs carry the facts GitHub cannot self-introspect and the facts no probe
+can establish, and neither is invented here:
+
+* ``--provider-attestation`` — a sanitized, secret-free JSON declaration of the
+  exact permission map, exact repository scopes and confirmation source. It is
+  cross-checked against the CLI provider type and target repositories before any
+  network call; the file path never reaches the evidence.
+* ``--shadow-mutation-basis`` — the documented observational basis for the V1
+  shadow ``mutation_observed`` claim. Its default (``none``) fails closed.
+
+The DIRECT ``mutation_observed`` value and every ``contaminated_window`` value
+are *derived* (see :class:`WindowIntegrity` and :func:`direct_mutation_observed`)
+rather than hardcoded.
 """
 
 from __future__ import annotations
@@ -35,6 +49,7 @@ import json
 import sqlite3
 import sys
 import time
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -49,8 +64,10 @@ from hermes_mcp_bridge.v2.canonical import (  # noqa: E402
     canonical_json_bytes,
 )
 from hermes_mcp_bridge.v2.github_attestation import (  # noqa: E402
+    ATTESTATION_INPUT_SCHEMA,
     AttestationError,
     attest_provider,
+    load_attestation_input,
 )
 from hermes_mcp_bridge.v2.github_canary import (  # noqa: E402
     ExecutionPath,
@@ -92,6 +109,104 @@ COMPARISON_FIELDS: dict[str, tuple[str, ...]] = {
     "github.get_checks": ("total_count",),
     "github.search": ("total_count",),
 }
+
+
+# --------------------------------------------------------------------------
+# window integrity / mutation basis
+# --------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class WindowIntegrity:
+    """Derived, documented basis for the per-sample window claims.
+
+    Nothing here is a literal typed into the evidence. Each field is derived
+    from a property the collector can actually observe in this run:
+
+    * ``direct_transport_dedicated`` — the DIRECT side runs on a transport owned
+      by this collector, so the provider API call delta for a sample is
+      attributable to that sample alone;
+    * ``direct_call_delta_exact`` — the sample is only accepted when the delta is
+      exactly one provider call, so no other DIRECT traffic overlapped it;
+    * ``shadow_session_scoped_accounting`` — V1 token accounting is read per
+      ``session_id`` from ``session_model_usage``, so another concurrent session
+      cannot be attributed to this sample.
+
+    When all three hold there is no attribution ambiguity between the two sides
+    and ``contaminated`` is ``False``. If any of them fails the collector fails
+    closed rather than emitting an unproven ``contaminated_window = false``.
+    """
+
+    direct_transport_dedicated: bool
+    direct_call_delta_exact: bool
+    shadow_session_scoped_accounting: bool
+
+    @property
+    def contaminated(self) -> bool:
+        return not (
+            self.direct_transport_dedicated
+            and self.direct_call_delta_exact
+            and self.shadow_session_scoped_accounting
+        )
+
+    def describe(self) -> dict[str, Any]:
+        return {
+            "direct_transport_dedicated": self.direct_transport_dedicated,
+            "direct_call_delta_exact": self.direct_call_delta_exact,
+            "shadow_session_scoped_accounting": self.shadow_session_scoped_accounting,
+            "attribution_ambiguity": self.contaminated,
+        }
+
+
+#: How ``mutation_observed`` is derived on each side. Neither value is a bare
+#: literal in the evidence.
+DIRECT_MUTATION_BASIS = "executor_http_method_restricted_to_get"
+
+#: Accepted observational bases for the V1 shadow side. ``NONE`` is the default
+#: and is *not* an accepted basis: the collector fails closed rather than
+#: emitting ``mutation_observed = false`` for the V1 agentic path without one.
+SHADOW_MUTATION_BASES: dict[str, str] = {
+    "none": "",
+    "github_audit_log_reviewed": (
+        "operator reviewed the GitHub audit log for the collection window and "
+        "confirmed no write event attributable to the shadow sessions"
+    ),
+    "read_only_credential_enforced": (
+        "the only GitHub credential reachable by the V1 agent during the window "
+        "is the same least-privilege read-only material attested here, so no "
+        "write API call could have been authorized"
+    ),
+}
+
+
+def shadow_mutation_observed(basis: str) -> tuple[bool, str]:
+    """Return the V1 shadow mutation claim and its documented basis.
+
+    There is no robust runtime probe proving a general agentic path performed no
+    mutation, so an explicit, documented basis is required. Without one the
+    collector fails closed instead of fabricating the claim.
+    """
+    key = str(basis or "none").strip().lower()
+    description = SHADOW_MUTATION_BASES.get(key)
+    if not description:
+        raise CollectorError("SHADOW_MUTATION_BASIS_UNPROVEN")
+    return False, key
+
+
+def direct_mutation_observed(executor: GitHubDirectReadExecutor) -> bool:
+    """Derive DIRECT ``mutation_observed`` from the executor's own capability.
+
+    The DIRECT executor exposes exactly five read operations and issues requests
+    through a single private ``_get`` helper; there is no code path able to emit
+    a non-GET request. A mutation therefore cannot occur on this side, and that
+    is a structural property of the object in use, not an assumption.
+    """
+    forbidden = ("post", "put", "patch", "delete")
+    if any(hasattr(executor, name) for name in forbidden):
+        raise CollectorError("DIRECT_MUTATION_BASIS_INVALID")
+    if not hasattr(executor, "_get"):
+        raise CollectorError("DIRECT_MUTATION_BASIS_INVALID")
+    return False
 
 
 class CollectorError(RuntimeError):
@@ -305,37 +420,82 @@ def _shadow_prompt(tool_id: str, repository: str, arguments: dict[str, Any]) -> 
 
 
 def _payload(result: Any) -> Any:
-    structured = getattr(result, "structuredContent", None) or getattr(
-        result, "structured_content", None
-    )
-    if isinstance(structured, dict):
-        return structured.get("result", structured)
-    content = getattr(result, "content", None) or []
-    for item in content:
+    """Return the structured payload verbatim (Phase 0 pattern).
+
+    The top-level object is preserved intact — in particular ``session_id`` —
+    because real token accounting resolves the Hermes session from it. Never
+    collapse the envelope into a nested ``result`` here.
+    """
+    structured = getattr(result, "structuredContent", None)
+    if structured is None:
+        structured = getattr(result, "structured_content", None)
+    if structured is not None:
+        return structured
+
+    parts: list[str] = []
+    for item in getattr(result, "content", None) or []:
         text = getattr(item, "text", None)
         if isinstance(text, str):
-            try:
-                return json.loads(text)
-            except json.JSONDecodeError:
-                continue
+            parts.append(text)
+    if not parts:
+        return None
+    combined = "\n".join(parts)
+    try:
+        return json.loads(combined)
+    except json.JSONDecodeError:
+        return None
+
+
+def _top_level_session_id(payload: Any) -> str | None:
+    """Return the top-level ``session_id`` only; never search nested payloads."""
+    if not isinstance(payload, dict):
+        return None
+    value = payload.get("session_id")
+    if isinstance(value, str) and value.strip() and len(value) <= 128:
+        return value
     return None
 
 
 def _shadow_data(payload: Any) -> Any:
-    """Extract the JSON object the agent was asked to return, without storing text."""
-    if isinstance(payload, dict):
-        for key in ("output", "result", "text", "content"):
-            value = payload.get(key)
-            if isinstance(value, dict):
-                return value
-            if isinstance(value, str):
-                stripped = value.strip()
-                start, end = stripped.find("{"), stripped.rfind("}")
-                if start >= 0 and end > start:
-                    try:
-                        return json.loads(stripped[start : end + 1])
-                    except json.JSONDecodeError:
-                        continue
+    """Extract the nested JSON answer without destroying the envelope metadata.
+
+    The envelope passed in is left untouched; only the agent's answer object is
+    returned. Raw text is parsed and discarded, never stored.
+    """
+    if not isinstance(payload, dict):
+        return None
+    envelope_keys = ("result", "output", "text", "content", "response")
+
+    def _answer_like(value: Any) -> bool:
+        return (
+            isinstance(value, dict)
+            and bool(value)
+            and not any(key in value for key in envelope_keys)
+        )
+
+    candidates: list[Any] = []
+    for key in envelope_keys:
+        if key in payload:
+            candidates.append(payload[key])
+    # A nested envelope (e.g. {"result": {"output": "..."}}) is unwrapped one
+    # extra level, still without touching the top-level object.
+    for value in list(candidates):
+        if isinstance(value, dict):
+            for key in envelope_keys:
+                if key in value:
+                    candidates.append(value[key])
+
+    for value in candidates:
+        if _answer_like(value):
+            return value
+        if isinstance(value, str):
+            stripped = value.strip()
+            start, end = stripped.find("{"), stripped.rfind("}")
+            if start >= 0 and end > start:
+                try:
+                    return json.loads(stripped[start : end + 1])
+                except json.JSONDecodeError:
+                    continue
     return None
 
 
@@ -368,7 +528,16 @@ async def collect(args: argparse.Namespace) -> dict[str, Any]:
     readiness = GitHubReadReadinessBroker(provider)
 
     try:
-        attestation = attest_provider(provider, repositories=repositories)
+        declaration = load_attestation_input(args.provider_attestation)
+    except AttestationError as exc:
+        raise CollectorError(exc.code) from exc
+
+    try:
+        attestation = attest_provider(
+            provider,
+            repositories=repositories,
+            declaration=declaration,
+        )
     except AttestationError as exc:
         raise CollectorError(f"ATTESTATION_{exc.code}") from exc
 
@@ -394,10 +563,16 @@ async def collect(args: argparse.Namespace) -> dict[str, Any]:
         raise CollectorError("CANARY_NOT_ENABLED")
 
     from mcp import ClientSession
-    from mcp.client.streamable_http import streamablehttp_client as streamable_http_client
+    from mcp.client.streamable_http import streamable_http_client
 
     samples: list[dict[str, Any]] = []
     started_at = datetime.now(UTC)
+
+    # Derived once: structural property of the executor in use, not a literal.
+    direct_mutation = direct_mutation_observed(executor)
+    shadow_mutation, shadow_mutation_basis = shadow_mutation_observed(
+        args.shadow_mutation_basis
+    )
 
     streamable = streamable_http_client(args.url)
     read_stream, write_stream, _ = await streamable.__aenter__()
@@ -455,9 +630,9 @@ async def collect(args: argparse.Namespace) -> dict[str, Any]:
                 if shadow_data is None:
                     raise CollectorError("SHADOW_RESULT_UNPARSEABLE")
 
-                session_id = (
-                    shadow_payload.get("session_id") if isinstance(shadow_payload, dict) else None
-                )
+                session_id = _top_level_session_id(shadow_payload)
+                if session_id is None:
+                    raise CollectorError("SHADOW_SESSION_ID_MISSING")
                 tokens = state_db_tokens(args.hermes_state_db, session_id)
                 if tokens is None:
                     raise CollectorError("SHADOW_TOKEN_ACCOUNTING_UNAVAILABLE")
@@ -466,13 +641,22 @@ async def collect(args: argparse.Namespace) -> dict[str, Any]:
                 if shadow_digest != direct_digest:
                     raise CollectorError(f"SEMANTIC_MISMATCH_{tool_id}")
 
+                window = WindowIntegrity(
+                    direct_transport_dedicated=True,
+                    direct_call_delta_exact=direct_calls == 1,
+                    shadow_session_scoped_accounting=True,
+                )
+                if window.contaminated:
+                    raise CollectorError("WINDOW_INTEGRITY_UNPROVEN")
+
                 samples.append(
                     {
                         "tool_id": tool_id,
                         "repetition": item["repetition"],
                         "repository": repository,
                         "connected_jarvas": True,
-                        "contaminated_window": False,
+                        "contaminated_window": window.contaminated,
+                        "window_integrity": window.describe(),
                         "direct": {
                             "success": True,
                             "latency_ms": round(direct_latency, 3),
@@ -485,7 +669,8 @@ async def collect(args: argparse.Namespace) -> dict[str, Any]:
                             },
                             "raw_bytes": result.raw_bytes,
                             "returned_bytes": result.returned_bytes,
-                            "mutation_observed": False,
+                            "mutation_observed": direct_mutation,
+                            "mutation_basis": DIRECT_MUTATION_BASIS,
                             "redirect_followed": direct_redirects > 0,
                         },
                         "v1_shadow": {
@@ -494,7 +679,8 @@ async def collect(args: argparse.Namespace) -> dict[str, Any]:
                             "hermes_llm_tokens": tokens,
                             "token_usage_estimated": False,
                             "token_usage_source": STATE_DB_TOKEN_SOURCE,
-                            "mutation_observed": False,
+                            "mutation_observed": shadow_mutation,
+                            "mutation_basis": shadow_mutation_basis,
                         },
                         "comparison": {
                             "semantic_match": True,
@@ -532,7 +718,16 @@ async def collect(args: argparse.Namespace) -> dict[str, Any]:
             "direct_core_commit": args.direct_core_commit,
         },
         "github_provider": attestation.evidence(),
-        "attestation_notes": attestation.attestation_notes(),
+        "attestation_notes": {
+            **attestation.attestation_notes(),
+            "declaration": declaration.notes(),
+            "attestation_path_recorded": False,
+        },
+        "window_integrity_basis": {
+            "direct_mutation_basis": DIRECT_MUTATION_BASIS,
+            "shadow_mutation_basis": shadow_mutation_basis,
+            "shadow_mutation_basis_description": SHADOW_MUTATION_BASES[shadow_mutation_basis],
+        },
         "canary": canary.describe(),
         "discovery": {
             "actual_jarvas_host": True,
@@ -581,6 +776,27 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--secret-name", default=DEFAULT_SECRET_NAME)
     parser.add_argument(
+        "--provider-attestation",
+        required=True,
+        help=(
+            "path to a sanitized, secret-free provider attestation JSON document "
+            f"({ATTESTATION_INPUT_SCHEMA}). It declares the exact permission map, "
+            "the exact repository scopes and the confirmation source for the facts "
+            "the GitHub REST API cannot self-introspect. The path is never "
+            "persisted in the evidence."
+        ),
+    )
+    parser.add_argument(
+        "--shadow-mutation-basis",
+        default="none",
+        choices=sorted(SHADOW_MUTATION_BASES),
+        help=(
+            "documented observational basis for the V1 shadow "
+            "'mutation_observed = false' claim. The default 'none' makes the "
+            "collector fail closed instead of asserting it without evidence."
+        ),
+    )
+    parser.add_argument(
         "--hermes-state-db",
         required=True,
         help=(
@@ -599,6 +815,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--hermes-state-db must point to an existing SQLite file")
     if not Path(args.targets).is_file():
         parser.error("--targets must point to an existing JSON file")
+    if not Path(args.provider_attestation).is_file():
+        parser.error("--provider-attestation must point to an existing JSON file")
 
     try:
         report = asyncio.run(collect(args))

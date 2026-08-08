@@ -1,38 +1,56 @@
 """Sanitized GitHub provider attestation for the Phase 2 connected gate.
 
-The attestation is deliberately **separate from the secret**: it carries only a
-declared provider type, boolean posture flags, an exact permission map, an exact
-repository scope list and the API identity. It never carries the credential, the
-secret path or an environment dump.
+The attestation has **two** halves and neither one is allowed to invent the
+other:
 
-A declaration is *not* accepted as proof. :func:`attest_provider` performs live,
-read-only probes against ``api.github.com`` and downgrades every claim it cannot
-observe:
+1. **Externally confirmed declaration** (:class:`ProviderAttestationInput`) — a
+   sanitized, secret-free JSON document supplied by the operator via
+   ``--provider-attestation``. It carries the exact permission map, the exact
+   repository scopes, an explicit ``confirmation`` boolean and a restricted
+   ``confirmation_source``. This is the *only* accepted source for facts the
+   GitHub REST API cannot introspect. The collector never fabricates it, and the
+   file path is never retained anywhere.
+2. **Live read-only probes** (:func:`attest_provider`) — positive connectivity
+   proofs executed with the real token against ``api.github.com``. They prove
+   the token authenticates and can actually perform each required *read*. They
+   never mutate anything and never probe for the *absence* of write.
 
-* ``GET /rate_limit`` — proves the material authenticates at all (401 → fail).
-* ``GET /repos/{owner}/{repo}`` — proves each declared repository scope is
-  actually reachable, and the response ``permissions`` block proves the
-  installation has no ``push``/``admin`` on it (write ⇒ not least privilege).
-* ``GET /installation/repositories`` (GitHub App only) — enumerates the exact
-  installation repository set, so a scope broader than declared is detected.
-* the ``x-oauth-scopes`` response header, when present, is a classic-PAT tell:
-  fine-grained tokens and installation tokens do not emit it. Any value there
-  marks the material as a classic PAT and fails the attestation.
+Why the declaration is required
+-------------------------------
 
-**Externally-confirmed items.** GitHub does not expose granular fine-grained
-token permission introspection over REST for the token itself. For
-``fine_grained_token`` providers the exact ``checks/issues/metadata/
-pull_requests = read`` map cannot be read back from the API; it is confirmed by
-the operator in the token settings UI and recorded here as
-``permissions_source = "operator_declared_ui_confirmed"``. For ``github_app``
-providers the installation permissions ARE readable and are used verbatim, with
-``permissions_source = "installation_api"``. The attestation records which of
-the two applies, so an auditor can see exactly what was machine-verified.
+GitHub's REST API (version ``2026-03-10``) offers no self-introspection endpoint
+for an already-issued credential's permission set:
+
+* a **fine-grained PAT** cannot enumerate its own selected repositories or its
+  own permission map; GitHub additionally grants read access to public
+  repositories regardless of selection, so a successful public-repo read proves
+  nothing about the selection;
+* an **installation token** carries its permissions/repositories in the
+  *mint response* of ``POST /app/installations/{id}/access_tokens``; once
+  issued, there is no equivalent self-introspection endpoint.
+  ``GET /installation/repositories`` *is* valid for installation tokens and is
+  used here to enumerate the installation repository set.
+
+Consequently the exact permission map is **externally confirmed** (settings UI
+or the mint response) and recorded as such, while authentication and read
+capability are **machine-verified**. The evidence keeps the two apart.
+
+Why the repository ``permissions`` block is *not* used
+------------------------------------------------------
+
+``GET /repos/{owner}/{repo}`` returns a ``permissions`` block describing the
+*principal's computed role on the repository* — for an owner it reports
+``admin: true`` even when the fine-grained PAT in use is restricted to read.
+Treating it as token capability is unsound, so it is neither used to accept nor
+to reject a provider here.
 """
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -52,9 +70,34 @@ REQUIRED_PERMISSIONS: dict[str, str] = {
     "metadata": "read",
     "pull_requests": "read",
 }
-#: Installation permissions that are allowed to be present and map to read.
-_READ_VALUES = frozenset({"read"})
+
+#: Versioned schema identifier for the sanitized external attestation input.
+ATTESTATION_INPUT_SCHEMA = "hermes-v2-phase2-provider-attestation/1"
+
+#: Confirmation sources accepted per provider type. Nothing else is allowed.
+ALLOWED_CONFIRMATION_SOURCES: dict[str, frozenset[str]] = {
+    GitHubProviderType.FINE_GRAINED_TOKEN.value: frozenset({"github_settings_ui"}),
+    GitHubProviderType.GITHUB_APP.value: frozenset(
+        {"github_app_settings_ui", "installation_token_mint_response"}
+    ),
+}
+
+_WILDCARD_CHARS = ("*", "?", "[", "]")
 _USER_AGENT = "hermes-mcp-bridge-v2-attestation"
+_SECRET_LIKE_KEYS = frozenset(
+    {
+        "token",
+        "secret",
+        "credential",
+        "material",
+        "authorization",
+        "password",
+        "private_key",
+        "path",
+        "secret_path",
+        "file",
+    }
+)
 
 
 class AttestationError(RuntimeError):
@@ -68,6 +111,109 @@ class AttestationError(RuntimeError):
 
     def __str__(self) -> str:
         return f"provider attestation failed: {self.code}"
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderAttestationInput:
+    """Sanitized, secret-free external attestation supplied by the operator."""
+
+    provider_type: str
+    permissions: dict[str, str]
+    unexpected_permissions: list[str]
+    repository_scopes: list[str]
+    confirmation: bool
+    confirmation_source: str
+    confirmed_at: str
+
+    def notes(self) -> dict[str, Any]:
+        """Non-secret provenance for the evidence. Never contains a path."""
+        return {
+            "schema": ATTESTATION_INPUT_SCHEMA,
+            "confirmation": self.confirmation,
+            "confirmation_source": self.confirmation_source,
+            "confirmed_at": self.confirmed_at,
+        }
+
+
+def _require_str(payload: dict[str, Any], key: str, code: str) -> str:
+    value = payload.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise AttestationError(code)
+    return value.strip()
+
+
+def load_attestation_input(path: str | Path) -> ProviderAttestationInput:
+    """Parse and validate the external attestation document.
+
+    The path is used to read the file and is then discarded; it never appears in
+    the returned object, in any error, or in the evidence.
+    """
+    try:
+        raw = Path(path).read_text(encoding="utf-8")
+    except OSError as exc:
+        raise AttestationError("ATTESTATION_INPUT_UNREADABLE") from exc
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise AttestationError("ATTESTATION_INPUT_MALFORMED") from exc
+    if not isinstance(payload, dict):
+        raise AttestationError("ATTESTATION_INPUT_MALFORMED")
+
+    schema = _require_str(payload, "schema", "ATTESTATION_SCHEMA_MISSING")
+    if schema != ATTESTATION_INPUT_SCHEMA:
+        raise AttestationError("ATTESTATION_SCHEMA_UNSUPPORTED")
+
+    for key in payload:
+        if str(key).lower() in _SECRET_LIKE_KEYS:
+            raise AttestationError("ATTESTATION_INPUT_SECRET_LIKE_FIELD")
+
+    provider_type = _require_str(payload, "provider_type", "ATTESTATION_PROVIDER_TYPE_MISSING")
+    if provider_type not in ALLOWED_CONFIRMATION_SOURCES:
+        raise AttestationError("ATTESTATION_PROVIDER_TYPE_INVALID")
+
+    permissions_raw = payload.get("permissions")
+    if not isinstance(permissions_raw, dict) or not permissions_raw:
+        raise AttestationError("ATTESTATION_PERMISSIONS_MISSING")
+    permissions = {str(key): str(value) for key, value in permissions_raw.items()}
+
+    unexpected_raw = payload.get("unexpected_permissions")
+    if not isinstance(unexpected_raw, list):
+        raise AttestationError("ATTESTATION_UNEXPECTED_PERMISSIONS_MISSING")
+    unexpected = [str(item) for item in unexpected_raw]
+
+    scopes_raw = payload.get("repository_scopes")
+    if not isinstance(scopes_raw, list) or not scopes_raw:
+        raise AttestationError("ATTESTATION_REPOSITORY_SCOPES_MISSING")
+    scopes: list[str] = []
+    for item in scopes_raw:
+        if not isinstance(item, str) or item.count("/") != 1 or not item.strip():
+            raise AttestationError("ATTESTATION_REPOSITORY_SCOPE_INVALID")
+        if any(char in item for char in _WILDCARD_CHARS):
+            raise AttestationError("ATTESTATION_WILDCARD_REPOSITORY_SCOPE")
+        scopes.append(item.strip().lower())
+
+    if payload.get("confirmation") is not True:
+        raise AttestationError("ATTESTATION_NOT_CONFIRMED")
+
+    source = _require_str(payload, "confirmation_source", "ATTESTATION_SOURCE_MISSING")
+    if source not in ALLOWED_CONFIRMATION_SOURCES[provider_type]:
+        raise AttestationError("ATTESTATION_SOURCE_NOT_ALLOWED")
+
+    confirmed_at = _require_str(payload, "confirmed_at", "ATTESTATION_CONFIRMED_AT_MISSING")
+    try:
+        datetime.fromisoformat(confirmed_at)
+    except ValueError as exc:
+        raise AttestationError("ATTESTATION_CONFIRMED_AT_INVALID") from exc
+
+    return ProviderAttestationInput(
+        provider_type=provider_type,
+        permissions=permissions,
+        unexpected_permissions=unexpected,
+        repository_scopes=sorted(scopes),
+        confirmation=True,
+        confirmation_source=source,
+        confirmed_at=confirmed_at,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,9 +246,30 @@ class ProviderAttestation:
         }
 
     def attestation_notes(self) -> dict[str, Any]:
-        """Non-secret machine-verification provenance, kept beside the evidence."""
+        """Non-secret provenance kept beside the evidence.
+
+        ``machine_verified`` lists what the live probes actually proved;
+        ``externally_confirmed`` lists what only the operator declaration
+        covers. No path and no secret appears here.
+        """
         return {
             "permissions_source": self.permissions_source,
+            "machine_verified": [
+                "authentication",
+                "repository_metadata_read",
+                "pull_requests_read",
+                "issues_read",
+                "check_runs_read",
+                *(
+                    ["installation_repository_set"]
+                    if "installation_repository_count" in self.probes
+                    else []
+                ),
+            ],
+            "externally_confirmed": [
+                "exact_permission_map",
+                "exact_repository_selection",
+            ],
             "probes": dict(self.probes),
         }
 
@@ -116,38 +283,50 @@ def _headers(header_value: str) -> dict[str, str]:
     }
 
 
-def _normalize_permissions(raw: Any) -> tuple[dict[str, str], list[str]]:
-    """Split an installation permission map into required/unexpected parts."""
-    if not isinstance(raw, dict):
-        return {}, []
-    observed = {str(key): str(value) for key, value in raw.items()}
-    permissions = {key: observed[key] for key in REQUIRED_PERMISSIONS if key in observed}
-    unexpected = sorted(
-        f"{key}:{value}"
-        for key, value in observed.items()
-        if key not in REQUIRED_PERMISSIONS or value not in _READ_VALUES
-    )
-    return permissions, unexpected
+def _count(payload: Any) -> int:
+    if isinstance(payload, list):
+        return len(payload)
+    if isinstance(payload, dict):
+        value = payload.get("total_count")
+        return int(value) if isinstance(value, int) else 0
+    return 0
 
 
 def attest_provider(
     provider: FileGitHubAuthorizationProvider,
     *,
     repositories: list[str],
+    declaration: ProviderAttestationInput,
     transport: httpx.BaseTransport | None = None,
     timeout: float = 20.0,
 ) -> ProviderAttestation:
-    """Run live read-only probes and return a sanitized attestation.
+    """Cross-check the declaration and run live read-only probes.
 
-    Raises :class:`AttestationError` (fail-closed) on any unverifiable claim.
+    Every mismatch between the declaration and the CLI/provider configuration,
+    and every failed probe, raises :class:`AttestationError` (fail-closed) before
+    any evidence can be produced.
     """
     if not repositories:
         raise AttestationError("NO_REPOSITORY_SCOPE")
+    normalized: list[str] = []
     for repository in repositories:
-        if any(token in repository for token in ("*", "?", "[", "]")):
+        if any(token in repository for token in _WILDCARD_CHARS):
             raise AttestationError("WILDCARD_REPOSITORY_SCOPE")
         if repository.count("/") != 1:
             raise AttestationError("INVALID_REPOSITORY_SCOPE")
+        normalized.append(repository.strip().lower())
+
+    # ---- declaration cross-check (before any network call) -----------------
+    if declaration.provider_type != provider.provider_type.value:
+        raise AttestationError("ATTESTATION_PROVIDER_TYPE_MISMATCH")
+    if declaration.repository_scopes != sorted(set(normalized)):
+        raise AttestationError("ATTESTATION_REPOSITORY_SCOPE_MISMATCH")
+    if declaration.permissions != REQUIRED_PERMISSIONS:
+        raise AttestationError("ATTESTATION_PERMISSIONS_NOT_EXACT")
+    if declaration.unexpected_permissions:
+        raise AttestationError("ATTESTATION_UNEXPECTED_PERMISSIONS")
+    if declaration.confirmation is not True:
+        raise AttestationError("ATTESTATION_NOT_CONFIRMED")
 
     status = provider.probe()
     if status is AuthorizationStatus.CLASSIC_PAT_REJECTED:
@@ -182,23 +361,56 @@ def attest_provider(
         if broad_pat:
             raise AttestationError("CLASSIC_PAT_DETECTED")
 
-        repo_permissions: dict[str, Any] = {}
-        write_seen: list[str] = []
-        for repository in repositories:
+        # ---- live POSITIVE read probes, one set per declared repository ----
+        read_probes: dict[str, Any] = {}
+        for repository in normalized:
             owner, repo = repository.split("/", 1)
-            response = client.get(f"/repos/{owner}/{repo}", headers=headers)
-            if response.status_code != 200:
-                raise AttestationError(f"REPOSITORY_PROBE_{response.status_code}")
-            payload = response.json()
-            perms = payload.get("permissions") if isinstance(payload, dict) else None
-            if isinstance(perms, dict):
-                repo_permissions[repository] = {key: bool(value) for key, value in perms.items()}
-                if perms.get("push") or perms.get("admin") or perms.get("maintain"):
-                    write_seen.append(repository)
-        probes["repository_probe_count"] = len(repositories)
-        probes["repository_permissions"] = repo_permissions
-        if write_seen:
-            raise AttestationError("REPOSITORY_WRITE_ACCESS_PRESENT")
+
+            meta = client.get(f"/repos/{owner}/{repo}", headers=headers)
+            if meta.status_code != 200:
+                raise AttestationError(f"REPOSITORY_PROBE_{meta.status_code}")
+            payload = meta.json()
+            if not isinstance(payload, dict):
+                raise AttestationError("REPOSITORY_PROBE_INVALID_SHAPE")
+            default_branch = payload.get("default_branch")
+            if not isinstance(default_branch, str) or not default_branch.strip():
+                raise AttestationError("REPOSITORY_DEFAULT_BRANCH_MISSING")
+
+            pulls = client.get(
+                f"/repos/{owner}/{repo}/pulls",
+                params={"state": "all", "per_page": 1},
+                headers=headers,
+            )
+            if pulls.status_code != 200:
+                raise AttestationError(f"PULLS_READ_PROBE_{pulls.status_code}")
+
+            issues = client.get(
+                f"/repos/{owner}/{repo}/issues",
+                params={"state": "all", "per_page": 1},
+                headers=headers,
+            )
+            if issues.status_code != 200:
+                raise AttestationError(f"ISSUES_READ_PROBE_{issues.status_code}")
+
+            checks = client.get(
+                f"/repos/{owner}/{repo}/commits/{default_branch}/check-runs",
+                params={"per_page": 1},
+                headers=headers,
+            )
+            if checks.status_code != 200:
+                raise AttestationError(f"CHECK_RUNS_READ_PROBE_{checks.status_code}")
+
+            read_probes[repository] = {
+                "metadata_status": meta.status_code,
+                "pulls_status": pulls.status_code,
+                "pulls_sample_count": _count(pulls.json()),
+                "issues_status": issues.status_code,
+                "issues_sample_count": _count(issues.json()),
+                "check_runs_status": checks.status_code,
+                "check_runs_total_count": _count(checks.json()),
+            }
+        probes["repository_probe_count"] = len(normalized)
+        probes["repository_read_probes"] = read_probes
 
         if provider.provider_type is GitHubProviderType.GITHUB_APP:
             installation = client.get("/installation/repositories", headers=headers)
@@ -211,46 +423,44 @@ def attest_provider(
                 for item in (items or [])
                 if isinstance(item, dict)
             )
-            declared = sorted(value.lower() for value in repositories)
             probes["installation_repository_count"] = len(observed)
-            if observed != declared:
+            if observed != sorted(set(normalized)):
                 raise AttestationError("INSTALLATION_SCOPE_MISMATCH")
-
-            meta = client.get("/installation/token/permissions", headers=headers)
-            if meta.status_code == 200 and isinstance(meta.json(), dict):
-                permissions, unexpected = _normalize_permissions(meta.json())
-                permissions_source = "installation_api"
-            else:
-                permissions = dict(REQUIRED_PERMISSIONS)
-                unexpected = []
-                permissions_source = "operator_declared_ui_confirmed"
+            permissions_source = (
+                "installation_token_mint_response"
+                if declaration.confirmation_source == "installation_token_mint_response"
+                else "operator_declared_ui_confirmed"
+            )
         else:
-            # Fine-grained tokens expose no granular permission introspection.
-            permissions = dict(REQUIRED_PERMISSIONS)
-            unexpected = []
+            # Fine-grained tokens expose no self-introspection of their own
+            # selected repositories or permission map, and GitHub grants
+            # read-only access to public repositories independently of the
+            # selection. The exact selected scope is therefore confirmed by the
+            # external attestation and *enforced* at runtime by
+            # ``GitHubRepositoryScope`` in the executor.
             permissions_source = "operator_declared_ui_confirmed"
-
-    if permissions != REQUIRED_PERMISSIONS:
-        raise AttestationError("PERMISSIONS_NOT_EXACT")
-    if unexpected:
-        raise AttestationError("UNEXPECTED_PERMISSIONS")
+            probes["fine_grained_self_enumeration_available"] = False
 
     return ProviderAttestation(
         provider_type=provider.provider_type.value,
         authenticated=True,
         least_privilege=True,
         broad_pat=False,
-        permissions=permissions,
-        unexpected_permissions=unexpected,
-        repository_scopes=sorted(repositories),
+        permissions=dict(declaration.permissions),
+        unexpected_permissions=list(declaration.unexpected_permissions),
+        repository_scopes=sorted(set(normalized)),
         permissions_source=permissions_source,
         probes=probes,
     )
 
 
 __all__ = [
+    "ALLOWED_CONFIRMATION_SOURCES",
+    "ATTESTATION_INPUT_SCHEMA",
     "REQUIRED_PERMISSIONS",
     "AttestationError",
     "ProviderAttestation",
+    "ProviderAttestationInput",
     "attest_provider",
+    "load_attestation_input",
 ]

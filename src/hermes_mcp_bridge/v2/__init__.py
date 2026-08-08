@@ -56,10 +56,14 @@ from .errors import (
     V2Error,
 )
 from .github_attestation import (
+    ALLOWED_CONFIRMATION_SOURCES,
+    ATTESTATION_INPUT_SCHEMA,
     REQUIRED_PERMISSIONS,
     AttestationError,
     ProviderAttestation,
+    ProviderAttestationInput,
     attest_provider,
+    load_attestation_input,
 )
 from .github_auth import (
     GitHubAuthorization,
@@ -116,6 +120,8 @@ from .registry import CapabilitySnapshot, ToolRegistry
 from .schema import ResourceKey, RetryPolicy, ToolDefinition
 
 __all__ = [
+    "ALLOWED_CONFIRMATION_SOURCES",
+    "ATTESTATION_INPUT_SCHEMA",
     "DEFAULT_SECRET_NAME",
     "GITHUB_ACCEPT",
     "GITHUB_API_BASE_URL",
@@ -165,6 +171,7 @@ __all__ = [
     "ProjectionContext",
     "ProjectionResult",
     "ProviderAttestation",
+    "ProviderAttestationInput",
     "ReasonCode",
     "RegistryValidationError",
     "ResourceKey",
@@ -188,6 +195,7 @@ __all__ = [
     "classify_material",
     "github_direct_read_definitions",
     "github_direct_read_policy_rules",
+    "load_attestation_input",
     "project_capabilities",
     "sha256_hex",
 ]

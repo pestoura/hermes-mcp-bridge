@@ -51,7 +51,7 @@ proven on the live runtime.
 | Secret-safe authorization adapter | `v2/github_secret_provider.py` | not configured |
 | Non-secret readiness view | `v2/github_readiness.py` | fail-closed |
 | DIRECT canary router | `v2/github_canary.py` | **disabled** |
-| Sanitized provider attestation | `v2/github_attestation.py` | live probes required |
+| Sanitized provider attestation | `v2/github_attestation.py` | live probes + external declaration required |
 | Connected collector harness | `scripts/v2_phase2_direct_read_acceptance.py` | manual, connected-only |
 
 Properties enforced by `tests/test_v2_phase2_canary_runtime.py`:
@@ -279,7 +279,11 @@ Unblocking sequence:
    the exact target repositories with `checks/issues/metadata/pull_requests =
    read` and no write permission;
 2. write it to a `0600` file and point `BRIDGE_V2_GITHUB_DIRECT_READ_TOKEN_FILE`
-   at it (a bare environment value is rejected by design);
+   at it (a bare environment value is rejected by design; the file is opened with
+   `O_NOFOLLOW` and validated with `fstat` on that same descriptor, so a symlink
+   or an inode substitution is never followed);
+2b. write the sanitized `--provider-attestation` document confirming the exact
+   permission map and repository selection;
 3. run the collector against the live runtime with the state DB for real V1
    token accounting;
 4. run the validator on the produced document.
@@ -287,14 +291,110 @@ Unblocking sequence:
 ChatGPT's own GitHub connector is a different trust/credential boundary and is
 not valid evidence for this gate.
 
-### Externally confirmed items
+### Machine-verified vs externally confirmed
 
-GitHub exposes no REST introspection for a fine-grained token's own permission
-map. For `fine_grained_token` providers the attestation records
-`permissions_source = "operator_declared_ui_confirmed"`: the exact permission map
-is confirmed by the operator in the token settings UI, while the API-verified
-facts are authentication (`GET /rate_limit`), absence of the classic-PAT
-`x-oauth-scopes` header, and per-repository reachability with no
-`push`/`maintain`/`admin` permission (`GET /repos/{owner}/{repo}`). For
-`github_app` providers the installation repository set is additionally
-enumerated and compared against the declared scope.
+The evidence keeps the two apart deliberately; nothing in the second column is
+claimed as an API observation.
+
+| Fact | How it is established |
+| --- | --- |
+| the credential authenticates | machine-verified — `GET /rate_limit` |
+| the material is not a classic PAT | machine-verified — absence of `x-oauth-scopes` |
+| repository metadata is readable | machine-verified — `GET /repos/{owner}/{repo}` |
+| pull requests are readable | machine-verified — `GET /repos/{o}/{r}/pulls` |
+| issues are readable | machine-verified — `GET /repos/{o}/{r}/issues` |
+| check runs are readable | machine-verified — `GET /repos/{o}/{r}/commits/{default_branch}/check-runs` |
+| the App installation repository set | machine-verified — `GET /installation/repositories` |
+| the exact permission map | **externally confirmed** — `--provider-attestation` |
+| the exact selected repository scope (fine-grained) | **externally confirmed**, plus runtime enforcement by `GitHubRepositoryScope` |
+
+#### Why the permission map cannot be machine-verified
+
+GitHub REST API `2026-03-10` has **no self-introspection endpoint for an
+already-issued credential**:
+
+- there is no `GET /installation/token/permissions`; that endpoint does not
+  exist and is never called. An installation token's permissions/repositories
+  appear in the *mint response* of
+  `POST /app/installations/{installation_id}/access_tokens`, which the holder of
+  an already-issued token cannot replay;
+- `GET /installation/repositories` *is* valid for an installation token and is
+  used to enumerate the installation's repository set;
+- a **fine-grained PAT** can enumerate neither its own permission map nor its own
+  selected repositories. GitHub additionally grants read access to *public*
+  repositories independently of the selection, so a successful public-repo read
+  is not evidence about the selection.
+
+#### Why `GET /repos/{owner}/{repo}` `permissions` is not used
+
+That block reports the **principal's computed role on the repository**, not the
+capability of the token in hand: for a repository owner it reports
+`admin: true` even when the fine-grained PAT is restricted to read. It is
+therefore used neither to accept nor to reject a provider, and no
+`REPOSITORY_WRITE_ACCESS_PRESENT` rejection exists. Write is never probed:
+absence of write is established by the attestation plus the read-only executor,
+never by attempting a mutation.
+
+### The `--provider-attestation` input
+
+The collector requires a sanitized, secret-free JSON document
+(`hermes-v2-phase2-provider-attestation/1`):
+
+```json
+{
+  "schema": "hermes-v2-phase2-provider-attestation/1",
+  "provider_type": "fine_grained_token",
+  "permissions": {
+    "checks": "read",
+    "issues": "read",
+    "metadata": "read",
+    "pull_requests": "read"
+  },
+  "unexpected_permissions": [],
+  "repository_scopes": ["pestoura/hermes-mcp-bridge"],
+  "confirmation": true,
+  "confirmation_source": "github_settings_ui",
+  "confirmed_at": "2026-08-08T10:00:00+00:00"
+}
+```
+
+`confirmation_source` is restricted per provider type:
+
+- `fine_grained_token` → `github_settings_ui`;
+- `github_app` → `github_app_settings_ui` or `installation_token_mint_response`.
+
+Any mismatch against the CLI `--provider-type`, the target repositories or the
+exact permission map, any wildcard, any unexpected permission, and a missing or
+false `confirmation` all fail closed **before** any evidence is produced. The
+document's path is never recorded in the evidence, and secret-like keys in it are
+rejected. This declaration does **not** replace the live probes: it is the
+explicit external proof of what the GitHub API cannot self-introspect, instead of
+the collector inventing the declaration.
+
+### Window integrity and mutation claims
+
+Neither `contaminated_window` nor `mutation_observed` is a hardcoded literal.
+
+- `contaminated_window` is derived by the collector's window-integrity object
+  from the isolation actually used: a dedicated transport per DIRECT sample, an
+  exact one-call provider delta per sample, and `session_id`-scoped token
+  accounting for the V1 shadow. With those three there is no attribution
+  ambiguity between the two sides; if any fails, the collector aborts with
+  `WINDOW_INTEGRITY_UNPROVEN` rather than claiming a clean window.
+- DIRECT `mutation_observed` is derived from the executor's own structure: it
+  exposes only the five reads and routes every request through a single GET
+  helper, so no non-GET request can be emitted (`mutation_basis =
+  executor_http_method_restricted_to_get`).
+- V1 shadow `mutation_observed` has no robust runtime proof, so it requires an
+  explicit `--shadow-mutation-basis`. The default `none` fails closed with
+  `SHADOW_MUTATION_BASIS_UNPROVEN`; the accepted bases
+  (`github_audit_log_reviewed`, `read_only_credential_enforced`) are recorded in
+  the evidence alongside the claim.
+
+### Local test matrix note
+
+The local full-suite run was executed on Python 3.13.5, which is outside the
+supported matrix. The 11 Phase 1 failures observed there reproduce on
+`origin/main` and are therefore not a regression from this branch; they are not
+addressed here. Python 3.11/3.12 is not available on this host, so the supported
+matrix is confirmed by GitHub Actions after the PR.

@@ -14,8 +14,10 @@ Security properties (all enforced here, all covered by tests):
 * the file is read **on demand at the final boundary** only, never cached, so
   rotation on disk takes effect without a restart and no secret lingers in
   module state;
-* file permissions are validated: regular file, no symlink, no group/other
-  access;
+* file permissions are validated **on the open file descriptor** (``os.open``
+  with ``O_NOFOLLOW``/``O_CLOEXEC`` then ``os.fstat`` on that same fd): regular
+  file, no symlink, no group/other access. There is no ``lstat``-then-``open``
+  window a symlink or inode substitution could slip through;
 * classic/broad PATs are rejected. Only fine-grained tokens
   (``github_pat_``) and GitHub App installation tokens (``ghs_``) are accepted,
   and the observed material must match the declared provider type;
@@ -28,6 +30,8 @@ Security properties (all enforced here, all covered by tests):
 
 from __future__ import annotations
 
+import contextlib
+import errno
 import os
 import stat
 from collections.abc import Mapping
@@ -49,6 +53,11 @@ APP_INSTALLATION_PREFIX = "ghs_"
 
 _MAX_MATERIAL_LENGTH = 512
 _MIN_MATERIAL_LENGTH = 20
+
+#: ``errno`` values a symlink triggers when ``O_NOFOLLOW`` is honoured.
+_SYMLINK_ERRNOS = frozenset(
+    value for value in (getattr(errno, name, None) for name in ("ELOOP", "EMLINK")) if value
+)
 
 
 @unique
@@ -236,6 +245,58 @@ class FileGitHubAuthorizationProvider:
     def _environ(self) -> Mapping[str, str]:
         return self._env if self._env is not None else os.environ
 
+    def _read_fd_validated(self, target: str) -> tuple[bytes | None, AuthorizationStatus]:
+        """Open, validate and read a secret file through a single file descriptor.
+
+        There is deliberately **no** ``lstat``/``open`` pair here: the descriptor
+        is obtained first with ``O_NOFOLLOW``/``O_CLOEXEC``/``O_NONBLOCK`` where
+        supported, and every check (regular file, no group/other bits) runs with
+        :func:`os.fstat` on that *same* descriptor. There is therefore no window
+        in which the path can be swapped for a symlink or another inode between
+        validation and read. Neither the path nor the value reaches the caller
+        on any failure path.
+        """
+        flags = os.O_RDONLY
+        for name in ("O_NOFOLLOW", "O_CLOEXEC", "O_NONBLOCK"):
+            flags |= getattr(os, name, 0)
+        try:
+            fd = os.open(target, flags)
+        except OSError as exc:
+            # ELOOP is what O_NOFOLLOW raises on a symlink; report it as a
+            # non-regular file rather than a generic read error.
+            if getattr(exc, "errno", None) in _SYMLINK_ERRNOS:
+                return None, AuthorizationStatus.FILE_NOT_REGULAR
+            return None, AuthorizationStatus.FILE_UNREADABLE
+        try:
+            try:
+                info = os.fstat(fd)
+            except OSError:
+                return None, AuthorizationStatus.FILE_UNREADABLE
+            if not stat.S_ISREG(info.st_mode):
+                return None, AuthorizationStatus.FILE_NOT_REGULAR
+            if self._require_secure_mode and (stat.S_IMODE(info.st_mode) & 0o077):
+                return None, AuthorizationStatus.FILE_PERMISSIONS_TOO_OPEN
+            try:
+                raw = self._read_all(fd, _MAX_MATERIAL_LENGTH + 1)
+            except OSError:
+                return None, AuthorizationStatus.FILE_UNREADABLE
+        finally:
+            with contextlib.suppress(OSError):  # pragma: no cover - defensive
+                os.close(fd)
+        return raw, AuthorizationStatus.READY
+
+    @staticmethod
+    def _read_all(fd: int, limit: int) -> bytes:
+        chunks: list[bytes] = []
+        remaining = limit
+        while remaining > 0:
+            chunk = os.read(fd, remaining)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        return b"".join(chunks)
+
     def _read_material(self) -> tuple[str | None, AuthorizationStatus]:
         environ = self._environ()
         path = environ.get(f"{self._secret_name}_FILE")
@@ -245,20 +306,11 @@ class FileGitHubAuthorizationProvider:
             return None, AuthorizationStatus.NOT_CONFIGURED
 
         target = str(path).strip()
+        raw, status = self._read_fd_validated(target)
+        if raw is None:
+            return None, status
         try:
-            info = os.lstat(target)
-        except OSError:
-            return None, AuthorizationStatus.FILE_UNREADABLE
-        if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
-            return None, AuthorizationStatus.FILE_NOT_REGULAR
-        if self._require_secure_mode and (info.st_mode & 0o077):
-            return None, AuthorizationStatus.FILE_PERMISSIONS_TOO_OPEN
-
-        try:
-            with open(target, encoding="utf-8") as handle:
-                value = handle.read(_MAX_MATERIAL_LENGTH + 1).strip()
-        except OSError:
-            return None, AuthorizationStatus.FILE_UNREADABLE
+            value = raw.decode("utf-8").strip()
         except UnicodeDecodeError:
             return None, AuthorizationStatus.MATERIAL_MALFORMED
 
