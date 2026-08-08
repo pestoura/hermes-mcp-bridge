@@ -1,6 +1,6 @@
 # V2 Roadmap
 
-> **V2 · IMPLEMENTATION IN PROGRESS · PHASES 0–1 ACCEPTED · NO IMPACT ON V1**
+> **V2 · IMPLEMENTATION IN PROGRESS · PHASES 0–1 ACCEPTED · PHASE 2 CORE IMPLEMENTED · NO IMPACT ON V1**
 
 The roadmap is gated. A phase is not promoted merely because code exists; its acceptance evidence and prerequisite controls must pass.
 
@@ -76,16 +76,56 @@ implemented.
 
 ## PHASE 2 — GitHub DIRECT Read-Only MVP
 
-**Status: NEXT.** Implementation may begin because `REGISTRY_ACCEPTED` is
-satisfied. Promotion to `DIRECT_READ_ACCEPTED` still requires a fresh discovery
-of the Jarvas-side GitHub credential/provider path and real read-only/shadow
-evidence; availability must not be inferred from the ChatGPT GitHub connector.
+**Status (2026-08-08): CORE IMPLEMENTED / NOT ACCEPTED.** The repository-side
+DIRECT read core is implemented on branch/PR #49 and remains deliberately
+unwired from the V1 MCP server. The V1 contract remains exactly 27 tools.
+`DIRECT_READ_ACCEPTED` is **not** declared.
 
-Candidate tools: `github.get_repo`, `github.get_pr`, `github.get_checks`, `github.get_issue`, `github.search`.
+**Implemented core:**
 
-Use dedicated least-privilege credentials. Support result shaping. Compare read results against the v1 agentic path in shadow evaluation without duplicating mutations.
+- typed `DIRECT`, read-only T1 definitions for `github.get_repo`,
+  `github.get_pr`, `github.get_checks`, `github.get_issue` and the deliberately
+  repository-scoped `github.search`;
+- exact repository allow-list with no wildcard authority;
+- fail-closed order: tool classification → exact repository scope →
+  policy/capability/`github.read` readiness → authorization material → provider;
+- separate `GitHubAuthorizationProvider` execution boundary so the Phase 1
+  status-only broker never returns secret material;
+- fixed `https://api.github.com` GET path, redirects disabled and environment
+  proxy inheritance disabled;
+- endpoint-specific normalization/result allow-lists and bounded canonical
+  result byte budgets;
+- stable redacted errors for auth, forbidden/rate-limit, not-found/gone,
+  invalid request, redirects, upstream failures and invalid JSON/shape;
+- repository-constrained issue/PR search whose qualifiers are built by code,
+  rejecting caller qualifier/boolean injection;
+- hermetic tests proving scope/policy/readiness denial can produce zero
+  authorization resolution and zero HTTP requests; scope denial additionally
+  proves zero credential-readiness broker calls;
+- no Hermes client/prompt/agent invocation in the DIRECT core.
 
-**Gate:** `DIRECT_READ_ACCEPTED`.
+**Core CI status:** PR #49 reached a fully GREEN repository-side cycle on CI
+#197 after correcting lint and preserving the legacy `PHASE1_STATUS` marker;
+Phase 1 gate validation, image provenance, isolated Docker acceptance, Trivy and
+SBOM remained GREEN. A final CI cycle is still required after this roadmap and
+traceability update before merge.
+
+**Still required for `DIRECT_READ_ACCEPTED`:**
+
+1. fresh discovery on the actual Jarvas host of GitHub tooling, credential
+   sources, scopes and repository access, without printing secret values;
+2. identify/provision a dedicated least-privilege `github.read` capability;
+3. provider health/authentication probe against the authorized repository set;
+4. explicit feature/canary wiring without changing V1 semantics;
+5. shadow comparison of the five DIRECT reads against the V1 agentic path;
+6. measure latency, provider API calls and raw-vs-returned bytes while proving
+   **zero Hermes LLM token usage** on DIRECT execution;
+7. retain connected, fail-closed acceptance evidence.
+
+Availability/authorization must not be inferred from the ChatGPT GitHub
+connector. See `docs/v2/architecture/github-direct-read.md`.
+
+**Gate:** `DIRECT_READ_ACCEPTED` — **pending connected Jarvas evidence**.
 
 ## PHASE 3 — GitHub Mutations
 
