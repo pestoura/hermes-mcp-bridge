@@ -12,10 +12,16 @@ URL="${MCP_URL:-http://127.0.0.1:${PORT}/mcp}"
 EXPECT_VERSION="${EXPECT_BRIDGE_VERSION:-$BRIDGE_VERSION}"
 EXPECT_TOOLS="${EXPECT_TOOL_COUNT:-$EXPECTED_TOOL_COUNT}"
 EXPECT_SCHEMA="${EXPECT_SCHEMA_VERSION:-$SCHEMA_VERSION}"
+EXPECT_METRICS="${EXPECT_METRICS_ENABLED:-0}"
+METRICS_URL="${METRICS_URL:-http://127.0.0.1:${BRIDGE_METRICS_PORT:-9464}/metrics}"
 REQUIRE_SECURITY="${REQUIRE_1_0_SECURITY:-1}"
 REQUIRED_TOOL="${REQUIRED_TOOL:-hermes_readiness}"
 
 require_cmd curl jq docker
+case "$EXPECT_METRICS" in
+  0|1) ;;
+  *) fail "EXPECT_METRICS_ENABLED deve ser 0 ou 1" ;;
+esac
 
 wait_for_health "$CONTAINER_NAME" "${HEALTH_SETTLE_SECONDS:-}" \
   || fail "container nao atingiu health=healthy"
@@ -73,6 +79,15 @@ ready_count="$(printf '%s' "$readiness" | jq -r '.components.tool_contract.count
 [ "$ready_contract" = "$EXPECT_VERSION" ] || fail "contract_version inesperada"
 [ "$ready_schema" = "$EXPECT_SCHEMA" ] || fail "readiness schema_version inesperada"
 [ "$ready_count" = "$EXPECT_TOOLS" ] || fail "readiness tool count inesperado"
+printf '%s' "$readiness" | jq -e '
+  .alive == true and
+  .ready == true and
+  .accepting_new_work == true and
+  .components.admission.status == "ready" and
+  .components.admission.accepting_new_work == true and
+  (.components.admission.gateway_state == "running" or .components.admission.gateway_state == "ready")
+' >/dev/null || fail "upstream nao esta a aceitar novo trabalho"
+ok "alive/ready/admission confirmados"
 
 if [ "$REQUIRE_SECURITY" = "1" ]; then
   printf '%s' "$readiness" | jq -e '
@@ -90,21 +105,52 @@ if [ "$REQUIRE_SECURITY" = "1" ]; then
     .components.security_posture.hmac.previous_expired == false and
     (.components.security_posture.failing | length == 0) and
     .components.config.api_key_configured == true and
-    .components.metrics_registry.exporter_enabled == false and
     .components.tracing.export_enabled == false
   ' >/dev/null || fail "security posture 1.0.0 nao conforme"
 
-  printf '%s' "$health" | jq -e '
-    .bridge.observability.metrics.enabled == false and
-    .bridge.observability.tracing.export_enabled == false and
-    .bridge.observability.retry.enabled == false and
-    .bridge.observability.retry.mutations_retryable == false and
-    .bridge.observability.retry.sse_retryable == false and
-    .bridge.observability.circuit_breaker.enabled == false and
-    .bridge.observability.circuit_breaker.mutations_protected == false and
-    .bridge.observability.circuit_breaker.sse_protected == false
-  ' >/dev/null || fail "features opcionais 1.0.0 nao estao desativadas"
-  ok "policy/HMAC/file-backed e features desativadas confirmadas"
+  if [ "$EXPECT_METRICS" = "1" ]; then
+    printf '%s' "$readiness" | jq -e '
+      .components.metrics_registry.exporter_enabled == true and
+      .components.metrics_registry.bind_scope == "loopback"
+    ' >/dev/null || fail "metrics esperadas mas exporter nao esta loopback/enabled"
+    printf '%s' "$health" | jq -e '
+      .bridge.observability.metrics.enabled == true and
+      .bridge.observability.metrics.running == true and
+      .bridge.observability.tracing.export_enabled == false and
+      .bridge.observability.retry.enabled == false and
+      .bridge.observability.retry.mutations_retryable == false and
+      .bridge.observability.retry.sse_retryable == false and
+      .bridge.observability.circuit_breaker.enabled == false and
+      .bridge.observability.circuit_breaker.mutations_protected == false and
+      .bridge.observability.circuit_breaker.sse_protected == false
+    ' >/dev/null || fail "postura observability 1.x nao conforme"
+
+    metrics="$(curl -fsS -m 10 "$METRICS_URL")" || fail "exporter metrics indisponivel"
+    printf '%s\n' "$metrics" | grep -Eq '^bridge_expected_tools 27(\.0)?$' \
+      || fail "bridge_expected_tools != 27"
+    printf '%s\n' "$metrics" | grep -Eq '^bridge_instrumented_tools 27(\.0)?$' \
+      || fail "bridge_instrumented_tools != 27"
+    printf '%s\n' "$metrics" | grep -Eq '^bridge_instrumentation_coverage_ratio 1(\.0)?$' \
+      || fail "instrumentation coverage != 1"
+    printf '%s\n' "$metrics" | grep -Eq '^bridge_upstream_admission_ready 1(\.0)?$' \
+      || fail "admission metric nao confirma accepting_new_work"
+    ok "metrics loopback e coverage 27/27 confirmadas"
+  else
+    printf '%s' "$readiness" | jq -e '
+      .components.metrics_registry.exporter_enabled == false
+    ' >/dev/null || fail "metrics nao esperadas mas exporter esta enabled"
+    printf '%s' "$health" | jq -e '
+      .bridge.observability.metrics.enabled == false and
+      .bridge.observability.tracing.export_enabled == false and
+      .bridge.observability.retry.enabled == false and
+      .bridge.observability.retry.mutations_retryable == false and
+      .bridge.observability.retry.sse_retryable == false and
+      .bridge.observability.circuit_breaker.enabled == false and
+      .bridge.observability.circuit_breaker.mutations_protected == false and
+      .bridge.observability.circuit_breaker.sse_protected == false
+    ' >/dev/null || fail "features opcionais 1.0.0 nao estao conforme"
+  fi
+  ok "policy/HMAC/file-backed e feature gates confirmadas"
 fi
 
 health_status="$(docker inspect "$CONTAINER_NAME" --format '{{.State.Health.Status}}')"
