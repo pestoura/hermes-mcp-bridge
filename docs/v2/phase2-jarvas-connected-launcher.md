@@ -40,49 +40,65 @@ From the actual Jarvas host the launcher:
 5. regenerates sanitized provider attestation from the verified mint response;
 6. creates a disposable isolated Hermes home without modifying the live Hermes
    home;
-7. starts that Hermes runtime with an empty inherited environment and only the
+7. asks the installed Hermes resolver which toolsets it would enable, suppresses
+   every result except MCP server `phase2-read`, and fails closed unless the
+   second resolver pass returns exactly that one server;
+8. starts that Hermes runtime with an empty inherited environment and only the
    model material required for inference;
-8. exposes exactly one dynamic API-server toolset, `mcp-phase2-read`, backed by
-   five fixed-repository GitHub GET tools;
 9. probes the **live** `/health`, `/v1/capabilities`, `/v1/toolsets` and session
-   database readiness endpoints and fails closed on any unexpected tool/capability;
-10. starts a disposable instance of the unchanged 27-tool V1 Bridge pointed at
+   database readiness endpoints, requiring zero enabled native/configurable
+   toolsets;
+10. re-runs the installed Hermes resolver against the persisted shadow home and
+    verifies the exact one-server/five-tool MCP configuration;
+11. starts a disposable instance of the unchanged 27-tool V1 Bridge pointed at
     that isolated Hermes runtime;
-11. builds the exact five-tool target topology for
+12. builds the exact five-tool target topology for
     `pestoura/hermes-mcp-bridge`;
-12. executes the connected collector for exactly three repetitions per tool,
+13. executes the connected collector for exactly three repetitions per tool,
     using the isolated Hermes `state.db` for real V1 token accounting;
-13. runs the original connected evidence validator and the companion live shadow
+14. runs the original connected evidence validator and the companion live shadow
     isolation validator through `validate_v2_phase2_connected_gate.py`;
-14. prints only a sanitized aggregate gate summary.
+15. prints only a sanitized aggregate gate summary.
 
 No PEM, App JWT, installation token, authorization header, environment dump,
-prompt text, raw provider output, V1 output or secret path is printed or retained
-as acceptance evidence.
+prompt text, raw provider output, V1 output, Hermes log or secret path is printed
+or retained as acceptance evidence.
 
 ## V1 shadow non-mutation is mechanically derived
 
-The launcher no longer accepts `HERMES_V2_SHADOW_MUTATION_BASIS` from the
-operator. The automated path always uses:
+The launcher does not accept `HERMES_V2_SHADOW_MUTATION_BASIS` from the operator.
+The automated path always uses:
 
 ```text
 read_only_credential_enforced
 ```
 
-but only **after** the live isolated Hermes probe has proved that the effective
-API-server tool surface is exactly:
+but only after the live shadow proof establishes all of the following:
+
+- `/v1/toolsets` has **zero enabled native/configurable toolsets**;
+- the installed Hermes `_get_platform_tools()` resolver returns exactly
+  `phase2-read` for `api_server`;
+- the persisted config contains exactly one MCP server, `phase2-read`;
+- its native include list is exactly the five GitHub GET tools;
+- resources and prompts are disabled;
+- parallel MCP calls are disabled.
+
+Current Hermes names those runtime MCP functions using
+`mcp__<server>__<tool>`, producing exactly:
 
 ```text
-mcp_phase2_read_github_get_checks
-mcp_phase2_read_github_get_issue
-mcp_phase2_read_github_get_pr
-mcp_phase2_read_github_get_repo
-mcp_phase2_read_github_search
+mcp__phase2_read__github_get_checks
+mcp__phase2_read__github_get_issue
+mcp__phase2_read__github_get_pr
+mcp__phase2_read__github_get_repo
+mcp__phase2_read__github_search
 ```
 
 The MCP server fixes the repository scope and delegates every provider operation
 to the existing GET-only `GitHubDirectReadExecutor`. It has no shell, filesystem,
-browser, code execution, messaging or mutation API.
+browser, code execution, messaging or mutation API. The subsequent 15 connected
+samples supply positive evidence that the five allowed MCP functions are
+actually callable through the V1 agentic path.
 
 The current upstream Hermes Runs API does not expose a per-run toolset or
 credential restriction field. The V1 Bridge's `expected_actions` and
