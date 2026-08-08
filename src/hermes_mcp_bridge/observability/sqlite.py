@@ -38,13 +38,13 @@ _REGISTRY_METHODS: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
         "hermes_mcp_bridge.checkpoints",
         "CheckpointRegistry",
         "state",
-        ("create", "get"),
+        ("create", "status", "add_continuation", "list_continuations"),
     ),
     (
         "hermes_mcp_bridge.sagas",
         "SagaRegistry",
         "state",
-        ("create", "get", "append_event", "set_status", "status"),
+        ("create", "get", "update_status"),
     ),
     (
         "hermes_mcp_bridge.quotas",
