@@ -27,9 +27,14 @@ require_file "$OBSERVABILITY_COMPOSE_FILE"
 require_file "$BRIDGE_ENV_FILE"
 [ -n "$REQUIRED_SHA" ] || fail "REQUIRED_SHA obrigatorio, inclusive em dry-run"
 
-candidate_compose() {
+# Keep the canonical compose call contract used by the 1.0 rollout while making
+# this deploy command configuration-preserving. The additive overlay is always
+# applied for the candidate; rollback.sh continues to use the base helper from
+# lib.sh and its separately pinned rollback compose.
+compose() {
+  local file="$1"; shift
   docker compose --env-file "$BRIDGE_ENV_FILE" -p "$COMPOSE_PROJECT" \
-    -f "$COMPOSE_FILE" -f "$OBSERVABILITY_COMPOSE_FILE" "$@"
+    -f "$file" -f "$OBSERVABILITY_COMPOSE_FILE" "$@"
 }
 
 EXPECTED_SHA_1_0_0="$REQUIRED_SHA" \
@@ -49,7 +54,7 @@ if ! is_execute_mode "$REQUIRED_SHA"; then
   log "  3. docker compose candidate + observability up -d"
   log "  4. aguardar health com budget derivado"
   log "  5. validar contrato 1.x, seguranca e feature gates"
-  candidate_compose config >/dev/null || fail "compose candidate + observability invalido"
+  compose "$COMPOSE_FILE" config >/dev/null || fail "compose candidate + observability invalido"
   log "DEPLOY_1_0_0: DRY_RUN OK"
   exit 0
 fi
@@ -77,7 +82,7 @@ else
   ok "backup/restore evidence retida sem conteudo da base"
 
   export CANDIDATE_REVISION="$REQUIRED_SHA"
-  candidate_compose up -d --force-recreate
+  compose "$COMPOSE_FILE" up -d --force-recreate
   export HEALTH_REQUIRE_HEALTHCHECK=1
   wait_for_health "$CONTAINER_NAME" "$HEALTH_SETTLE_SECONDS" \
     || fail "health nao estabilizou; executar rollback.sh"
