@@ -1,14 +1,14 @@
 # ADR-0005 — Capability Projection
 
-> **V2 · PHASE 1 CORE IMPLEMENTED · NOT YET ACCEPTED · NO IMPACT ON V1**
+> **V2 · PHASE 1 ACCEPTED · NO IMPACT ON V1**
 
-**Status:** Accepted in principle; Phase 1 core implemented, `REGISTRY_ACCEPTED` not declared.
+**Status:** Accepted for the Phase 1 static projection model. `REGISTRY_ACCEPTED` evidence validated on integrated `main` commit `4bc999084b88cc5ef5346f21c9f2e09717c63568`.
 
 ## Context
 Hermes can contain hundreds of tools/skills; exposing all capabilities increases context, confusion and attack surface.
 
 ## Decision
-Project only principal/scope/policy-approved tools and minimum schemas from the internal registry to clients.
+Project only policy-approved tools and minimum schemas from the internal registry to clients. Phase 1 deliberately keeps principal/scope context opaque and does not yet use it for authorization.
 
 ## Consequences
 Smaller safer client surface; projection state must be observable/reproducible.
@@ -26,9 +26,12 @@ Capability discovery/refresh and client caching need defined semantics.
 `project_capabilities()` is deterministic and ordered by `tool_id`, projects
 only `ALLOW` and explicitly flagged `APPROVAL_REQUIRED` tools, and emits a
 strict non-secret field allow-list. Principal context is opaque and unused for
-filtering.
+filtering. The accepted model is covered by the fail-closed Phase 1 evidence
+indexed in `docs/v2/evidence/README.md`.
 
 ## Open questions
 Static vs dynamic projection (OD-013) and the internal MCP proxying model
-(OD-014) remain open. Phase 1 selected **static** projection for this phase
-only; dynamic projection is deferred, not rejected.
+(OD-014) remain open. Phase 1 accepted **static** projection for this phase
+only; dynamic projection is deferred, not rejected. Principal/tenant
+authorization also remains deferred under OD-007 and is not implied by
+`REGISTRY_ACCEPTED`.

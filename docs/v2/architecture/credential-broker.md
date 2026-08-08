@@ -1,9 +1,10 @@
 # Credential Broker
 
-> **V2 · PHASE 1 CONTRACT IMPLEMENTED · NOT YET ACCEPTED · NO IMPACT ON V1**
+> **V2 · PHASE 1 CONTRACT ACCEPTED · NO IMPACT ON V1**
 
-Phase 1 implements the **contract only** (`hermes_mcp_bridge.v2.credentials`).
-No real secret backend exists in this phase.
+Phase 1 implements and accepts the **contract only**
+(`hermes_mcp_bridge.v2.credentials`). No real secret backend exists in this
+phase; provider authorization remains a Phase 2 concern.
 
 V2 formalizes the Hermes host as a **Credential Broker**. Clients request a capability; they never receive credential material.
 
@@ -49,6 +50,18 @@ The audited broad PAT is a hardening finding, not the desired v2 model. Prefer a
   a token name, path or environment variable. Snapshot and projection
   serialization exclude credential values entirely; projection also excludes
   the capability ID itself.
+
+## Acceptance
+
+The broker contract was included in `REGISTRY_ACCEPTED` on integrated `main`
+commit `4bc999084b88cc5ef5346f21c9f2e09717c63568`. The evidence verifies that
+credential serialization is status-only and contains no raw credential values,
+paths or environment variable names. The durable evidence release is indexed in
+`docs/v2/evidence/README.md`.
+
+This acceptance does **not** authorize a real GitHub provider. Phase 2 must
+perform fresh Jarvas-side discovery and validate a dedicated least-privilege
+`github.read` credential capability before DIRECT reads can be accepted.
 
 ## Readiness
 

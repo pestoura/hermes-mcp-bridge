@@ -1,10 +1,11 @@
 # Policy and Per-Node Governance
 
-> **V2 · PHASE 1 SUBSET IMPLEMENTED · NOT YET ACCEPTED · NO IMPACT ON V1**
+> **V2 · PHASE 1 POLICY SUBSET ACCEPTED · NO IMPACT ON V1**
 
-Phase 1 implements only the static per-tool policy decision
-(`hermes_mcp_bridge.v2.policy`). Approvals binding, plan digests, idempotency
-keys, locks and quotas are **not** implemented in Phase 1.
+Phase 1 implements and accepts only the static per-tool policy decision model
+(`hermes_mcp_bridge.v2.policy`). Approval binding, plan digests, idempotency
+keys, locks and quotas are **not** implemented by Phase 1 and remain gates for
+later mutation/DAG phases.
 
 V2 reuses v1 policy/approval/lock/quota foundations and extends them to typed tools and every BATCH/DAG/RUNBOOK node.
 
@@ -25,6 +26,9 @@ Example policy intent:
 - `system.status`, `system.logs` -> ALLOW;
 - `system.restart` -> CONDITIONAL;
 - destructive filesystem actions -> DENY or EXPLICIT_APPROVAL.
+
+These examples describe policy intent; Phase 1 rules themselves are exact-action
+rules and reject wildcard/glob policy actions.
 
 ## Approval binding
 
@@ -78,5 +82,15 @@ Typed lock scopes may include repository, pull request, service or container res
 - every decision carries a stable `ReasonCode` token containing no secret,
   path or argument value.
 
-This is a scoped, partial answer to OD-017: the rule *model* is fixed for Phase
-1, but the durable policy-as-code format and engine choice remain open.
+## Acceptance
+
+This Phase 1 subset was accepted on integrated `main` commit
+`4bc999084b88cc5ef5346f21c9f2e09717c63568`. The fail-closed acceptance
+validator checked unknown tools, missing rules, missing credential capability,
+degraded capability, approval-required decisions and the destructive/T4
+backstop; it returned `REGISTRY_ACCEPTED` with `failures=[]`. Evidence is
+indexed in `docs/v2/evidence/README.md`.
+
+This remains a scoped, partial answer to OD-017: the Phase 1 rule *model* is
+accepted, but the durable policy-as-code format/engine and richer per-node
+runtime governance remain open for later phases.

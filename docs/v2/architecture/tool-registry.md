@@ -1,12 +1,13 @@
 # Canonical Tool Registry
 
-> **V2 · PHASE 1 CORE IMPLEMENTED · ACCEPTANCE IN PROGRESS · NO IMPACT ON V1**
+> **V2 · PHASE 1 ACCEPTED · NO IMPACT ON V1**
 
 Phase 1 implements this document as an **isolated, in-process typed package**
 at `src/hermes_mcp_bridge/v2/`. Nothing in that package is imported by the V1
 server or tool registration path, and the V1 27-tool surface is unchanged.
-`REGISTRY_ACCEPTED` is **not** declared until integrated-main acceptance
-evidence passes the fail-closed validator and is retained.
+`REGISTRY_ACCEPTED` was validated on integrated `main` commit
+`4bc999084b88cc5ef5346f21c9f2e09717c63568`; durable evidence is indexed in
+`docs/v2/evidence/README.md`.
 
 The Tool Registry normalizes capabilities from Hermes native tools, typed CLI wrappers, APIs, plugins, internal MCP servers and future connectors.
 
@@ -104,13 +105,13 @@ Implemented (`hermes_mcp_bridge.v2`):
 
 ## Acceptance
 
-The Phase 1 acceptance harness verifies schema invariants, exact readiness
+The Phase 1 acceptance harness verified schema invariants, exact readiness
 semantics, deterministic hashes, malicious/sensitive-schema rejection,
 fail-closed policy reason codes, authorized-only projection, credential
-status-only serialization and V1 isolation. CI retains the evidence and gate as
-a blocking **draft GitHub Release** targeted to the exact commit under test;
-asset count is verified before the workflow continues. Only evidence from the
-integrated `main` commit may promote `REGISTRY_ACCEPTED`.
+status-only serialization and V1 isolation. CI #189 retained the evidence and
+gate as a blocking **draft GitHub Release** targeted to the accepted integrated
+commit; asset count and digests were verified before the workflow completed.
+The validator returned `REGISTRY_ACCEPTED` with `failures=[]`.
 
 Deferred (unchanged): registry persistence, storage format and signing — open
 questions of ADR-0004; schema migration process beyond the explicit Phase 1

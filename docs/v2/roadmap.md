@@ -1,6 +1,6 @@
 # V2 Roadmap
 
-> **V2 · IMPLEMENTATION IN PROGRESS · PHASE 0 ACCEPTED · NO IMPACT ON V1**
+> **V2 · IMPLEMENTATION IN PROGRESS · PHASES 0–1 ACCEPTED · NO IMPACT ON V1**
 
 The roadmap is gated. A phase is not promoted merely because code exists; its acceptance evidence and prerequisite controls must pass.
 
@@ -27,12 +27,13 @@ See `docs/v2/evidence/README.md` for the full index and traceability chain.
 
 ## PHASE 1 — Tool Registry
 
-**Status: ACCEPTANCE IN PROGRESS.** The canonical registry core is implemented as
+**Status (2026-08-08): ACCEPTED.** The canonical registry core is implemented as
 an isolated additive package (`src/hermes_mcp_bridge/v2/`) and remains unwired
 to the V1 server/tool registration path. The V1 27-tool contract remains
-unchanged. `REGISTRY_ACCEPTED` is **not** declared until the acceptance harness
-runs in CI, its fail-closed validator returns the gate with zero failures, and
-the resulting evidence from the integrated `main` commit is retained.
+unchanged. The integrated `main` commit
+`4bc999084b88cc5ef5346f21c9f2e09717c63568` passed the deterministic acceptance
+collector and the fail-closed validator with `failures=[]` and
+`REGISTRY_ACCEPTED`.
 
 **Deliverables:** canonical tool schema; capability registry/health model; policy taxonomy/security tiers; capability projection; credential abstraction/capability IDs; policy-as-code test model; capability snapshot hash.
 
@@ -45,33 +46,40 @@ deterministic static capability projection; credential broker **contract** with
 an in-memory test broker only; audit-safe canonical serialization that excludes
 free-text editorial metadata and materialized credential values.
 
-**Acceptance scope:** the `REGISTRY_ACCEPTED` gate is defined by the Phase 1
-requirements mapped in `docs/v2/requirements/traceability-matrix.md`: registry
-schema conformance, deterministic/versioned capability snapshots, capability
-health semantics, authorized-only projection, fail-closed policy evaluation,
-credential capability/redaction contract, malicious metadata/secret-field
-negative tests, and V1 isolation/regression evidence.
+**Acceptance scope:** the gate covers the Phase 1 requirements mapped in
+`docs/v2/requirements/traceability-matrix.md`: registry schema conformance,
+deterministic/versioned capability snapshots, capability health semantics,
+authorized-only projection, fail-closed policy evaluation, credential
+capability/redaction contract, malicious metadata/secret-field negative tests,
+and V1 isolation/regression evidence.
 
-**Explicitly deferred and non-blocking for this gate:** registry persistence,
-storage format and signing (open questions of ADR-0004); a real credential
-backend (OD-005); the principal/tenant authorization model (OD-007); dynamic
-capability discovery/projection (OD-012/OD-013); internal MCP proxying details
-(OD-014); and the durable policy engine/format beyond the Phase 1 rule model
-(OD-017). These remain required before the later phases that depend on them and
-must not be inferred as implemented by `REGISTRY_ACCEPTED`.
+**Acceptance evidence:** GitHub Actions CI #189 (`31254605844`) completed
+successfully for the integrated commit. The blocking draft release
+`phase1-registry-evidence-4bc999084b88cc5ef5346f21c9f2e09717c63568` is targeted
+to that exact SHA and retains:
 
-**Acceptance harness:**
+- `phase1-registry-acceptance.json` — SHA-256
+  `ab66fc6dd872d2f184dafea6566dfcba178d7328f87eda9f9e319da8f030c20a`;
+- `phase1-registry-gate.json` — SHA-256
+  `4acaa6699b5374176f8b63b5be40d05b0fabbcfbea8624c5a3beb8f48ab78d1a`;
+- repository retention manifest:
+  `docs/v2/evidence/phase1-registry-acceptance-release-20260808.json`.
 
-- `scripts/v2_phase1_registry_acceptance.py` — deterministic evidence collector;
-- `scripts/validate_v2_phase1_registry_evidence.py` — fail-closed gate validator;
-- `tests/test_v2_phase1_acceptance.py` — positive and tamper/negative gate tests;
-- CI retains `phase1-registry-evidence-<sha>` as a blocking **draft release**
-  targeted to the exact commit under test, with both evidence and gate assets
-  verified before the workflow may continue.
+**Explicitly deferred:** registry persistence/storage/signing (open questions of
+ADR-0004); a real credential backend (OD-005); principal/tenant authorization
+(OD-007); dynamic capability discovery/projection (OD-012/OD-013); internal MCP
+proxying details (OD-014); and the later durable policy engine/format beyond the
+Phase 1 rule model (OD-017). `REGISTRY_ACCEPTED` does not claim these as
+implemented.
 
-**Gate:** `REGISTRY_ACCEPTED` — **pending integrated-main evidence**.
+**Gate:** `REGISTRY_ACCEPTED` — **satisfied**.
 
 ## PHASE 2 — GitHub DIRECT Read-Only MVP
+
+**Status: NEXT.** Implementation may begin because `REGISTRY_ACCEPTED` is
+satisfied. Promotion to `DIRECT_READ_ACCEPTED` still requires a fresh discovery
+of the Jarvas-side GitHub credential/provider path and real read-only/shadow
+evidence; availability must not be inferred from the ChatGPT GitHub connector.
 
 Candidate tools: `github.get_repo`, `github.get_pr`, `github.get_checks`, `github.get_issue`, `github.search`.
 
