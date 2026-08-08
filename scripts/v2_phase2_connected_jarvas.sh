@@ -61,6 +61,40 @@ blocked() {
   exit 2
 }
 
+# Parse only explicitly whitelisted fields from the mint helper's documented
+# sanitized JSON contract. Unexpected output is never echoed back to the user.
+mint_output_field() {
+  local field="$1"
+  "$VENV/bin/python" -c '
+import json
+import re
+import sys
+
+field = sys.argv[1]
+try:
+    payload = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(2)
+if not isinstance(payload, dict):
+    raise SystemExit(2)
+if field == "reason":
+    value = payload.get("reason")
+    if (
+        payload.get("status") == "GITHUB_APP_INSTALLATION_TOKEN_BLOCKED"
+        and isinstance(value, str)
+        and re.fullmatch(r"[A-Z0-9_]{1,128}", value)
+    ):
+        print(value)
+        raise SystemExit(0)
+elif field == "status":
+    value = payload.get("status")
+    if value == "GITHUB_APP_INSTALLATION_TOKEN_MINTED":
+        print(value)
+        raise SystemExit(0)
+raise SystemExit(2)
+' "$field" 2>/dev/null
+}
+
 for cmd in git openssl python3 hermes setsid readlink; do
   command -v "$cmd" >/dev/null 2>&1 || blocked "RUNTIME_COMMAND_MISSING"
 done
@@ -113,14 +147,26 @@ SOURCE_COMMIT="$(git -C "$SRC" rev-parse HEAD)"
   || blocked "ACCEPTANCE_SOURCE_INSTALL_FAILED"
 
 # Rotate the GitHub App installation token and regenerate its provider
-# attestation. Permission/repository drift blocks before any connected sample.
-"$VENV/bin/python" "$SRC/scripts/v2_github_app_mint.py" \
-  --issuer "$CLIENT_ID" \
-  --private-key "$PEM" \
-  --repository "$REPOSITORY" \
-  --token-out "$TOKEN" \
-  --attestation-out "$ATTESTATION" >/dev/null \
-  || blocked "GITHUB_APP_MINT_FAILED"
+# attestation. The helper emits only a sanitized JSON contract. On failure we
+# preserve only its whitelisted reason code; raw output is never echoed.
+MINT_OUTPUT=''
+if ! MINT_OUTPUT="$(
+  "$VENV/bin/python" "$SRC/scripts/v2_github_app_mint.py" \
+    --issuer "$CLIENT_ID" \
+    --private-key "$PEM" \
+    --repository "$REPOSITORY" \
+    --token-out "$TOKEN" \
+    --attestation-out "$ATTESTATION" 2>/dev/null
+)"; then
+  MINT_REASON="$(printf '%s' "$MINT_OUTPUT" | mint_output_field reason || true)"
+  MINT_OUTPUT=''
+  [[ -n "$MINT_REASON" ]] || MINT_REASON='GITHUB_APP_MINT_FAILED'
+  blocked "$MINT_REASON"
+fi
+MINT_STATUS="$(printf '%s' "$MINT_OUTPUT" | mint_output_field status || true)"
+MINT_OUTPUT=''
+[[ "$MINT_STATUS" == 'GITHUB_APP_INSTALLATION_TOKEN_MINTED' ]] \
+  || blocked "GITHUB_APP_MINT_OUTPUT_INVALID"
 
 [[ -s "$TOKEN" && "$(stat -c '%a' "$TOKEN")" == '600' ]] \
   || blocked "INSTALLATION_TOKEN_INVALID"
