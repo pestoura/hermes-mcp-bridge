@@ -65,8 +65,9 @@ must not be inferred as implemented by `REGISTRY_ACCEPTED`.
 - `scripts/v2_phase1_registry_acceptance.py` — deterministic evidence collector;
 - `scripts/validate_v2_phase1_registry_evidence.py` — fail-closed gate validator;
 - `tests/test_v2_phase1_acceptance.py` — positive and tamper/negative gate tests;
-- CI retains `phase1-registry-acceptance-<sha>` as an artifact for the exact
-  commit under test.
+- CI retains `phase1-registry-evidence-<sha>` as a blocking **draft release**
+  targeted to the exact commit under test, with both evidence and gate assets
+  verified before the workflow may continue.
 
 **Gate:** `REGISTRY_ACCEPTED` — **pending integrated-main evidence**.
 
