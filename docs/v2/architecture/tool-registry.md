@@ -60,7 +60,12 @@ Implemented (`hermes_mcp_bridge.v2`):
   `idempotency`, `credential_capability_id`, `policy_action`,
   `approval_requirement`, `timeout_seconds`, `retry_policy`, `resource_key`,
   `result_shaping`, `capability_id`, `version`, plus non-secret
-  `description`/`backend`/`stability`/`deprecated` metadata.
+  `backend`/`stability`/`deprecated` metadata and free-text `description`.
+  `description` is editorial metadata only: it is **non-canonical and
+  non-projected** in Phase 1 (excluded from `canonical()`, from the capability
+  snapshot hash and from the client projection), because free text cannot be
+  secret-scanned with confidence. `canonical()` is the only audit-safe
+  serialization; `model_dump()` is not.
 - Enforced invariants: identifiers are non-empty, normalized (trimmed,
   lowercase, dotted `[a-z0-9_-]`) and wildcard-free; `read_only` implies
   `mutation_class = NONE`, tier T0/T1 and `idempotency = READ`; mutating tools

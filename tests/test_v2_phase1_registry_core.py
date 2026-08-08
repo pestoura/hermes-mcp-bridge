@@ -798,7 +798,6 @@ def test_projection_payload_field_allowlist() -> None:
     registry, rules, broker = _projection_fixture()
     result = project_capabilities(registry, rules, broker)
     allowed = {
-        "description",
         "execution_mode",
         "input_schema",
         "mutation_class",
@@ -914,6 +913,89 @@ def test_legitimate_human_description_is_not_rejected() -> None:
     ):
         tool = ToolDefinition(**{**read_tool().model_dump(), "description": text})
         assert tool.description == text
+        # editorial only: never part of the canonical form
+        assert "description" not in tool.canonical()
+
+
+def test_schema_property_names_are_sensitive_only_on_exact_match() -> None:
+    """Property names use exact-name semantics, not segment splitting.
+
+    ``token`` and ``api_key`` are credential names; ``token_accounting``,
+    ``compatibility`` and ``auth.token`` are ordinary labels and may carry a
+    default. Segment splitting is reserved for structured identifiers
+    (``backend``, ``resource_key.selector``).
+    """
+    for benign in ("token_accounting", "compatibility", "auth.token", "token-bucket"):
+        schema = {
+            "type": "object",
+            "properties": {benign: {"type": "string", "default": "sample-value"}},
+        }
+        tool = ToolDefinition(**{**read_tool().model_dump(), "input_schema": schema})
+        assert benign in tool.input_schema["properties"]
+
+    for sensitive in ("token", "api_key", "Password", "AUTHORIZATION"):
+        schema = {
+            "type": "object",
+            "properties": {sensitive: {"type": "string", "default": SECRET_SENTINEL}},
+        }
+        with pytest.raises(RegistryValidationError):
+            ToolDefinition(**{**read_tool().model_dump(), "input_schema": schema})
+
+
+def test_definition_named_exactly_sensitive_rejects_materialized_literal() -> None:
+    """``$defs``/``definitions`` entries follow the same exact-name rule."""
+    for container in ("$defs", "definitions"):
+        schema = {
+            "type": "object",
+            container: {"token": {"type": "string", "const": SECRET_SENTINEL}},
+        }
+        with pytest.raises(RegistryValidationError):
+            ToolDefinition(**{**read_tool().model_dump(), "input_schema": schema})
+
+        benign = {
+            "type": "object",
+            container: {"token_accounting": {"type": "string", "const": "ok"}},
+        }
+        tool = ToolDefinition(**{**read_tool().model_dump(), "input_schema": benign})
+        assert container in tool.input_schema
+
+
+def test_description_is_non_canonical_and_non_projected() -> None:
+    """Free text is editorial metadata only; it never reaches audit output.
+
+    ``description`` may exist on the in-memory definition, but it is absent
+    from ``canonical()``, from the capability snapshot hash and from the
+    projection payload. ``model_dump()`` still contains it and is therefore
+    **not** an audit-safe serialization — ``canonical()`` is the only one.
+    """
+    caps = CapabilityRegistry([capability("github.api")])
+    registry = ToolRegistry(caps)
+    tool = ToolDefinition(
+        **{**read_tool().model_dump(), "description": f"Notes {SECRET_SENTINEL}"}
+    )
+    assert tool.description.endswith(SECRET_SENTINEL)
+
+    assert "description" not in tool.canonical()
+    assert SECRET_SENTINEL not in canonical_json_text(tool.canonical())
+
+    registry.register(tool)
+    assert SECRET_SENTINEL not in registry.capability_snapshot_hash()
+    assert SECRET_SENTINEL not in canonical_json_text(
+        [item.canonical() for item in registry.ordered()]
+    )
+
+    rules = PolicyRuleSet(
+        [PolicyRule(policy_action="github.pr.read", decision=PolicyDecision.ALLOW)]
+    )
+    result = project_capabilities(registry, rules)
+    payload = canonical_json_text(result.canonical())
+    assert SECRET_SENTINEL not in payload
+    assert "description" not in payload
+    for projected in result.canonical()["tools"]:
+        assert "description" not in projected
+
+    # explicitly: model_dump is not audit-safe
+    assert SECRET_SENTINEL in str(tool.model_dump())
 
 
 def test_backend_identifier_segment_matching_is_exact() -> None:
@@ -923,8 +1005,8 @@ def test_backend_identifier_segment_matching_is_exact() -> None:
     ``authorization`` is a whole word inside no segment here — neither has a
     segment equal to a credential name, so both are accepted. A backend whose
     own segment *is* ``token``/``password``/... is rejected, which for a
-    structured identifier is the intended behaviour (prose is handled by
-    ``description``, which is not scanned at all).
+    structured identifier is the intended behaviour. Free-text ``description``
+    uses no scanning at all and is excluded from canonical/projected output.
     """
     for accepted in ("github-api", "patch-compatibility", "gitlab.rest-v4", "pat-service"):
         tool = ToolDefinition(**{**read_tool().model_dump(), "backend": accepted})

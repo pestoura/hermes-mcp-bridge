@@ -54,10 +54,17 @@ deferred (OD-013), as does the discovery/refresh protocol (OD-012).
 - the projected payload is a strict field allow-list: `tool_id`, `provider`,
   `operation`, `version`, `execution_mode`, `input_schema`, `output_schema`,
   `security_tier`, `read_only`, `mutation_class`, `result_shaping`,
-  `timeout_seconds`, `requires_approval`, `description`. It never contains
+  `timeout_seconds`, `requires_approval`. It never contains
   credential values, `credential_capability_id`, `capability_id`, secret paths
   or unnormalized backend-supplied metadata — there is no backend metadata
   pass-through, every field is copied explicitly from the canonical definition;
+- free-text editorial metadata (`description`) is **non-canonical and
+  non-projected** in Phase 1. It is human prose that cannot be secret-scanned
+  with confidence, so it is excluded from `ToolDefinition.canonical()`, from
+  the capability snapshot hash and from the projected payload. Runtime callers
+  must not place secrets there, but evidence/projection safety does not depend
+  on any heuristic over that text; note that `model_dump()` still contains it
+  and is **not** an audit-safe serialization — `canonical()` is;
 - **surface guarantee (Phase 1):** only tools explicitly registered as canonical
   `ToolDefinition` objects, whose capability is `READY` and whose policy
   decision is `ALLOW` or `APPROVAL_REQUIRED`, are projected. Nothing is

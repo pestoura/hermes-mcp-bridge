@@ -20,12 +20,22 @@ The guarantee is **structural**, not heuristic:
   is an opaque identifier resolved by the broker at runtime.
 * For **structured identifiers** (:attr:`ResourceKey.selector`, ``backend``) the
   value is a dotted identifier, and rejection is by **exact segment match**
-  against :data:`SENSITIVE_CREDENTIAL_NAMES` — never by arbitrary substring. A
-  segment ``token`` is rejected; ``patch-compatibility`` is not, because no
-  segment equals a sensitive name.
-* ``description`` is **human text and is not scanned**. Substring heuristics
-  over prose produce false positives ("token accounting", "compatibility") and
-  prove nothing about the absence of secrets, so they are deliberately absent.
+  against :data:`SENSITIVE_CREDENTIAL_NAMES`, splitting on ``.``/``_``/``-`` —
+  never by arbitrary substring. A segment ``token`` is rejected;
+  ``patch-compatibility`` is not, because no segment equals a sensitive name.
+* For **JSON Schema property/definition names** the rule is deliberately
+  different and narrower: a name is sensitive only when it equals a credential
+  name **exactly** (case-insensitively). ``token`` and ``api_key`` are
+  sensitive; ``token_accounting`` and ``compatibility`` are not.
+* ``description`` is **free-text editorial metadata**: human prose that cannot
+  be secret-scanned with any confidence. It is therefore **non-canonical and
+  non-projected in Phase 1** — retained in memory on :class:`ToolDefinition`,
+  but excluded from :meth:`ToolDefinition.canonical`, from the capability
+  snapshot hash and from the client projection. Runtime callers must still not
+  place secrets there, but the safety of the evidence/audit and projection
+  surfaces does not depend on a heuristic over that text. ``model_dump()``
+  *does* include it and is **not** an audit-safe serialization; ``canonical()``
+  is the only audit-safe output.
 
 JSON Schema is allowed to *name* sensitive runtime fields — a tool may legally
 declare an input property called ``token``. What it must not do is carry a
@@ -115,12 +125,24 @@ def normalize_identifier(raw: str, *, field: str) -> str:
     return value
 
 
-def _is_sensitive_name(name: str) -> bool:
-    """True when ``name`` *is* a credential name, by exact match.
+def _is_sensitive_property_name(name: str) -> bool:
+    """True when a JSON Schema property/definition name *is* a credential name.
 
-    The name is compared whole and, for compound identifiers, segment by
-    segment (``.``/``_``/``-`` separated), so ``auth.token`` is sensitive while
-    ``token_accounting`` and ``patch_compatibility`` are not.
+    Whole-name, case-insensitive exact match only — **no** segment splitting.
+    ``token`` and ``api_key`` are sensitive; ``token_accounting``,
+    ``compatibility`` and ``auth.token`` are not, because a schema property
+    name is an arbitrary author-chosen label, not a structured identifier.
+    """
+    return name.strip().lower() in SENSITIVE_CREDENTIAL_NAMES
+
+
+def _is_sensitive_identifier(name: str) -> bool:
+    """True when a structured identifier names credential material.
+
+    Applies to dotted identifiers only (``backend``, ``resource_key.selector``).
+    The value is compared whole and segment by segment (``.``/``_``/``-``
+    separated), so ``auth.token`` and ``svc-secret`` are sensitive while
+    ``patch-compatibility`` is not.
     """
     lowered = name.strip().lower()
     if lowered in SENSITIVE_CREDENTIAL_NAMES:
@@ -134,7 +156,7 @@ def _reject_sensitive_identifier(value: str, *, field: str) -> None:
 
     Exact segment matching only. Human prose must never be passed here.
     """
-    if _is_sensitive_name(value):
+    if _is_sensitive_identifier(value):
         raise RegistryValidationError(
             f"{field} must not be named after credential material"
         )
@@ -175,9 +197,11 @@ def _reject_materialized_credentials(
         if isinstance(block, dict):
             for name, child in block.items():
                 child_path = f"{path}.{name}" if path else str(name)
-                child_sensitive = container in ("properties", "patternProperties") and (
-                    isinstance(name, str) and _is_sensitive_name(name)
-                )
+                # Property, pattern-property and definition names are all
+                # author-chosen labels: sensitivity is exact-name only, so a
+                # ``$defs`` entry literally called ``token`` is caught too,
+                # while ``token_accounting`` is not.
+                child_sensitive = isinstance(name, str) and _is_sensitive_property_name(name)
                 _reject_materialized_credentials(
                     child, field=field, path=child_path, sensitive=child_sensitive
                 )
@@ -336,6 +360,9 @@ class ToolDefinition(RegistryModel):
     result_shaping: ResultShaping = ResultShaping.UNSUPPORTED
     stability: Stability = Stability.EXPERIMENTAL
     deprecated: bool = False
+    #: Free-text editorial metadata. Non-canonical and non-projected in
+    #: Phase 1: kept in memory, excluded from ``canonical()``, from the
+    #: capability snapshot hash and from the client projection.
     description: str = ""
     backend: str = ""
 
@@ -376,12 +403,14 @@ class ToolDefinition(RegistryModel):
     @field_validator("description")
     @classmethod
     def _description(cls, value: str) -> str:
-        """Human text. Deliberately **not** scanned for secret-like words.
+        """Free-text editorial metadata. Deliberately **not** secret-scanned.
 
-        Substring heuristics over prose reject legitimate wording ("token
-        accounting", "compatibility") while proving nothing about the absence
-        of secrets. The real guarantee is structural: no field of this model
-        can hold credential material, and extras are forbidden.
+        Prose cannot be secret-scanned with confidence: substring heuristics
+        reject legitimate wording ("token accounting", "compatibility") while
+        proving nothing about the absence of secrets. Instead of pretending to
+        scan it, Phase 1 keeps ``description`` out of every audit-relevant
+        output: it is not in :meth:`canonical`, not in the capability snapshot
+        hash and not in the client projection.
         """
         return value.strip()
 
@@ -428,14 +457,18 @@ class ToolDefinition(RegistryModel):
         return self.mutation_class.is_destructive or self.security_tier.is_destructive
 
     def canonical(self) -> dict[str, Any]:
-        """Canonical, non-secret projection used for the snapshot hash."""
+        """Canonical, non-secret projection used for the snapshot hash.
+
+        This is the **only** audit-safe serialization of a definition.
+        ``model_dump()`` is not: it includes free-text ``description``, which
+        is non-canonical editorial metadata in Phase 1 and is excluded here.
+        """
         return {
             "approval_requirement": self.approval_requirement.value,
             "backend": self.backend,
             "capability_id": self.capability_id,
             "credential_capability_id": self.credential_capability_id,
             "deprecated": self.deprecated,
-            "description": self.description,
             "execution_mode": self.execution_mode.value,
             "idempotency": self.idempotency.value,
             "input_schema": self.input_schema,

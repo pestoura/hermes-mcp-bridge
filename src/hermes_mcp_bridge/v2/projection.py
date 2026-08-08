@@ -19,7 +19,11 @@ Phase 1 decisions:
 * the projected payload contains a strict, normalized allow-list of fields. It
   never contains credential values, credential capability ids, secret paths or
   backend-supplied metadata: there is **no pass-through** of backend metadata,
-  each projected field is copied explicitly from the canonical definition.
+  each projected field is copied explicitly from the canonical definition;
+* free-text editorial metadata (``ToolDefinition.description``) is **not
+  projected** in Phase 1. Prose cannot be secret-scanned with confidence, so
+  rather than relying on a heuristic the field is simply absent from the
+  projected payload and from the projection hash.
 
 What the Phase 1 surface guarantee actually is
 ----------------------------------------------
@@ -88,11 +92,9 @@ class ProjectedTool(RegistryModel):
     result_shaping: ResultShaping
     timeout_seconds: int = Field(ge=1)
     requires_approval: bool
-    description: str = ""
 
     def canonical(self) -> dict[str, Any]:
         return {
-            "description": self.description,
             "execution_mode": self.execution_mode.value,
             "input_schema": self.input_schema,
             "mutation_class": self.mutation_class.value,
@@ -124,7 +126,6 @@ def _project_one(tool: ToolDefinition, *, requires_approval: bool) -> ProjectedT
         result_shaping=tool.result_shaping,
         timeout_seconds=tool.timeout_seconds,
         requires_approval=requires_approval,
-        description=tool.description,
     )
 
 
