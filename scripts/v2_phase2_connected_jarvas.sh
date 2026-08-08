@@ -95,6 +95,41 @@ raise SystemExit(2)
 ' "$field" 2>/dev/null
 }
 
+# The shadow-home preparer already exposes a secret-free JSON contract. Preserve
+# only that stable status/reason vocabulary so a real Jarvas blocker remains
+# actionable without surfacing provider values, filesystem paths or raw output.
+shadow_home_output_field() {
+  local field="$1"
+  "$VENV/bin/python" -c '
+import json
+import re
+import sys
+
+field = sys.argv[1]
+try:
+    payload = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(2)
+if not isinstance(payload, dict):
+    raise SystemExit(2)
+if field == "reason":
+    value = payload.get("reason")
+    if (
+        payload.get("status") == "SHADOW_HOME_BLOCKED"
+        and isinstance(value, str)
+        and re.fullmatch(r"[A-Z0-9_]{1,160}", value)
+    ):
+        print(value)
+        raise SystemExit(0)
+elif field == "status":
+    value = payload.get("status")
+    if value == "SHADOW_HOME_PREPARED":
+        print(value)
+        raise SystemExit(0)
+raise SystemExit(2)
+' "$field" 2>/dev/null
+}
+
 # Same boundary for the shadow probe: only its stable status/reason vocabulary is
 # allowed to cross the launcher boundary. Raw HTTP responses and gateway logs are
 # never emitted.
@@ -225,16 +260,34 @@ done
 
 # Build a clean Hermes home containing only model inference material plus the
 # five-tool shadow MCP. Messaging/integration credentials are never copied.
-"$HERMES_PY" "$SRC/scripts/v2_phase2_prepare_shadow_home.py" \
-  --source-home "$SOURCE_HERMES_HOME" \
-  --shadow-home "$SHADOW_HOME" \
-  --mcp-python "$VENV/bin/python" \
-  --mcp-script "$SRC/scripts/v2_phase2_shadow_github_mcp.py" \
-  --token-file "$TOKEN" \
-  --repository "$REPOSITORY" \
-  --api-port "$SHADOW_API_PORT" \
-  --api-key-out "$SHADOW_API_KEY" >/dev/null \
-  || blocked "SHADOW_HOME_PREPARATION_FAILED"
+# Capture the helper contract privately and forward only a whitelisted stable
+# blocker reason. This prevents real connected failures from collapsing into an
+# opaque SHADOW_HOME_PREPARATION_FAILED result.
+SHADOW_HOME_OUTPUT=''
+if ! SHADOW_HOME_OUTPUT="$(
+  "$HERMES_PY" "$SRC/scripts/v2_phase2_prepare_shadow_home.py" \
+    --source-home "$SOURCE_HERMES_HOME" \
+    --shadow-home "$SHADOW_HOME" \
+    --mcp-python "$VENV/bin/python" \
+    --mcp-script "$SRC/scripts/v2_phase2_shadow_github_mcp.py" \
+    --token-file "$TOKEN" \
+    --repository "$REPOSITORY" \
+    --api-port "$SHADOW_API_PORT" \
+    --api-key-out "$SHADOW_API_KEY" 2>/dev/null
+)"; then
+  SHADOW_HOME_REASON="$(
+    printf '%s' "$SHADOW_HOME_OUTPUT" | shadow_home_output_field reason || true
+  )"
+  SHADOW_HOME_OUTPUT=''
+  [[ -n "$SHADOW_HOME_REASON" ]] || SHADOW_HOME_REASON='SHADOW_HOME_PREPARATION_FAILED'
+  blocked "$SHADOW_HOME_REASON"
+fi
+SHADOW_HOME_STATUS="$(
+  printf '%s' "$SHADOW_HOME_OUTPUT" | shadow_home_output_field status || true
+)"
+SHADOW_HOME_OUTPUT=''
+[[ "$SHADOW_HOME_STATUS" == 'SHADOW_HOME_PREPARED' ]] \
+  || blocked "SHADOW_HOME_OUTPUT_INVALID"
 
 [[ -s "$SHADOW_API_KEY" && "$(stat -c '%a' "$SHADOW_API_KEY")" == '600' ]] \
   || blocked "SHADOW_API_KEY_INVALID"
