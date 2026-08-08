@@ -8,9 +8,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-SHADOW_ISOLATION_SCHEMA = "hermes-v2-phase2-shadow-isolation/1"
+SHADOW_ISOLATION_SCHEMA = "hermes-v2-phase2-shadow-isolation/2"
 SHADOW_SERVER_CONTRACT = "github-direct-read-fixed-repository/1"
-SHADOW_TOOLSET = "mcp-phase2-read"
+SHADOW_MCP_SERVER = "phase2-read"
+# Compatibility alias for the evidence vocabulary used by the Phase 2 gate.
+# In current Hermes this value is an MCP server/toolset name resolved by
+# _get_platform_tools(), not an entry returned by GET /v1/toolsets.
+SHADOW_TOOLSET = SHADOW_MCP_SERVER
 SHADOW_MCP_TOOL_NAMES = (
     "github_get_checks",
     "github_get_issue",
@@ -18,8 +22,9 @@ SHADOW_MCP_TOOL_NAMES = (
     "github_get_repo",
     "github_search",
 )
+_SHADOW_MCP_SERVER_SAFE = re.sub(r"[^A-Za-z0-9_]", "_", SHADOW_MCP_SERVER)
 SHADOW_HERMES_TOOL_NAMES = tuple(
-    f"mcp_phase2_read_{name}" for name in SHADOW_MCP_TOOL_NAMES
+    f"mcp__{_SHADOW_MCP_SERVER_SAFE}__{name}" for name in SHADOW_MCP_TOOL_NAMES
 )
 SHADOW_HTTP_METHODS = ["GET"]
 
@@ -36,7 +41,10 @@ _ALLOWED_KEYS = frozenset(
         "api_bind_loopback",
         "api_auth_required",
         "effective_toolsets",
+        "native_toolsets_enabled",
         "effective_tools",
+        "resolver_exact",
+        "mcp_server_config_exact",
         "repository_scopes",
         "credential_provider_type",
         "credential_capability",
@@ -110,6 +118,8 @@ def validate_shadow_isolation(
         "api_platform": "api_server",
         "api_bind_loopback": True,
         "api_auth_required": True,
+        "resolver_exact": True,
+        "mcp_server_config_exact": True,
         "credential_provider_type": "github_app",
         "credential_capability": "github.read",
         "credential_file_backed": True,
@@ -123,8 +133,12 @@ def validate_shadow_isolation(
         if payload.get(key) != expected:
             failures.append(f"shadow_isolation_invalid:{key}")
 
-    if payload.get("effective_toolsets") != [SHADOW_TOOLSET]:
+    if payload.get("effective_toolsets") != [SHADOW_MCP_SERVER]:
         failures.append("shadow_isolation_toolsets_not_exact")
+    # GET /v1/toolsets intentionally reports configurable/native toolsets only;
+    # a correct MCP-only shadow must therefore expose no enabled entry there.
+    if payload.get("native_toolsets_enabled") != []:
+        failures.append("shadow_isolation_native_toolsets_not_empty")
     if payload.get("effective_tools") != sorted(SHADOW_HERMES_TOOL_NAMES):
         failures.append("shadow_isolation_tools_not_exact")
     if payload.get("http_methods") != SHADOW_HTTP_METHODS:
