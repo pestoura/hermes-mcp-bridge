@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from datetime import UTC, datetime, timedelta
 
 from hermes_mcp_bridge.locks import LockRegistry
@@ -69,12 +70,12 @@ def test_real_lock_expiry_transition_is_counted_once(tmp_path) -> None:
     )
 
     # Move the persisted expiry into the past without invoking the reaper.
-    import sqlite3
-
     with sqlite3.connect(str(tmp_path / "state.sqlite3")) as cx:
+        expires_at = (datetime.now(UTC) - timedelta(seconds=2)).isoformat()
         cx.execute(
-            "UPDATE resource_locks SET expires_at = ? WHERE lock_key = ? AND owner = ?",
-            ((datetime.now(UTC) - timedelta(seconds=2)).isoformat(), "expiring-resource", "owner-a"),
+            "UPDATE resource_locks SET expires_at = ? "
+            "WHERE lock_key = ? AND owner = ?",
+            (expires_at, "expiring-resource", "owner-a"),
         )
 
     registry.acquire(
