@@ -10,6 +10,11 @@ shebang first, then known Hermes managed-install layouts derived from HOME and
 HERMES_HOME, then adjacent/PATH candidates. A candidate is accepted only when
 it can import the exact Hermes modules required by the connected shadow proof.
 Candidate paths are never emitted by the public/sanitized launcher contract.
+
+Virtual-environment interpreter paths are intentionally *not* dereferenced to
+their underlying system Python. Invoking ``venv/bin/python`` (even when it is a
+symlink) is what activates the virtual environment's prefix and site-packages;
+resolving that symlink first would silently discard the Hermes environment.
 """
 
 from __future__ import annotations
@@ -34,6 +39,11 @@ class HermesRuntimeError(RuntimeError):
         super().__init__(code)
 
 
+def _absolute_without_resolving(path: str | Path) -> Path:
+    """Return an absolute invocation path while preserving symlink semantics."""
+    return Path(os.path.abspath(os.fspath(Path(path).expanduser())))
+
+
 def _unique_existing_executables(values: Iterable[str | Path | None]) -> list[Path]:
     seen: set[str] = set()
     result: list[Path] = []
@@ -43,19 +53,21 @@ def _unique_existing_executables(values: Iterable[str | Path | None]) -> list[Pa
         text = str(raw).strip()
         if not text:
             continue
-        path = Path(text).expanduser()
+        path = _absolute_without_resolving(text)
         try:
-            resolved = path.resolve(strict=True)
-            info = resolved.stat()
+            # stat() intentionally follows the final symlink to prove that the
+            # invocation path resolves to a regular executable. The path itself
+            # is preserved so a virtualenv Python keeps its venv semantics.
+            info = path.stat()
         except OSError:
             continue
-        if not stat.S_ISREG(info.st_mode) or not os.access(resolved, os.X_OK):
+        if not stat.S_ISREG(info.st_mode) or not os.access(path, os.X_OK):
             continue
-        key = str(resolved)
+        key = str(path)
         if key in seen:
             continue
         seen.add(key)
-        result.append(resolved)
+        result.append(path)
     return result
 
 
@@ -84,16 +96,17 @@ def _shebang_python(hermes_bin: Path, *, path_env: str) -> Path | None:
             if "python" not in Path(token).name.lower():
                 return None
             hit = shutil.which(token, path=path_env)
-            return Path(hit).resolve() if hit else None
+            return _absolute_without_resolving(hit) if hit else None
         return None
 
     if "python" not in Path(command).name.lower():
         return None
-    candidate = Path(command).expanduser()
+    candidate = _absolute_without_resolving(command)
     try:
-        return candidate.resolve(strict=True)
+        candidate.stat()
     except OSError:
         return None
+    return candidate
 
 
 def _managed_install_candidates(
@@ -182,8 +195,11 @@ def resolve_hermes_python(
     path_env: str | None = None,
 ) -> Path:
     """Return the interpreter proven to own the installed Hermes runtime."""
-    original = Path(hermes_bin).expanduser()
+    original = _absolute_without_resolving(hermes_bin)
     try:
+        # Resolving the Hermes *console script* is safe and useful: it may be a
+        # public shim/symlink pointing at the managed checkout. Python candidate
+        # paths themselves are kept unresolved by the collector above.
         executable = original.resolve(strict=True)
         info = executable.stat()
     except OSError as exc:
