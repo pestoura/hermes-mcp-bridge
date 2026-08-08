@@ -1,6 +1,6 @@
 # V2 Roadmap
 
-> **V2 · PLANNED · NOT IMPLEMENTED · NO IMPACT ON V1**
+> **V2 · IMPLEMENTATION IN PROGRESS · PHASE 0 ACCEPTED · NO IMPACT ON V1**
 
 The roadmap is gated. A phase is not promoted merely because code exists; its acceptance evidence and prerequisite controls must pass.
 
@@ -8,11 +8,26 @@ The roadmap is gated. A phase is not promoted merely because code exists; its ac
 
 **Deliverables:** dated current architecture; representative v1 token/latency/API-call benchmark; runtime capability inventory; threat model; hardening findings; trust boundaries.
 
-**Implementation status (2026-08-08):** AS-IS/runtime/security baseline is documented and the connected benchmark/evidence harness is implemented under `scripts/v2_phase0_benchmark.py` plus the fail-closed validator `scripts/validate_v2_phase0_evidence.py`. The phase remains **NOT ACCEPTED** until real Jarvas/Hermes evidence passes the validator; code-only readiness is not promotion evidence.
+**Status (2026-08-08): ACCEPTED.** AS-IS/runtime/security baseline is documented, the connected benchmark harness `scripts/v2_phase0_benchmark.py` was executed against the real v1 runtime, and the fail-closed validator `scripts/validate_v2_phase0_evidence.py` returned `BASELINE_ACCEPTED` with zero failures.
 
-**Gate:** `BASELINE_ACCEPTED`.
+**Runtime validated:** Bridge `1.0.0`, schema `0.6.1`, upstream Hermes `ok`, base commit `f0b7e72f6bdf42e82712f3d2e8182ff937ae9509`.
+
+**Result:** 3 categories (`read`, `mutation`, `agentic`) × 3 repetitions = 9/9 successful, 0 failures, 0 contaminated metric windows, `bridge_execution_terminal_total` delta of exactly 1 per repetition, 519,048 real LLM tokens accounted, mutation cleanup residual count 0, privacy controls PASS (no prompts, outputs or secrets stored).
+
+**Evidence:**
+
+| File | SHA-256 |
+| --- | --- |
+| `docs/v2/evidence/phase0-connected-baseline-20260808.json` | `ea6cc080891d133fa835a4e852f69dd124feaeccc38befe24293395020667559` |
+| `docs/v2/evidence/phase0-connected-baseline-gate-20260808.json` | `8db24e8436fcac4b2a9eae2f41ad5b8e9c5194a0f174a3b0f3f67e612e0f9997` |
+
+See `docs/v2/evidence/README.md` for the full index and traceability chain.
+
+**Gate:** `BASELINE_ACCEPTED` — satisfied. Issue #43 is ready to close.
 
 ## PHASE 1 — Tool Registry
+
+**Status:** becomes **NEXT / IN PROGRESS** only after the Phase 0 acceptance documentation is merged. `REGISTRY_ACCEPTED` is **not** declared and no registry implementation is promoted by this document.
 
 **Deliverables:** canonical tool schema; capability registry/health model; policy taxonomy/security tiers; capability projection; credential abstraction/capability IDs; policy-as-code test model; capability snapshot hash.
 

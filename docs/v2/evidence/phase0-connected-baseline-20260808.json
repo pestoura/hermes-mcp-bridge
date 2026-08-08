@@ -1,0 +1,299 @@
+{
+  "collection": {
+    "hermes_state_db_enabled": true,
+    "hermes_state_db_readonly": true,
+    "mcp_url_scope": "loopback",
+    "metrics_enabled": true,
+    "token_sidecar_used": false
+  },
+  "finished_at": "2026-08-08T04:09:38.663464+00:00",
+  "gate": "BASELINE_EVIDENCE_COLLECTED",
+  "privacy": {
+    "outputs_stored": false,
+    "prompts_stored": false,
+    "secrets_stored": false
+  },
+  "runtime": {
+    "bridge_version": "1.0.0",
+    "manifest_hash": "ce6ea38beb7706d18419e5c27999b521c1bc5668a3c1405298500ebefc010e5f",
+    "schema_version": "0.6.1",
+    "upstream_status": "ok"
+  },
+  "scenarios": [
+    {
+      "category": "read",
+      "id": "github_read_repo_metadata",
+      "prompt_sha256": "bf70b7e9ce8bc01bb27cdb62ee5f8de0210993618d99993f1bfe21a97d9c2fc0",
+      "repetitions": 3,
+      "samples": [
+        {
+          "contaminated_window": false,
+          "duration_seconds": 12.341534,
+          "error_type": null,
+          "metrics_delta": {
+            "bridge_execution_poll_iterations_sum": 12.0,
+            "bridge_execution_recoveries_sum": 0.0,
+            "bridge_execution_retries_sum": 0.0,
+            "bridge_execution_terminal_total": 1.0,
+            "bridge_execution_tool_calls_sum": 1.0,
+            "bridge_execution_upstream_calls_sum": 15.0
+          },
+          "output_bytes": 567,
+          "run": 1,
+          "success": true,
+          "tokens": {
+            "input_tokens": 60179,
+            "output_tokens": 129,
+            "source": "hermes_result",
+            "total_tokens": 60308
+          }
+        },
+        {
+          "contaminated_window": false,
+          "duration_seconds": 9.359083,
+          "error_type": null,
+          "metrics_delta": {
+            "bridge_execution_poll_iterations_sum": 9.0,
+            "bridge_execution_recoveries_sum": 0.0,
+            "bridge_execution_retries_sum": 0.0,
+            "bridge_execution_terminal_total": 1.0,
+            "bridge_execution_tool_calls_sum": 1.0,
+            "bridge_execution_upstream_calls_sum": 12.0
+          },
+          "output_bytes": 566,
+          "run": 2,
+          "success": true,
+          "tokens": {
+            "input_tokens": 60183,
+            "output_tokens": 141,
+            "source": "hermes_result",
+            "total_tokens": 60324
+          }
+        },
+        {
+          "contaminated_window": false,
+          "duration_seconds": 13.414656,
+          "error_type": null,
+          "metrics_delta": {
+            "bridge_execution_poll_iterations_sum": 13.0,
+            "bridge_execution_recoveries_sum": 0.0,
+            "bridge_execution_retries_sum": 0.0,
+            "bridge_execution_terminal_total": 1.0,
+            "bridge_execution_tool_calls_sum": 1.0,
+            "bridge_execution_upstream_calls_sum": 16.0
+          },
+          "output_bytes": 565,
+          "run": 3,
+          "success": true,
+          "tokens": {
+            "input_tokens": 60227,
+            "output_tokens": 204,
+            "source": "hermes_result",
+            "total_tokens": 60431
+          }
+        }
+      ],
+      "summary": {
+        "duration_seconds": {
+          "max": 13.414656,
+          "median": 12.341534,
+          "min": 9.359083,
+          "p95": 13.414656
+        },
+        "failures": 0,
+        "runs": 3,
+        "successes": 3,
+        "tokens": {
+          "complete_runs": 3,
+          "input_total": 180589,
+          "output_total": 474,
+          "total": 181063
+        }
+      }
+    },
+    {
+      "category": "mutation",
+      "id": "local_disposable_roundtrip",
+      "prompt_sha256": "aef53ebd556181894b616b891d4a6f383b47713b7db00f21766a68319459febe",
+      "repetitions": 3,
+      "samples": [
+        {
+          "contaminated_window": false,
+          "duration_seconds": 13.453767,
+          "error_type": null,
+          "metrics_delta": {
+            "bridge_execution_poll_iterations_sum": 13.0,
+            "bridge_execution_recoveries_sum": 0.0,
+            "bridge_execution_retries_sum": 0.0,
+            "bridge_execution_terminal_total": 1.0,
+            "bridge_execution_tool_calls_sum": 1.0,
+            "bridge_execution_upstream_calls_sum": 16.0
+          },
+          "output_bytes": 611,
+          "run": 1,
+          "success": true,
+          "tokens": {
+            "input_tokens": 60680,
+            "output_tokens": 767,
+            "source": "hermes_result",
+            "total_tokens": 61447
+          }
+        },
+        {
+          "contaminated_window": false,
+          "duration_seconds": 9.332518,
+          "error_type": null,
+          "metrics_delta": {
+            "bridge_execution_poll_iterations_sum": 9.0,
+            "bridge_execution_recoveries_sum": 0.0,
+            "bridge_execution_retries_sum": 0.0,
+            "bridge_execution_terminal_total": 1.0,
+            "bridge_execution_tool_calls_sum": 1.0,
+            "bridge_execution_upstream_calls_sum": 12.0
+          },
+          "output_bytes": 611,
+          "run": 2,
+          "success": true,
+          "tokens": {
+            "input_tokens": 60699,
+            "output_tokens": 347,
+            "source": "hermes_result",
+            "total_tokens": 61046
+          }
+        },
+        {
+          "contaminated_window": false,
+          "duration_seconds": 36.875162,
+          "error_type": null,
+          "metrics_delta": {
+            "bridge_execution_poll_iterations_sum": 36.0,
+            "bridge_execution_recoveries_sum": 0.0,
+            "bridge_execution_retries_sum": 0.0,
+            "bridge_execution_terminal_total": 1.0,
+            "bridge_execution_tool_calls_sum": 1.0,
+            "bridge_execution_upstream_calls_sum": 39.0
+          },
+          "output_bytes": 615,
+          "run": 3,
+          "success": true,
+          "tokens": {
+            "input_tokens": 122399,
+            "output_tokens": 1219,
+            "source": "hermes_result",
+            "total_tokens": 123618
+          }
+        }
+      ],
+      "summary": {
+        "duration_seconds": {
+          "max": 36.875162,
+          "median": 13.453767,
+          "min": 9.332518,
+          "p95": 36.875162
+        },
+        "failures": 0,
+        "runs": 3,
+        "successes": 3,
+        "tokens": {
+          "complete_runs": 3,
+          "input_total": 243778,
+          "output_total": 2333,
+          "total": 246111
+        }
+      }
+    },
+    {
+      "category": "agentic",
+      "id": "bounded_execution_mode_reasoning",
+      "prompt_sha256": "492b9c75150bcf7ec6eb176463660264207cb7458dc9888c16a5a22e2ea7f3e9",
+      "repetitions": 3,
+      "samples": [
+        {
+          "contaminated_window": false,
+          "duration_seconds": 7.286616,
+          "error_type": null,
+          "metrics_delta": {
+            "bridge_execution_poll_iterations_sum": 7.0,
+            "bridge_execution_recoveries_sum": 0.0,
+            "bridge_execution_retries_sum": 0.0,
+            "bridge_execution_terminal_total": 1.0,
+            "bridge_execution_tool_calls_sum": 1.0,
+            "bridge_execution_upstream_calls_sum": 10.0
+          },
+          "output_bytes": 722,
+          "run": 1,
+          "success": true,
+          "tokens": {
+            "input_tokens": 30201,
+            "output_tokens": 391,
+            "source": "hermes_result",
+            "total_tokens": 30592
+          }
+        },
+        {
+          "contaminated_window": false,
+          "duration_seconds": 5.278763,
+          "error_type": null,
+          "metrics_delta": {
+            "bridge_execution_poll_iterations_sum": 5.0,
+            "bridge_execution_recoveries_sum": 0.0,
+            "bridge_execution_retries_sum": 0.0,
+            "bridge_execution_terminal_total": 1.0,
+            "bridge_execution_tool_calls_sum": 1.0,
+            "bridge_execution_upstream_calls_sum": 8.0
+          },
+          "output_bytes": 622,
+          "run": 2,
+          "success": true,
+          "tokens": {
+            "input_tokens": 30201,
+            "output_tokens": 260,
+            "source": "hermes_result",
+            "total_tokens": 30461
+          }
+        },
+        {
+          "contaminated_window": false,
+          "duration_seconds": 8.290056,
+          "error_type": null,
+          "metrics_delta": {
+            "bridge_execution_poll_iterations_sum": 8.0,
+            "bridge_execution_recoveries_sum": 0.0,
+            "bridge_execution_retries_sum": 0.0,
+            "bridge_execution_terminal_total": 1.0,
+            "bridge_execution_tool_calls_sum": 1.0,
+            "bridge_execution_upstream_calls_sum": 11.0
+          },
+          "output_bytes": 723,
+          "run": 3,
+          "success": true,
+          "tokens": {
+            "input_tokens": 30201,
+            "output_tokens": 620,
+            "source": "hermes_result",
+            "total_tokens": 30821
+          }
+        }
+      ],
+      "summary": {
+        "duration_seconds": {
+          "max": 8.290056,
+          "median": 7.286616,
+          "min": 5.278763,
+          "p95": 8.290056
+        },
+        "failures": 0,
+        "runs": 3,
+        "successes": 3,
+        "tokens": {
+          "complete_runs": 3,
+          "input_total": 90603,
+          "output_total": 1271,
+          "total": 91874
+        }
+      }
+    }
+  ],
+  "schema": "hermes-v2-phase0-benchmark/1",
+  "started_at": "2026-08-08T04:07:42.886913+00:00"
+}
