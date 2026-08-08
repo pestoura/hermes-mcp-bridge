@@ -6,6 +6,8 @@ health/authorization state. Registration never implies usability — see
 
 No secret material, secret path or environment variable name is stored here;
 credential readiness is expressed only as a :class:`CapabilityState`.
+Free-form ``description`` is editorial metadata: it remains available in-memory
+but is deliberately excluded from canonical snapshot serialization.
 """
 
 from __future__ import annotations
@@ -21,7 +23,11 @@ from .schema import normalize_identifier
 
 
 class CapabilityDescriptor(RegistryModel):
-    """Immutable description of one capability."""
+    """Immutable description of one capability.
+
+    ``description`` is human/editorial text. It is not audit-safe metadata and
+    therefore never enters :meth:`canonical` or the capability snapshot hash.
+    """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -59,9 +65,9 @@ class CapabilityDescriptor(RegistryModel):
         return self.state.is_ready
 
     def canonical(self) -> dict[str, Any]:
+        """Return the audit-safe non-secret capability metadata."""
         return {
             "capability_id": self.capability_id,
-            "description": self.description,
             "provider": self.provider,
             "state": self.state.value,
             "version": self.version,

@@ -23,33 +23,53 @@ The roadmap is gated. A phase is not promoted merely because code exists; its ac
 
 See `docs/v2/evidence/README.md` for the full index and traceability chain.
 
-**Gate:** `BASELINE_ACCEPTED` — satisfied. Issue #43 is ready to close.
+**Gate:** `BASELINE_ACCEPTED` — satisfied. Issue #43 closed.
 
 ## PHASE 1 — Tool Registry
 
-**Status: IMPLEMENTATION IN PROGRESS.** The canonical registry core landed as an
-isolated additive package (`src/hermes_mcp_bridge/v2/`) with unit tests. It is
-**not** wired into the V1 server or tool registration path and the V1 27-tool
-surface is unchanged. `REGISTRY_ACCEPTED` is **not** declared: no acceptance
-evidence has been produced, no gate validator has been run and no registry
-implementation is promoted by this document.
+**Status: ACCEPTANCE IN PROGRESS.** The canonical registry core is implemented as
+an isolated additive package (`src/hermes_mcp_bridge/v2/`) and remains unwired
+to the V1 server/tool registration path. The V1 27-tool contract remains
+unchanged. `REGISTRY_ACCEPTED` is **not** declared until the acceptance harness
+runs in CI, its fail-closed validator returns the gate with zero failures, and
+the resulting evidence from the integrated `main` commit is retained.
 
 **Deliverables:** canonical tool schema; capability registry/health model; policy taxonomy/security tiers; capability projection; credential abstraction/capability IDs; policy-as-code test model; capability snapshot hash.
 
-**Implemented so far:** canonical `ToolDefinition` with enforced invariants;
+**Implemented:** canonical `ToolDefinition` with enforced invariants;
 `CapabilityRegistry`/`ToolRegistry` with duplicate checks and fail-closed
 lookups; the seven-state `CapabilityState` readiness model; deterministic
 canonical JSON plus SHA-256 `capability_snapshot_hash`; fail-closed
 policy-as-code with `ALLOW`/`DENY`/`APPROVAL_REQUIRED` and stable reason codes;
 deterministic static capability projection; credential broker **contract** with
-an in-memory test broker only.
+an in-memory test broker only; audit-safe canonical serialization that excludes
+free-text editorial metadata and materialized credential values.
 
-**Not yet done (required before the gate):** registry persistence and signing
-(open question of ADR-0004), a real credential backend (OD-005), the
-principal/tenant model (OD-007), dynamic projection and discovery
-(OD-012/OD-013), and the Phase 1 acceptance evidence + validator.
+**Acceptance scope:** the `REGISTRY_ACCEPTED` gate is defined by the Phase 1
+requirements mapped in `docs/v2/requirements/traceability-matrix.md`: registry
+schema conformance, deterministic/versioned capability snapshots, capability
+health semantics, authorized-only projection, fail-closed policy evaluation,
+credential capability/redaction contract, malicious metadata/secret-field
+negative tests, and V1 isolation/regression evidence.
 
-**Gate:** `REGISTRY_ACCEPTED` — **not satisfied**.
+**Explicitly deferred and non-blocking for this gate:** registry persistence,
+storage format and signing (open questions of ADR-0004); a real credential
+backend (OD-005); the principal/tenant authorization model (OD-007); dynamic
+capability discovery/projection (OD-012/OD-013); internal MCP proxying details
+(OD-014); and the durable policy engine/format beyond the Phase 1 rule model
+(OD-017). These remain required before the later phases that depend on them and
+must not be inferred as implemented by `REGISTRY_ACCEPTED`.
+
+**Acceptance harness:**
+
+- `scripts/v2_phase1_registry_acceptance.py` — deterministic evidence collector;
+- `scripts/validate_v2_phase1_registry_evidence.py` — fail-closed gate validator;
+- `tests/test_v2_phase1_acceptance.py` — positive and tamper/negative gate tests;
+- CI retains `phase1-registry-evidence-<sha>` as a blocking **draft release**
+  targeted to the exact commit under test, with both evidence and gate assets
+  verified before the workflow may continue.
+
+**Gate:** `REGISTRY_ACCEPTED` — **pending integrated-main evidence**.
 
 ## PHASE 2 — GitHub DIRECT Read-Only MVP
 
