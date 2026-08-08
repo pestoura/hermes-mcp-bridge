@@ -18,10 +18,10 @@ def test_jarvas_launcher_is_valid_bash() -> None:
 def test_jarvas_launcher_pins_exact_launcher_checkout_commit() -> None:
     text = _text()
     assert 'SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"' in text
-    assert 'rev-parse --show-toplevel' in text
+    assert "rev-parse --show-toplevel" in text
     assert 'ACCEPTED_SOURCE_COMMIT="$(git -C "$CHECKOUT_ROOT" rev-parse HEAD' in text
-    assert 'diff --quiet -- scripts/v2_phase2_connected_jarvas.sh' in text
-    assert 'git clone -q --no-checkout' in text
+    assert "diff --quiet -- scripts/v2_phase2_connected_jarvas.sh" in text
+    assert "git clone -q --no-checkout" in text
     assert 'checkout -q --detach "$ACCEPTED_SOURCE_COMMIT"' in text
     assert '[[ "$SOURCE_COMMIT" == "$ACCEPTED_SOURCE_COMMIT" ]]' in text
     assert 'blocked "SOURCE_COMMIT_MISMATCH"' in text
@@ -39,8 +39,26 @@ def test_jarvas_launcher_preserves_only_sanitized_mint_reason() -> None:
     )
     assert expected_reason_parse in text
     assert 'blocked "$MINT_REASON"' in text
-    assert 'MINT_OUTPUT=\'\'' in text
+    assert "MINT_OUTPUT=''" in text
     assert '--attestation-out "$ATTESTATION" >/dev/null' not in text
+
+
+def test_jarvas_launcher_runs_shadow_gateway_in_foreground_mode() -> None:
+    text = _text()
+    assert '"$HERMES_BIN" gateway run >"$SHADOW_HERMES_LOG" 2>&1 &' in text
+    assert '"$HERMES_BIN" gateway >"$SHADOW_HERMES_LOG" 2>&1 &' not in text
+
+
+def test_jarvas_launcher_preserves_only_sanitized_shadow_probe_reason() -> None:
+    text = _text()
+    assert "shadow_output_field()" in text
+    assert 'payload.get("status") == "SHADOW_ISOLATION_BLOCKED"' in text
+    assert 'value == "SHADOW_ISOLATION_PROVEN"' in text
+    assert 're.fullmatch(r"[A-Z0-9_]{1,160}", value)' in text
+    assert 'shadow_output_field reason || true' in text
+    assert 'blocked "$SHADOW_REASON"' in text
+    assert "SHADOW_PROBE_OUTPUT=''" in text
+    assert '--json-out "$SHADOW_ISOLATION" >/dev/null' not in text
 
 
 def test_jarvas_launcher_derives_read_only_basis_from_live_shadow_probe() -> None:
@@ -48,7 +66,7 @@ def test_jarvas_launcher_derives_read_only_basis_from_live_shadow_probe() -> Non
     assert "HERMES_V2_SHADOW_MUTATION_BASIS" not in text
     assert "v2_phase2_prepare_shadow_home.py" in text
     assert "v2_phase2_probe_shadow_runtime.py" in text
-    assert '--shadow-mutation-basis read_only_credential_enforced' in text
+    assert "--shadow-mutation-basis read_only_credential_enforced" in text
     assert "SHADOW_ISOLATION_NOT_PROVEN" in text
 
 
@@ -92,7 +110,7 @@ def test_jarvas_launcher_runs_collector_then_strict_promotion_gate() -> None:
     collector = text.index("v2_phase2_direct_read_acceptance.py")
     validator = text.index("validate_v2_phase2_connected_gate.py")
     assert collector < validator
-    assert '--provider-type github_app' in text
+    assert "--provider-type github_app" in text
     assert '--hermes-state-db "$SHADOW_HOME/state.db"' in text
     assert '--shadow-isolation "$SHADOW_ISOLATION"' in text
 
