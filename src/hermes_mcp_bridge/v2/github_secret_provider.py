@@ -21,6 +21,15 @@ Security properties (all enforced here, all covered by tests):
 * classic/broad PATs are rejected. Only fine-grained tokens
   (``github_pat_``) and GitHub App installation tokens (``ghs_``) are accepted,
   and the observed material must match the declared provider type;
+* the material is handled as an **opaque string**: the type is decided solely by
+  its prefix. In particular the ``ghs_`` installation-token family is accepted
+  regardless of length or internal punctuation, which is what the stateless
+  ``ghs_<app-id>_<jwt>`` format GitHub has been rolling out during 2026
+  requires — those tokens are variable-length, routinely longer than 520
+  characters, and contain dots, dashes and underscores. The only size check is
+  a generous resource bound (``_MAX_MATERIAL_BYTES``) plus a truncation floor;
+  neither is a GitHub format validation and neither may be tightened into one.
+  No real token sample is reproduced anywhere in this repository;
 * neither the value nor the path ever appears in ``repr``/``str``, canonical
   payloads, results, errors or evidence. Denials are reported as stable,
   path-free status codes;
@@ -51,7 +60,16 @@ FINE_GRAINED_PREFIX = "github_pat_"
 #: GitHub App installation access token prefix.
 APP_INSTALLATION_PREFIX = "ghs_"
 
-_MAX_MATERIAL_LENGTH = 512
+#: Defensive **resource** bound on how much material is read from the secret
+#: file. It is deliberately generous and is *not* a GitHub format or length
+#: validation: GitHub has been migrating ``ghs_`` installation tokens to the
+#: stateless ``ghs_<app-id>_<jwt>`` shape since 2026, whose length is variable
+#: and already exceeds 520 characters. Token material is treated as an opaque
+#: string and is only ever classified by prefix. Never re-introduce an exact or
+#: near-exact length expectation here.
+_MAX_MATERIAL_BYTES = 8192
+#: Lower bound guarding against obviously truncated or stub files. It is a
+#: sanity floor, not a GitHub format rule either.
 _MIN_MATERIAL_LENGTH = 20
 
 #: ``errno`` values a symlink triggers when ``O_NOFOLLOW`` is honoured.
@@ -277,7 +295,7 @@ class FileGitHubAuthorizationProvider:
             if self._require_secure_mode and (stat.S_IMODE(info.st_mode) & 0o077):
                 return None, AuthorizationStatus.FILE_PERMISSIONS_TOO_OPEN
             try:
-                raw = self._read_all(fd, _MAX_MATERIAL_LENGTH + 1)
+                raw = self._read_all(fd, _MAX_MATERIAL_BYTES + 1)
             except OSError:
                 return None, AuthorizationStatus.FILE_UNREADABLE
         finally:
@@ -316,7 +334,9 @@ class FileGitHubAuthorizationProvider:
 
         if not value:
             return None, AuthorizationStatus.FILE_EMPTY
-        too_long = len(value) > _MAX_MATERIAL_LENGTH
+        # Resource bound only (see ``_MAX_MATERIAL_BYTES``): the value is opaque
+        # material, so no GitHub-specific length or shape is asserted here.
+        too_long = len(value.encode("utf-8")) > _MAX_MATERIAL_BYTES
         if too_long or len(value) < _MIN_MATERIAL_LENGTH or any(c.isspace() for c in value):
             return None, AuthorizationStatus.MATERIAL_MALFORMED
 

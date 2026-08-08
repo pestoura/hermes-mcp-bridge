@@ -43,6 +43,16 @@ Why the repository ``permissions`` block is *not* used
 ``admin: true`` even when the fine-grained PAT in use is restricted to read.
 Treating it as token capability is unsound, so it is neither used to accept nor
 to reject a provider here.
+
+Input hardening
+---------------
+
+The declaration document is **schema-closed**: only the exact top-level keys in
+:data:`ALLOWED_ATTESTATION_KEYS` are accepted and any other field is rejected
+with ``ATTESTATION_UNEXPECTED_FIELD`` *before* any content is read, so the
+sanitized input cannot carry arbitrary or secret-like data under creative names.
+``confirmed_at`` must additionally be a timezone-aware ISO-8601 timestamp
+(explicit offset or ``Z``) for the record to be auditable and reproducible.
 """
 
 from __future__ import annotations
@@ -84,6 +94,24 @@ ALLOWED_CONFIRMATION_SOURCES: dict[str, frozenset[str]] = {
 
 _WILDCARD_CHARS = ("*", "?", "[", "]")
 _USER_AGENT = "hermes-mcp-bridge-v2-attestation"
+#: Exact, closed set of top-level keys the sanitized declaration may carry.
+#: The document is schema-closed: any other key — however innocuously named —
+#: is rejected before any content is processed, so the file cannot be used to
+#: smuggle arbitrary or secret-like payloads under creative field names.
+ALLOWED_ATTESTATION_KEYS = frozenset(
+    {
+        "schema",
+        "provider_type",
+        "permissions",
+        "unexpected_permissions",
+        "repository_scopes",
+        "confirmation",
+        "confirmation_source",
+        "confirmed_at",
+    }
+)
+#: Retained for defence in depth and for a more precise code when an obviously
+#: secret-like key is used; the closed key set above already rejects them.
 _SECRET_LIKE_KEYS = frozenset(
     {
         "token",
@@ -159,13 +187,21 @@ def load_attestation_input(path: str | Path) -> ProviderAttestationInput:
     if not isinstance(payload, dict):
         raise AttestationError("ATTESTATION_INPUT_MALFORMED")
 
+    # ---- schema-closed key validation, before any content is processed -----
+    # The declaration may only carry the exact top-level keys of the schema.
+    # Obviously secret-like names keep their more specific code; anything else
+    # outside the closed set fails with ATTESTATION_UNEXPECTED_FIELD. Nothing
+    # arbitrary can therefore ride along in the sanitized input.
+    for key in payload:
+        name = str(key).strip().lower()
+        if name in _SECRET_LIKE_KEYS:
+            raise AttestationError("ATTESTATION_INPUT_SECRET_LIKE_FIELD")
+        if str(key) not in ALLOWED_ATTESTATION_KEYS:
+            raise AttestationError("ATTESTATION_UNEXPECTED_FIELD")
+
     schema = _require_str(payload, "schema", "ATTESTATION_SCHEMA_MISSING")
     if schema != ATTESTATION_INPUT_SCHEMA:
         raise AttestationError("ATTESTATION_SCHEMA_UNSUPPORTED")
-
-    for key in payload:
-        if str(key).lower() in _SECRET_LIKE_KEYS:
-            raise AttestationError("ATTESTATION_INPUT_SECRET_LIKE_FIELD")
 
     provider_type = _require_str(payload, "provider_type", "ATTESTATION_PROVIDER_TYPE_MISSING")
     if provider_type not in ALLOWED_CONFIRMATION_SOURCES:
@@ -200,10 +236,15 @@ def load_attestation_input(path: str | Path) -> ProviderAttestationInput:
         raise AttestationError("ATTESTATION_SOURCE_NOT_ALLOWED")
 
     confirmed_at = _require_str(payload, "confirmed_at", "ATTESTATION_CONFIRMED_AT_MISSING")
+    # ISO-8601 must be timezone-aware (explicit offset or ``Z``). A naive
+    # timestamp is not auditable/reproducible across hosts, so it fails closed.
+    # No maximum age window is enforced at this phase.
     try:
-        datetime.fromisoformat(confirmed_at)
+        parsed = datetime.fromisoformat(confirmed_at.replace("Z", "+00:00"))
     except ValueError as exc:
         raise AttestationError("ATTESTATION_CONFIRMED_AT_INVALID") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise AttestationError("ATTESTATION_CONFIRMED_AT_NOT_TIMEZONE_AWARE")
 
     return ProviderAttestationInput(
         provider_type=provider_type,
@@ -455,6 +496,7 @@ def attest_provider(
 
 
 __all__ = [
+    "ALLOWED_ATTESTATION_KEYS",
     "ALLOWED_CONFIRMATION_SOURCES",
     "ATTESTATION_INPUT_SCHEMA",
     "REQUIRED_PERMISSIONS",

@@ -371,6 +371,36 @@ rejected. This declaration does **not** replace the live probes: it is the
 explicit external proof of what the GitHub API cannot self-introspect, instead of
 the collector inventing the declaration.
 
+The document is **schema-closed**: the eight keys above are the only accepted
+top-level fields. Any other field — `credential_value`, `raw_token`, `notes`,
+or any other creatively named extra — is rejected with the stable code
+`ATTESTATION_UNEXPECTED_FIELD` *before* any content is processed, so the
+sanitized input cannot be used to carry arbitrary or secret-like data.
+Obviously secret-like names keep the more specific
+`ATTESTATION_INPUT_SECRET_LIKE_FIELD`.
+
+`confirmed_at` must be a **timezone-aware** ISO-8601 timestamp (explicit offset
+or `Z`). A naive timestamp is rejected with
+`ATTESTATION_CONFIRMED_AT_NOT_TIMEZONE_AWARE`, and an unparseable value with
+`ATTESTATION_CONFIRMED_AT_INVALID`. No maximum age window is enforced at this
+phase; the requirement exists for auditability and reproducibility.
+
+### Token material is opaque
+
+Authorization material is never parsed or length-validated. The provider
+classifies it **only by prefix**: `github_pat_` (fine-grained), `ghs_` (GitHub
+App installation), `ghp_`/`gho_` and unprefixed 40-hex (classic, always
+rejected).
+
+This matters for the stateless `ghs_<app-id>_<jwt>` installation-token format
+GitHub has been rolling out during 2026: those tokens are variable-length,
+routinely exceed 520 characters and contain dots, dashes and underscores. They
+are accepted unchanged. The provider keeps only a generous defensive resource
+bound (8192 bytes) on how much it reads from the secret file, plus a small
+truncation floor — **neither is a GitHub format or length validation** and
+neither may be tightened into one. Classic PAT rejection is unaffected. No real
+token sample is reproduced in this repository or in any evidence.
+
 ### Window integrity and mutation claims
 
 Neither `contaminated_window` nor `mutation_observed` is a hardcoded literal.

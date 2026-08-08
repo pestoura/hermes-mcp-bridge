@@ -61,6 +61,15 @@ FINE_GRAINED = "github_pat_" + "A" * 40
 APP_TOKEN = "ghs_" + "B" * 36
 CLASSIC = "ghp_" + "C" * 36
 CLASSIC_LEGACY = "0123456789abcdef" * 2 + "01234567"
+# Stateless GitHub App installation token shape rolled out during 2026:
+# ``ghs_<app-id>_<jwt>``. Synthetic, non-functional, > 520 characters, and it
+# uses the dots/dashes/underscores the new format allows. No real token is used.
+APP_TOKEN_STATELESS = (
+    "ghs_123456_"
+    + "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9."
+    + ("aB3-dE5_fG7hI9jK" * 30)
+    + ".sIgNaTuRe-PaRt_0123456789"
+)
 
 
 def _load_collector() -> Any:
@@ -148,6 +157,44 @@ def test_provider_type_mismatch_is_rejected(tmp_path: Path) -> None:
     )
     assert provider.probe() is AuthorizationStatus.PROVIDER_TYPE_MISMATCH
     assert provider.resolve("github.read", REPOSITORY) is None
+
+
+def test_stateless_ghs_token_over_520_chars_is_accepted(tmp_path: Path) -> None:
+    """2026 stateless ``ghs_<app-id>_<jwt>`` material is opaque and length-free."""
+    assert len(APP_TOKEN_STATELESS) > 520
+    assert classify_material(APP_TOKEN_STATELESS) is MaterialClass.GITHUB_APP
+    provider = _provider(
+        tmp_path,
+        value=APP_TOKEN_STATELESS,
+        provider_type=GitHubProviderType.GITHUB_APP,
+    )
+    assert provider.probe() is AuthorizationStatus.READY
+    material = provider.resolve("github.read", REPOSITORY)
+    assert material is not None
+    assert material.header_value() == f"Bearer {APP_TOKEN_STATELESS}"
+
+
+def test_provider_has_no_exact_length_expectation() -> None:
+    source = (ROOT / "src" / "hermes_mcp_bridge" / "v2" / "github_secret_provider.py").read_text(
+        encoding="utf-8"
+    )
+    assert "_MAX_MATERIAL_LENGTH" not in source
+    assert "_MAX_MATERIAL_BYTES = 8192" in source
+
+
+def test_classic_pat_rejection_survives_the_relaxed_bound(tmp_path: Path) -> None:
+    for value in (CLASSIC, CLASSIC_LEGACY, "gho_" + "D" * 600):
+        provider = _provider(tmp_path, value=value)
+        assert provider.probe() is AuthorizationStatus.CLASSIC_PAT_REJECTED
+
+
+def test_material_beyond_the_resource_bound_is_rejected(tmp_path: Path) -> None:
+    provider = _provider(
+        tmp_path,
+        value="ghs_" + "E" * 9000,
+        provider_type=GitHubProviderType.GITHUB_APP,
+    )
+    assert provider.probe() is AuthorizationStatus.MATERIAL_MALFORMED
 
 
 def test_env_supplied_value_is_rejected(tmp_path: Path) -> None:
@@ -957,6 +1004,79 @@ def test_declaration_rejects_secret_like_fields(tmp_path: Path) -> None:
     with pytest.raises(AttestationError) as exc:
         load_attestation_input(_write_declaration(tmp_path, token="github_pat_x"))
     assert exc.value.code == "ATTESTATION_INPUT_SECRET_LIKE_FIELD"
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "credential_value",
+        "raw_token",
+        "notes",
+        "notes_with_secret",
+        "extra",
+        "metadata",
+    ],
+)
+def test_declaration_is_schema_closed(tmp_path: Path, field: str) -> None:
+    """Unknown top-level fields fail closed; the input carries nothing extra."""
+    with pytest.raises(AttestationError) as exc:
+        load_attestation_input(_write_declaration(tmp_path, **{field: "anything"}))
+    assert exc.value.code == "ATTESTATION_UNEXPECTED_FIELD"
+
+
+def test_declaration_rejects_nested_arbitrary_field(tmp_path: Path) -> None:
+    payload = {"inner": {"deep": ["value", {"more": 1}]}}
+    with pytest.raises(AttestationError) as exc:
+        load_attestation_input(_write_declaration(tmp_path, attachment=payload))
+    assert exc.value.code == "ATTESTATION_UNEXPECTED_FIELD"
+
+
+def test_declaration_unexpected_field_is_rejected_before_content(tmp_path: Path) -> None:
+    """The closed-key check runs before schema/content validation."""
+    with pytest.raises(AttestationError) as exc:
+        load_attestation_input(_write_declaration(tmp_path, schema="other/1", credential_value="x"))
+    assert exc.value.code == "ATTESTATION_UNEXPECTED_FIELD"
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["2026-08-08T10:00:00", "2026-08-08 10:00:00", "2026-08-08"],
+)
+def test_declaration_rejects_naive_confirmed_at(tmp_path: Path, value: str) -> None:
+    with pytest.raises(AttestationError) as exc:
+        load_attestation_input(_write_declaration(tmp_path, confirmed_at=value))
+    assert exc.value.code == "ATTESTATION_CONFIRMED_AT_NOT_TIMEZONE_AWARE"
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["2026-08-08T10:00:00+00:00", "2026-08-08T10:00:00Z", "2026-08-08T11:00:00+01:00"],
+)
+def test_declaration_accepts_timezone_aware_confirmed_at(tmp_path: Path, value: str) -> None:
+    declaration = load_attestation_input(_write_declaration(tmp_path, confirmed_at=value))
+    assert declaration.confirmed_at == value
+
+
+def test_stateless_app_token_attests_when_all_controls_pass(tmp_path: Path) -> None:
+    provider = _provider(
+        tmp_path,
+        value=APP_TOKEN_STATELESS,
+        provider_type=GitHubProviderType.GITHUB_APP,
+    )
+    attestation = attest_provider(
+        provider,
+        repositories=[REPOSITORY],
+        declaration=_declaration(
+            provider_type="github_app",
+            source="installation_token_mint_response",
+        ),
+        transport=httpx.MockTransport(_attestation_handler()),
+    )
+    assert attestation.evidence()["provider_type"] == "github_app"
+    assert attestation.authenticated is True
+    assert APP_TOKEN_STATELESS not in json.dumps(
+        [attestation.evidence(), attestation.attestation_notes()], sort_keys=True
+    )
 
 
 def test_declaration_confirmation_missing_is_rejected(tmp_path: Path) -> None:
