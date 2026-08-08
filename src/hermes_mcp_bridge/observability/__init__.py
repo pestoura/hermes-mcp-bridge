@@ -9,6 +9,7 @@ Submodules:
 * :mod:`.exporter` — loopback-only Prometheus endpoint.
 * :mod:`.tracing` — no-op spans with optional OpenTelemetry and W3C propagation.
 * :mod:`.instrumentation` — central wrappers for tools, upstream calls and SSE.
+* :mod:`.operational_intelligence` — 1.x admission and instrumentation coverage.
 """
 
 from __future__ import annotations
@@ -33,7 +34,6 @@ from .exporter import (
 )
 from .instrumentation import (
     endpoint_class,
-    instrument_all_tools,
     instrument_tool,
     record_approval,
     record_backoff_sleep,
@@ -71,6 +71,7 @@ from .metrics import (
     render_prometheus,
     set_bridge_info,
 )
+from .operational_intelligence import instrument_all_tools
 from .redaction import REDACTED, redact_text, sanitize
 from .tracing import (
     NoOpSpan,
