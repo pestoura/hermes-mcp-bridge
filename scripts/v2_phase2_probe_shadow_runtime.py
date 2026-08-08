@@ -94,6 +94,9 @@ def probe(args: argparse.Namespace) -> dict:
         health_status, health = _get_json(client, "/health")
         capabilities_status, capabilities = _get_json(client, "/v1/capabilities")
         toolsets_status, toolsets = _get_json(client, "/v1/toolsets")
+        # The list-sessions endpoint forces the shadow SessionDB to initialize
+        # before the collector performs its strict read-only token accounting.
+        sessions_status, sessions = _get_json(client, "/api/sessions?limit=1")
 
     if health.get("status") != "ok" or health.get("platform") != "hermes-agent":
         raise ProbeError("SHADOW_HEALTH_INVALID")
@@ -122,6 +125,8 @@ def probe(args: argparse.Namespace) -> dict:
     observed_tools = sorted(str(item) for item in tools) if isinstance(tools, list) else []
     if observed_tools != sorted(SHADOW_HERMES_TOOL_NAMES):
         raise ProbeError("SHADOW_EFFECTIVE_TOOLS_NOT_EXACT")
+    if sessions.get("object") != "list" or not isinstance(sessions.get("data"), list):
+        raise ProbeError("SHADOW_SESSION_DB_INVALID")
 
     report = {
         "schema": SHADOW_ISOLATION_SCHEMA,
@@ -147,6 +152,7 @@ def probe(args: argparse.Namespace) -> dict:
             "health_status": health_status,
             "capabilities_status": capabilities_status,
             "toolsets_status": toolsets_status,
+            "sessions_status": sessions_status,
         },
         "confirmed_at": datetime.now(UTC).isoformat(),
     }
