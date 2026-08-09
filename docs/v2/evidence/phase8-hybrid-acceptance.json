@@ -1,0 +1,154 @@
+{
+  "criteria": [
+    "p8_01",
+    "p8_02",
+    "p8_03",
+    "p8_04",
+    "p8_05",
+    "p8_06",
+    "p8_07",
+    "p8_08",
+    "p8_09",
+    "p8_10",
+    "p8_11",
+    "p8_12",
+    "p8_13",
+    "p8_14",
+    "p8_15",
+    "p8_16",
+    "p8_17",
+    "p8_18",
+    "p8_19",
+    "p8_20"
+  ],
+  "determinism": {
+    "agentic": {
+      "decision_digest": "3b2d7f18164abdb3e7b625b140e18f2064ca4d3ccfd5a7d58af56e80ddebc1cd",
+      "mismatches": 0,
+      "mode": "AGENTIC",
+      "primary_reason_code": "R-AGENTIC-NO-CONTRACT-COVERAGE",
+      "replays": 100
+    },
+    "batch": {
+      "decision_digest": "9411f4ddc368b9bd13ad6ae885c25e3047968f23d874188832f199d1e004486e",
+      "mismatches": 0,
+      "mode": "BATCH",
+      "primary_reason_code": "R-BATCH-INDEPENDENT",
+      "replays": 100
+    },
+    "dag": {
+      "decision_digest": "5d6c4ab71d299a91db870b166d0a530e37656c907418ca472f0ac3df4e02d4e8",
+      "mismatches": 0,
+      "mode": "DAG",
+      "primary_reason_code": "R-DAG-TYPED-PLAN",
+      "replays": 100
+    },
+    "direct": {
+      "decision_digest": "b90413fa59a2e58bfd7490be47c895572fd7712c271d92779b29425283a83ad6",
+      "mismatches": 0,
+      "mode": "DIRECT",
+      "primary_reason_code": "R-DIRECT-EXACT",
+      "replays": 100
+    },
+    "refusal": {
+      "decision_digest": "f25d3bb1af58861037ce91ea81695524d381cd34f59c95f144ebbc0219658688",
+      "mismatches": 0,
+      "mode": "REFUSED",
+      "primary_reason_code": "E-AGENTIC-NOT-ALLOWED",
+      "replays": 100
+    },
+    "runbook": {
+      "decision_digest": "fe4ffaf4e244276cf9052566e0c8bba52ee1683a56182c8e6b5b9da1e5cce227",
+      "mismatches": 0,
+      "mode": "RUNBOOK",
+      "primary_reason_code": "R-RUNBOOK-MATCH",
+      "replays": 100
+    }
+  },
+  "economics": {
+    "deterministic_nodes": 9,
+    "direct_tokens": 0,
+    "per_scenario": {
+      "agentic": {
+        "agentic_tokens_authorized": 1000,
+        "deterministic_coverage_permille": 0,
+        "deterministic_nodes": 0,
+        "escalation_count": 0,
+        "mode": "AGENTIC",
+        "total_nodes": 0
+      },
+      "batch": {
+        "agentic_tokens_authorized": 0,
+        "deterministic_coverage_permille": 1000,
+        "deterministic_nodes": 4,
+        "escalation_count": 0,
+        "mode": "BATCH",
+        "total_nodes": 4
+      },
+      "dag": {
+        "agentic_tokens_authorized": 0,
+        "deterministic_coverage_permille": 1000,
+        "deterministic_nodes": 2,
+        "escalation_count": 0,
+        "mode": "DAG",
+        "total_nodes": 2
+      },
+      "direct": {
+        "agentic_tokens_authorized": 0,
+        "deterministic_coverage_permille": 1000,
+        "deterministic_nodes": 1,
+        "escalation_count": 0,
+        "mode": "DIRECT",
+        "total_nodes": 1
+      },
+      "refusal": {
+        "agentic_tokens_authorized": 0,
+        "deterministic_coverage_permille": 0,
+        "deterministic_nodes": 0,
+        "escalation_count": 0,
+        "mode": "REFUSED",
+        "total_nodes": 0
+      },
+      "runbook": {
+        "agentic_tokens_authorized": 0,
+        "deterministic_coverage_permille": 1000,
+        "deterministic_nodes": 2,
+        "escalation_count": 0,
+        "mode": "RUNBOOK",
+        "total_nodes": 2
+      }
+    },
+    "total_nodes": 9
+  },
+  "failures": [],
+  "gate": "HYBRID_ACCEPTED",
+  "mode_preference": [
+    "DIRECT",
+    "BATCH",
+    "DAG",
+    "RUNBOOK",
+    "AGENTIC"
+  ],
+  "module_binding_sha256": {
+    "v2/hybrid_execution.py": "1c710e798a3249e70dc43bacb15258fae03f2f087f02b285c9ca97d93b8bd154",
+    "v2/resolver.py": "d6c2d0c2393d6f5681abf91e0a363d38f4fdc54a30849a3689a2432d5dbdfe34",
+    "v2/resolver_contract.py": "e6a153efbea5524a1befb28e4b16f814639d92012c11acce327ca7e0aac270b9"
+  },
+  "reason_codes": {
+    "enumeration_size": 29,
+    "observed_codes": [
+      "E-AGENTIC-NOT-ALLOWED",
+      "R-AGENTIC-NO-CONTRACT-COVERAGE",
+      "R-BATCH-INDEPENDENT",
+      "R-DAG-TYPED-PLAN",
+      "R-DIRECT-EXACT",
+      "R-REJ-DIRECT-MULTI-TOOL",
+      "R-REJ-NO-RUNBOOK",
+      "R-REJ-NOT-INDEPENDENT",
+      "R-REJ-NOT-PLANNABLE",
+      "R-RUNBOOK-MATCH"
+    ],
+    "unknown_codes": 0
+  },
+  "source_commit": "3a82ba0eb12ed248490764b2139b6f7c2285f30a"
+}
