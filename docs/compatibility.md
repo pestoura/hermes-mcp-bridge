@@ -1,5 +1,40 @@
 # Compatibility
 
+## 1.0.0 -> 2.0.0
+
+`2.0.0` is a **product/delivery version bump for the V2 programme**, not a
+protocol bump. It is fully backward compatible and requires **no client
+action**.
+
+| Field | 1.0.0 | 2.0.0 |
+| --- | --- | --- |
+| `bridge_version` / `manifest_version` | `1.0.0` | `1.0.0` (unchanged) |
+| `contract_version` | `1.0.0` | `1.0.0` (unchanged) |
+| `schema_version` (wire) | `0.6.1` | `0.6.1` (unchanged) |
+| SQLite migration ledger | v10 | v10 (unchanged) |
+| Mandatory tools | 27 | 27 (unchanged) |
+| `manifest_hash` | — | unchanged (contract identical) |
+
+Consequences:
+
+- Clients caching the capability manifest do **not** need to refresh: the
+  manifest is byte-identical to `1.0.0`.
+- No tool is added, renamed or removed; no envelope, event or payload field
+  changes.
+- No SQLite migration runs on upgrade, so downgrade needs no data reversal.
+- The V2 runtime (`src/hermes_mcp_bridge/v2/`) stays additive and unwired to the
+  V1 tool-registration path; the one-directional boundary (no V1 module imports
+  V2) is enforced by the Phase 9 gate check `P9-03`.
+
+Version-reporting rule for this line: the **release** version (`2.0.0`, the Git
+tag `v2.0.0`) is deliberately decoupled from the **contract** version
+(`1.0.0`), exactly as the wire schema (`0.6.1`) is already decoupled from the
+bridge version. Do not "fix" a runtime that reports `1.0.0` on release `2.0.0`
+— that is the contract.
+
+Upgrade and rollback: `docs/release-2.0.0.md`. Evidence:
+`docs/release-2.0.0-evidence.md`.
+
 ## 0.8.0 → 0.8.1
 
 ### Client compatibility
