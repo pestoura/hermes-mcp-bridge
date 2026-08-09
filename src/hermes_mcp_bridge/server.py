@@ -64,6 +64,7 @@ from .policy import (
     evaluate_policy,
     get_active_policy,
 )
+from .prompt_approvals import resolve_required_prompt_approval
 from .protocol import (
     AgentCard,
     ApprovalRecord,
@@ -279,6 +280,68 @@ def _enforce_policy(
     )
 
 
+def _enforce_prompt_policy(
+    action: str,
+    *,
+    prompt: str,
+    client_request_id: str | None,
+    session_id: str | None,
+    agent: str | None,
+    subagents: list[str] | None,
+    orchestration: OrchestrationMode,
+    expected_actions: list[str] | None,
+    resource_scopes: list[str] | None,
+    trust_labels: list[str] | None,
+) -> dict[str, Any] | None:
+    """Enforce prompt policy and satisfy REQUIRE_APPROVAL only via its registry.
+
+    Invalid trust labels retain the existing fail-closed mapping to
+    ``untrusted_content``.  A required approval is bound to the exact logical
+    request, issued with a non-null approval ID, and consumed before execution.
+    No trust label or policy decision is weakened to make the request proceed.
+    """
+
+    trust_label = trust_labels[0] if trust_labels else None
+    decision, reason = _policy_decision_from_inputs(action, trust_label=trust_label)
+    if decision != "REQUIRE_APPROVAL":
+        return _enforce_policy(action, trust_label=trust_label)
+
+    try:
+        approval = resolve_required_prompt_approval(
+            action=action,
+            prompt=prompt,
+            client_request_id=client_request_id,
+            session_id=session_id,
+            agent=agent,
+            subagents=subagents,
+            orchestration=orchestration.value,
+            expected_actions=expected_actions,
+            resource_scopes=resource_scopes,
+            trust_labels=trust_labels,
+        )
+    except Exception:
+        return _error_result(
+            "policy denied: approval handoff failed closed",
+            execution_id="not-created",
+        )
+
+    if approval.allowed:
+        return None
+
+    return _structured_error(
+        {
+            "message": f"policy requires approval: {reason or approval.reason or 'approval required'}",
+            "approval_required": True,
+            "approval_id": approval.approval_id,
+            "approval_decision": approval.decision,
+            "action": action,
+            "resource": approval.resource,
+            "principal": None,
+        },
+        execution_id="not-created",
+    )
+
+
 async def _persist_mapping(
     *,
     client_request_id: str,
@@ -400,9 +463,17 @@ async def hermes_submit(
     _validate_prompt(prompt)
 
     if trust_labels:
-        policy_block = _enforce_policy(
+        policy_block = _enforce_prompt_policy(
             "hermes_submit",
-            trust_label=trust_labels[0] if trust_labels else None,
+            prompt=prompt,
+            client_request_id=client_request_id,
+            session_id=None,
+            agent=agent,
+            subagents=subagents,
+            orchestration=orchestration,
+            expected_actions=expected_actions,
+            resource_scopes=resource_scopes,
+            trust_labels=trust_labels,
         )
         if policy_block is not None:
             return policy_block
@@ -473,9 +544,17 @@ async def hermes_prompt(
     _validate_prompt(prompt)
 
     if trust_labels:
-        policy_block = _enforce_policy(
+        policy_block = _enforce_prompt_policy(
             "hermes_prompt",
-            trust_label=trust_labels[0] if trust_labels else None,
+            prompt=prompt,
+            client_request_id=client_request_id,
+            session_id=session_id,
+            agent=agent,
+            subagents=subagents,
+            orchestration=orchestration,
+            expected_actions=expected_actions,
+            resource_scopes=resource_scopes,
+            trust_labels=trust_labels,
         )
         if policy_block is not None:
             return policy_block
