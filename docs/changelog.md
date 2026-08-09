@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 2.0.0 — V2 programme release (product version)
+
+`2.0.0` is the **product/delivery version** of the gated V2 programme
+(Phases 0–9), closed by `V2_PRODUCTION_READY` with `failures=[]` on the
+accepted development commit `5c761688fb6a28edfa8a65e18f2547b8fa3c7fba`.
+
+It carries **no client-visible contract change**. The runtime keeps
+`bridge_version`/`manifest_version`/`contract_version` at `1.0.0`, wire and
+SQLite schema at `0.6.1`, exactly 27 tools and migration ledger v10.
+`manifest_hash` is unchanged. The V2 runtime (`src/hermes_mcp_bridge/v2/`)
+remains an additive, isolated package that no V1 module imports.
+
+### Added
+
+- `docs/release-2.0.0.md` — release definition, scope, artefact set,
+  installation, upgrade and rollback guidance.
+- `docs/release-2.0.0-evidence.md` — sanitized evidence manifest binding the
+  release to the accepted commit, the gate chain and the SHA-256 digests of
+  every retained acceptance artefact.
+- `docs/release-2.0.0-checklist.md` — fail-closed release checklist, including
+  the mechanisms explicitly **not** supported by this repository.
+- `docs/compatibility.md`: `1.0.0 -> 2.0.0` compatibility statement.
+
+### Changed
+
+- Nothing in `src/`, `tests/`, `deploy/` or CI. The release change set is
+  documentation and release metadata only.
+
+### Not included
+
+- No registry publication and no immutable registry digest: the repository has
+  no image-push workflow. Supply-chain evidence stays as the existing
+  CI-retained draft releases `sbom-evidence-<sha>` and
+  `phase1-registry-evidence-<sha>`.
+- No signed attestation (cosign / SLSA): no signing workflow exists.
+- No production deployment.
+
 ## 0.9.0 — Observability operational hardening (BLOCO 6C, phase 1)
 
 No tool-contract change: still 27 tools, wire schema `0.6.1`, no SQLite
