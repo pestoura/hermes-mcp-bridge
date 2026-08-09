@@ -1,0 +1,8 @@
+{
+  "inner_gate_required": true,
+  "outer_gate_required": true,
+  "overall_status": "ACCEPTED",
+  "reasons": [],
+  "schema": "hermes-v2-phase2-final-manifest/1",
+  "source_commit": "818c56a467ed00b1412a219c78e3c68007848df3"
+}

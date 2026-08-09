@@ -1,10 +1,11 @@
 # V2 Phase 2 — OUTER final gate (integrity + provenance)
 
-> **IMPLEMENTED · REQUIRED FOR FORMAL ACCEPTANCE · STATUS STILL NOT ACCEPTED**
+> **IMPLEMENTED · REQUIRED FOR FORMAL ACCEPTANCE · STATUS: ACCEPTED**
 >
-> This branch adds the final assurance layer. It does **not** declare a Phase 2
-> acceptance. No real out-of-band Jarvas run has been executed, so
-> `overall_status` remains **NOT ACCEPTED** until one passes. V1 and the frozen
+> A real out-of-band Jarvas run was executed on source commit
+> `818c56a467ed00b1412a219c78e3c68007848df3` and the validator returned
+> `overall_status=ACCEPTED` with `reasons=[]`. The gate conditions below are
+> unchanged and remain authoritative for any future run. V1 and the frozen
 > 27-tool contract are unchanged.
 
 ## Two gates, not one
@@ -171,9 +172,11 @@ python3 scripts/validate_v2_phase2_final_acceptance.py \
 
 ## Status
 
-**NOT ACCEPTED.** The code path is implemented and hermetically tested. Formal
-`ACCEPTED` requires a real out-of-band Jarvas run producing a passing manifest,
-which has not been performed.
+**ACCEPTED.** The code path is implemented, hermetically tested and exercised by
+a real out-of-band Jarvas run on source commit
+`818c56a467ed00b1412a219c78e3c68007848df3`, which produced a passing manifest
+(`overall_status=ACCEPTED`, `reasons=[]`). The retained sanitized evidence and
+its digests are indexed in `evidence/README.md`.
 
 ## Repaired blockers (final OOB acceptance, `fix/v2-phase2-oob-final-runner-blockers`)
 

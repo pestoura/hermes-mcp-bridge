@@ -1,6 +1,8 @@
 # V2 Acceptance Evidence Index
 
-> **Phase 0:** `BASELINE_ACCEPTED` · **Phase 1:** `REGISTRY_ACCEPTED` · **Date:** 2026-08-08 · **V1 semantics preserved**
+> **Phase 0:** `BASELINE_ACCEPTED` · **Phase 1:** `REGISTRY_ACCEPTED` ·
+> **Phase 2:** `DIRECT_READ_ACCEPTED` (inner) + outer `ACCEPTED` ·
+> **V1 semantics preserved**
 
 This directory indexes retained, sanitized evidence for the gated V2 evolution.
 Acceptance is evidence-driven: code existence alone does not promote a phase.
@@ -138,15 +140,112 @@ Phase 1 requirements
   -> REGISTRY_ACCEPTED
 ```
 
+## Phase 2 — GitHub DIRECT read-only (connected + out-of-band)
+
+> **Status: ACCEPTED.** Inner gate `DIRECT_READ_ACCEPTED` with `failures=[]`;
+> outer manifest `overall_status=ACCEPTED` with `reasons=[]`.
+
+Two independent gates were required and both passed; their conditions are
+authoritative in the runbooks and are not restated here:
+
+- inner semantic/economics gate: [`../phase2-connected-acceptance.md`](../phase2-connected-acceptance.md);
+- outer integrity/provenance gate: [`../phase2-final-outer-gate.md`](../phase2-final-outer-gate.md).
+
+### Accepted implementation
+
+| Item | Value |
+| --- | --- |
+| Accepted source commit | `818c56a467ed00b1412a219c78e3c68007848df3` |
+| GitHub Actions run for that commit | `31299055311` (`CI`), conclusion `success` |
+| Bridge version / schema version | `1.0.0` / `0.6.1` |
+| V1 contract during the window | 27 tools, unchanged |
+| Credential provider type | `github_app`, least-privilege, `broad_pat=false` |
+| Inner gate | `DIRECT_READ_ACCEPTED`, `failures=[]` |
+| Outer manifest | `overall_status=ACCEPTED`, `reasons=[]` |
+
+### Retained evidence files and digests
+
+| File | SHA-256 |
+| --- | --- |
+| `phase2-final-evidence-20260809.json` | `2918de02df386f2d1182422ee62596ffb6f207b40939566d164552eb31d63c9d` |
+| `phase2-final-manifest-20260809.json` | `ca104f340a841145f5f03d5b51cc341ef2c21deb03c5a359f14499eae19327fb` |
+
+The final evidence envelope embeds the sanitized inner-gate summary, the
+aggregate economics, the 15 per-sample provenance records and the out-of-band
+state-integrity section, so it is the single retained document for this phase.
+
+### Measured aggregates
+
+| Field | Recorded value |
+| --- | --- |
+| `sample_count` / `successful_samples` / `semantic_matches` | 15 / 15 / 15 |
+| `provenance_pass` / `provenance_fail` | 15 / 0 |
+| `token_measurement_mode` | `empirical` |
+| `direct_total_tokens` | 0 |
+| `agentic_total_tokens` | 13784 |
+| `token_reduction_percent` | 100.0 |
+| `direct_provider_api_calls` | 15 |
+| `mutations_observed` | 0 |
+| Upstream Hermes LLM calls on the DIRECT path | 0 |
+| Contaminated metric windows | 0 |
+
+### Out-of-band real-state integrity
+
+| Field | Recorded value |
+| --- | --- |
+| `measured_out_of_band` / `read_only` | `true` / `true` |
+| `fingerprint_before` | `c166f913eb3123ab030c0d7c2211fde2824b7ba8e84e5e96c88d893db1cc5af5` |
+| `fingerprint_after` | `c166f913eb3123ab030c0d7c2211fde2824b7ba8e84e5e96c88d893db1cc5af5` |
+| Row deltas `sessions` / `messages` / `session_model_usage` | 0 / 0 / 0 |
+| `size_changed` / `mtime_changed` / `user_version_changed` | `false` / `false` / `false` |
+| `shadow_state_activity_observed` / `shadow_row_count_delta` | `true` / 30 |
+| `shadow_db_distinct_from_source` / `shadow_db_disposable` | `true` / `true` |
+| `measurement_self_write_observed` | `false` |
+| Writers restored after the window | `true` |
+
+The positive shadow witness with a strictly zero real-state delta is what
+distinguishes a genuine isolated run from an unobserved one.
+
+### Retention rules for this section
+
+1. Values are written here only after the corresponding validator ran against
+   the retained document for the exact commit under test.
+2. Evidence produced for an earlier commit is never carried forward; a new run
+   produces new files and new digests.
+3. No value may be transcribed from CI mocks, fixtures, examples or a
+   validator's own defaults.
+4. `DIRECT_READ_ACCEPTED` and the outer `ACCEPTED` status are declared by the
+   validators, never by editing this document.
+5. Privacy controls are identical to the earlier phases: no prompt text, output
+   text, credential values, session ids, tool call ids, row contents or
+   filesystem paths.
+
+### Traceability
+
+```text
+Phase 2 requirements (docs/v2/requirements/traceability-matrix.md)
+  -> tests/test_v2_phase2_*.py
+  -> scripts/v2_phase2_connected_jarvas.sh                 [INNER, RUN]
+  -> scripts/validate_v2_phase2_connected_gate.py          [DIRECT_READ_ACCEPTED]
+  -> scripts/v2_phase2_final_out_of_band_acceptance.py     [OUTER, RUN]
+  -> scripts/build_v2_phase2_final_evidence.py             [RUN]
+  -> scripts/validate_v2_phase2_final_acceptance.py        [ACCEPTED]
+  -> phase2-final-evidence-20260809.json                   [RETAINED]
+  -> phase2-final-manifest-20260809.json                   [RETAINED]
+  -> DIRECT_READ_ACCEPTED                                  [DECLARED]
+  -> outer overall_status                                  [ACCEPTED]
+```
+
 ## Privacy controls
 
-| Control | Phase 0 | Phase 1 |
-| --- | --- | --- |
-| Prompt text retained | No | Not applicable / No |
-| Output text retained | No | Not applicable / No |
-| Raw credential values retained | No | No |
-| Secret/environment paths retained | No | No |
-| Free-text editorial metadata in canonical evidence | N/A | No |
+| Control | Phase 0 | Phase 1 | Phase 2 |
+| --- | --- | --- | --- |
+| Prompt text retained | No | Not applicable / No | No |
+| Output text retained | No | Not applicable / No | No |
+| Raw credential values retained | No | No | No |
+| Secret/environment paths retained | No | No | No |
+| Free-text editorial metadata in canonical evidence | N/A | No | No |
+| Session ids / tool call ids / row contents retained | N/A | N/A | No |
 
 ## Reproducing validators
 
@@ -169,3 +268,13 @@ python scripts/validate_v2_phase1_registry_evidence.py \
   phase1-registry-acceptance.json \
   --json-out phase1-registry-gate.json
 ```
+
+Phase 2 outer acceptance is re-validated directly against the retained
+document, which is self-contained:
+
+```bash
+python scripts/validate_v2_phase2_final_acceptance.py \
+  docs/v2/evidence/phase2-final-evidence-20260809.json
+```
+
+It must print `overall_status: ACCEPTED` with `reasons: []` and exit `0`.

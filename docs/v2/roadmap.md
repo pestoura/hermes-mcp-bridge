@@ -1,6 +1,6 @@
 # V2 Roadmap
 
-> **V2 · IMPLEMENTATION IN PROGRESS · PHASES 0–1 ACCEPTED · PHASE 2 CORE IMPLEMENTED · NO IMPACT ON V1**
+> **V2 · IMPLEMENTATION IN PROGRESS · PHASES 0–2 ACCEPTED · NO IMPACT ON V1**
 
 The roadmap is gated. A phase is not promoted merely because code exists; its acceptance evidence and prerequisite controls must pass.
 
@@ -76,10 +76,12 @@ implemented.
 
 ## PHASE 2 — GitHub DIRECT Read-Only MVP
 
-**Status (2026-08-08): CORE IMPLEMENTED / NOT ACCEPTED.** The repository-side
-DIRECT read core is implemented on branch/PR #49 and remains deliberately
-unwired from the V1 MCP server. The V1 contract remains exactly 27 tools.
-`DIRECT_READ_ACCEPTED` is **not** declared.
+**Status (2026-08-09): ACCEPTED.** The repository-side DIRECT read core remains
+deliberately unwired from the V1 MCP server and the V1 contract remains exactly
+27 tools. Both required gates passed on the accepted source commit
+`818c56a467ed00b1412a219c78e3c68007848df3`: the inner semantic/economics gate
+returned `DIRECT_READ_ACCEPTED` with `failures=[]`, and the OUTER out-of-band
+integrity/provenance gate returned `overall_status=ACCEPTED` with `reasons=[]`.
 
 **Implemented core:**
 
@@ -104,28 +106,53 @@ unwired from the V1 MCP server. The V1 contract remains exactly 27 tools.
   proves zero credential-readiness broker calls;
 - no Hermes client/prompt/agent invocation in the DIRECT core.
 
-**Core CI status:** PR #49 reached a fully GREEN repository-side cycle on CI
-#197 after correcting lint and preserving the legacy `PHASE1_STATUS` marker;
-Phase 1 gate validation, image provenance, isolated Docker acceptance, Trivy and
-SBOM remained GREEN. A final CI cycle is still required after this roadmap and
-traceability update before merge.
+**Core CI status:** the accepted source commit
+`818c56a467ed00b1412a219c78e3c68007848df3` passed GitHub Actions run
+`31299055311` (`CI`, conclusion `success`). Subsequent `main` commits are
+documentation and CI-matrix work only and do not alter Phase 2 runtime
+behaviour, so the accepted source commit is retained unchanged.
 
-**Still required for `DIRECT_READ_ACCEPTED`:**
+**Acceptance evidence (accepted source commit, connected Jarvas host):**
+
+| Field | Recorded value |
+| --- | --- |
+| Bridge / schema version | `1.0.0` / `0.6.1` |
+| Credential provider | `github_app`, least-privilege, `broad_pat=false` |
+| Samples / successes / semantic matches | 15 / 15 / 15 |
+| Provenance pass / fail | 15 / 0 |
+| `direct_total_tokens` | 0 |
+| `agentic_total_tokens` | 13784 |
+| `token_reduction_percent` | 100.0 |
+| DIRECT provider API calls | 15 |
+| Upstream Hermes direct LLM calls | 0 |
+| Mutations observed / contaminated windows | 0 / 0 |
+| Real-state row deltas (`sessions`/`messages`/`session_model_usage`) | 0 / 0 / 0 |
+| Shadow witness positive / writers restored | `true` / `true` |
+
+Retained, sanitized documents and their SHA-256 digests are indexed in
+`docs/v2/evidence/README.md`:
+`phase2-final-evidence-20260809.json` and `phase2-final-manifest-20260809.json`.
+
+**Requirements satisfied for `DIRECT_READ_ACCEPTED`:**
 
 1. fresh discovery on the actual Jarvas host of GitHub tooling, credential
    sources, scopes and repository access, without printing secret values;
-2. identify/provision a dedicated least-privilege `github.read` capability;
+2. dedicated least-privilege `github.read` capability provisioned as a GitHub
+   App installation credential;
 3. provider health/authentication probe against the authorized repository set;
 4. explicit feature/canary wiring without changing V1 semantics;
 5. shadow comparison of the five DIRECT reads against the V1 agentic path;
-6. measure latency, provider API calls and raw-vs-returned bytes while proving
-   **zero Hermes LLM token usage** on DIRECT execution;
-7. retain connected, fail-closed acceptance evidence.
+6. latency, provider API calls and token economics measured, proving **zero
+   Hermes LLM token usage** on DIRECT execution;
+7. connected, fail-closed acceptance evidence retained;
+8. OUTER out-of-band state-integrity/provenance run executed, with its evidence
+   and manifest retained.
 
 Availability/authorization must not be inferred from the ChatGPT GitHub
 connector. See `docs/v2/architecture/github-direct-read.md`.
 
-**Gate:** `DIRECT_READ_ACCEPTED` — **pending connected Jarvas evidence**.
+**Gate:** `DIRECT_READ_ACCEPTED` — **declared**. OUTER `overall_status` —
+**ACCEPTED**. Issue #51 is closed by this promotion.
 
 ## PHASE 3 — GitHub Mutations
 
