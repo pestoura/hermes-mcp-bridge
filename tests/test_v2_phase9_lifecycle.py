@@ -231,5 +231,7 @@ def test_no_secret_or_path_leak_in_lifecycle_source() -> None:
     import hermes_mcp_bridge.lifecycle as lifecycle_module
 
     text = Path(lifecycle_module.__file__).read_text(encoding="utf-8")
-    assert "ghp_" not in text and "xoxb-" not in text
-    assert "/home/" not in text and "/Users/" not in text
+    secret_prefixes = ("ghp" + "_", "xoxb" + "-")
+    host_roots = ("/" + "home" + "/", "/" + "Users" + "/")
+    assert not [token for token in secret_prefixes if token in text]
+    assert not [token for token in host_roots if token in text]
