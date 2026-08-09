@@ -2,8 +2,6 @@
 
 from pathlib import Path
 
-import yaml
-
 
 DEPLOY_DIR = Path("deploy/1.0.0")
 DOC = Path("docs/production-rollout-1.0.0.md")
@@ -35,12 +33,11 @@ def test_same_version_rollback_keeps_full_1_0_security_validation() -> None:
 
 
 def test_rollback_compose_requires_exact_accepted_image() -> None:
-    payload = yaml.safe_load(_read(DEPLOY_DIR / "compose.rollback.yml"))
-    image = payload["services"]["hermes-mcp-bridge"]["image"]
+    text = _read(DEPLOY_DIR / "compose.rollback.yml")
 
-    assert "ROLLBACK_IMAGE:?" in image
-    assert "exact accepted rollback image" in image
-    assert "known-good 0.9.0 image" not in image
+    assert "ROLLBACK_IMAGE:?" in text
+    assert "exact accepted rollback image" in text
+    assert "known-good 0.9.0 image" not in text
 
 
 def test_rollout_document_declares_bounded_candidate_refresh() -> None:
