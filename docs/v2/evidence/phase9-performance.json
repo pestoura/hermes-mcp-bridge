@@ -1,0 +1,45 @@
+{
+  "distributions": {
+    "batch_16_nodes": {
+      "max_ms": 0.2511,
+      "mean_ms": 0.1423,
+      "p50_ms": 0.1206,
+      "p95_ms": 0.2265,
+      "p99_ms": 0.2326,
+      "samples": 2000,
+      "warmup_samples": 200
+    },
+    "dag_8_nodes": {
+      "max_ms": 0.4996,
+      "mean_ms": 0.1128,
+      "p50_ms": 0.1083,
+      "p95_ms": 0.1314,
+      "p99_ms": 0.1842,
+      "samples": 2000,
+      "warmup_samples": 200
+    },
+    "direct_single_node": {
+      "max_ms": 0.0907,
+      "mean_ms": 0.0398,
+      "p50_ms": 0.0388,
+      "p95_ms": 0.0475,
+      "p99_ms": 0.0677,
+      "samples": 2000,
+      "warmup_samples": 200
+    },
+    "refusal_no_coverage": {
+      "max_ms": 0.1101,
+      "mean_ms": 0.0333,
+      "p50_ms": 0.0324,
+      "p95_ms": 0.0385,
+      "p99_ms": 0.0523,
+      "samples": 2000,
+      "warmup_samples": 200
+    }
+  },
+  "failures": [],
+  "gate": "PERFORMANCE_OK",
+  "schema": "hermes-v2-phase9-performance/1",
+  "scope": "resolver decision path only; provider latency is reported separately",
+  "target_resolver_p99_ms": 5.0
+}

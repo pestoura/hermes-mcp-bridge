@@ -97,6 +97,11 @@ class PolicyError(Exception):
     """Invalid policy configuration (always fail-closed)."""
 
 
+class PolicyConfigError(PolicyError):
+    """Strict-mode configuration failure: a misconfigured policy must refuse
+    rather than fall back to a permissive decision."""
+
+
 @dataclass(frozen=True)
 class LoadedPolicy:
     """Result of a policy load attempt. Never carries secrets."""
@@ -187,7 +192,7 @@ def validate_policy_document(document: Any) -> dict[str, Any]:
         and not normalized["mutating_actions"]
         and unknown != "DENY"
     ):
-        raise PolicyError("empty policy is only allowed with unknown_action_decision=DENY")
+        raise PolicyConfigError("empty policy is only allowed with unknown_action_decision=DENY")
     return normalized
 
 
