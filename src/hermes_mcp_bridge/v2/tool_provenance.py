@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import sqlite3
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -97,6 +98,15 @@ BLOCKER_CODES: Final[frozenset[str]] = frozenset(
 )
 
 _MAX_ROWS: Final[int] = 5000
+
+#: Hermes wraps high-risk tool results (all ``mcp__*`` tools included) in a
+#: prompt-injection guard envelope before persisting them. Provenance has to
+#: recover the inner payload, and only from a complete, well-formed envelope.
+_UNTRUSTED_ENVELOPE_RE: Final[re.Pattern[str]] = re.compile(
+    r'<untrusted_tool_result source="(?P<source>[^"<>]{1,128})">\n'
+    r"(?P<body>.*)\n</untrusted_tool_result>",
+    re.DOTALL,
+)
 
 
 class ProvenanceError(RuntimeError):
@@ -252,6 +262,39 @@ def _canonical_for(name: str | None) -> str | None:
     return SHADOW_TO_CANONICAL_TOOL.get(name) or BARE_TO_CANONICAL_TOOL.get(name)
 
 
+def _unwrap_untrusted_envelope(text: str, tool_name: str | None) -> str:
+    """Strip the Hermes ``<untrusted_tool_result>`` framing, fail-closed.
+
+    Hermes wraps results from high-risk tools (including every ``mcp__*`` tool)
+    in a prompt-injection guard envelope before persisting the message row, so
+    the stored tool result is no longer bare JSON. Provenance must read the
+    payload the model actually received, not the framing.
+
+    The unwrap is deliberately strict: the envelope must be the whole string,
+    the ``source`` attribute must equal the authorized tool call's own name, and
+    exactly one closing delimiter may be present. Anything else is returned
+    unchanged, so a forged partial envelope cannot smuggle a different payload
+    past the digest comparison.
+    """
+    if not isinstance(text, str):
+        return text
+    stripped = text.strip()
+    if not stripped.startswith("<untrusted_tool_result "):
+        return text
+    if not isinstance(tool_name, str) or not tool_name:
+        return text
+    match = _UNTRUSTED_ENVELOPE_RE.fullmatch(stripped)
+    if match is None:
+        return text
+    if match.group("source") != tool_name:
+        return text
+    body = match.group("body")
+    if "</untrusted_tool_result>" in body:
+        return text
+    _, separator, remainder = body.partition("\n\n")
+    return (remainder if separator else body).strip()
+
+
 def collect_tool_provenance(
     *,
     shadow_state_db: str,
@@ -357,11 +400,19 @@ def collect_tool_provenance(
     if result_text is None:
         raise ProvenanceError("PROVENANCE_RESULT_MISSING")
 
-    payload = _decode_json(result_text)
+    unwrapped_text = _unwrap_untrusted_envelope(result_text, call["name"])
+    payload = _decode_json(unwrapped_text)
     if not isinstance(payload, dict) or not payload:
         raise ProvenanceError("PROVENANCE_RESULT_UNPARSEABLE")
     data = payload
     for key in ("structuredContent", "structured_content", "result", "data"):
+        inner = data.get(key)
+        if isinstance(inner, str):
+            decoded_inner = _decode_json(inner)
+            if isinstance(decoded_inner, dict) and decoded_inner:
+                data = decoded_inner
+                break
+            continue
         inner = data.get(key)
         if isinstance(inner, dict) and inner:
             data = inner
