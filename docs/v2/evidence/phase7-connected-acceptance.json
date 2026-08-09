@@ -1,0 +1,96 @@
+{
+  "blockers": [],
+  "bridge_version": "1.0.0",
+  "concurrent_operator_session_delta": 0,
+  "direct_sessions_created": 0,
+  "direct_tokens": 0,
+  "mutation_residual": 0,
+  "providers": {
+    "github": {
+      "audit_completeness": 1.0,
+      "audit_redaction_findings": 0,
+      "audit_terminal_records": 4,
+      "capability_snapshot_hash": "35a957f7fd79ec38d256f91f90e05fc88893f67052222aed451ee87e389a81ba",
+      "credential_resolutions": 3,
+      "denial": {
+        "credential_resolutions_delta": 0,
+        "provider_calls_delta": 0,
+        "reason_code": "E-SCOPE-DENY"
+      },
+      "latency_ms_max": 532,
+      "manifest_digest": "fb6c3e376f1bf64ab36a5cb5eca6e539583877b6be92a4ebd8f9a621a90df2a8",
+      "outcomes": [
+        {
+          "byte_count": 1232,
+          "capability_id": "github.checks_read",
+          "outcome": "success",
+          "provider_calls": 1,
+          "reason_code": "OK"
+        },
+        {
+          "byte_count": 17804,
+          "capability_id": "github.pr_read",
+          "outcome": "success",
+          "provider_calls": 1,
+          "reason_code": "OK"
+        },
+        {
+          "byte_count": 6227,
+          "capability_id": "github.repo_read",
+          "outcome": "success",
+          "provider_calls": 1,
+          "reason_code": "OK"
+        }
+      ],
+      "provider_api_calls": 3,
+      "readiness": {
+        "github.checks_read": "READY",
+        "github.pr_read": "READY",
+        "github.repo_read": "READY"
+      },
+      "state": "READY",
+      "unknown_outcomes": 0,
+      "write_capability_digest": "840e9ad5825f141b66a780291b990f36b90a74eb4e4fa55c685d36a824b17888"
+    },
+    "jira": {
+      "audit_completeness": 1.0,
+      "audit_redaction_findings": 0,
+      "audit_terminal_records": 3,
+      "capability_snapshot_hash": "b5a0f335a24e8a8fffa2746b3f3fedf4392e2d4a1862c78b13b081ecad971c50",
+      "credential_resolutions": 2,
+      "denial": {
+        "credential_resolutions_delta": 0,
+        "provider_calls_delta": 0,
+        "reason_code": "E-SCOPE-DENY"
+      },
+      "latency_ms_max": 319,
+      "manifest_digest": "06fafad0eabaef19862fbd0d6f7d5756474d7690bcf4ab3620bca8aab51bce2c",
+      "outcomes": [
+        {
+          "byte_count": 1124,
+          "capability_id": "jira.issue_read",
+          "outcome": "success",
+          "provider_calls": 1,
+          "reason_code": "OK"
+        },
+        {
+          "byte_count": 1015,
+          "capability_id": "jira.project_read",
+          "outcome": "success",
+          "provider_calls": 1,
+          "reason_code": "OK"
+        }
+      ],
+      "provider_api_calls": 2,
+      "readiness": {
+        "jira.issue_read": "READY",
+        "jira.project_read": "READY"
+      },
+      "state": "READY",
+      "unknown_outcomes": 0,
+      "write_capability_digest": "840e9ad5825f141b66a780291b990f36b90a74eb4e4fa55c685d36a824b17888"
+    }
+  },
+  "schema_version": "0.6.1",
+  "token_accounting_source": "hermes state store session_model_usage, attributed per session_id"
+}
