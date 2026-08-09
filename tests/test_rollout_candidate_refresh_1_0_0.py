@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-
 DEPLOY_DIR = Path("deploy/1.0.0")
 DOC = Path("docs/production-rollout-1.0.0.md")
 
