@@ -1,6 +1,6 @@
 services:
   hermes-mcp-bridge:
-    image: "${ROLLBACK_IMAGE:?ROLLBACK_IMAGE must identify the known-good 0.9.0 image}"
+    image: "${ROLLBACK_IMAGE:?ROLLBACK_IMAGE must identify the exact accepted rollback image}"
     container_name: hermes-mcp-bridge
     restart: unless-stopped
     init: true
