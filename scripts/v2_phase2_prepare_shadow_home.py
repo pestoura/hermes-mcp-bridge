@@ -323,6 +323,17 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
     target["terminal"] = {"home_mode": "profile"}
     target["agent"] = {"disabled_toolsets": []}
 
+    # Progressive tool disclosure must be OFF in the shadow. Current Hermes
+    # defers every MCP/plugin tool behind the tool_search/tool_describe/
+    # tool_call bridge whenever at least one deferrable tool exists. In this
+    # shadow *all* five tools are MCP tools, so the default "auto" replaces the
+    # authorized read-only surface with three generic bridge tools. Phase 2
+    # provenance then legitimately rejects the run
+    # (PROVENANCE_UNAUTHORIZED_TOOL_CALL), and the shadow would no longer be a
+    # faithful V1 comparison path. Disabling deferral keeps the exact five
+    # authorized tools eager and does not widen the surface.
+    target["tools"] = {"tool_search": {"enabled": "off"}}
+
     # Hermes can auto-enable recently shipped, plugin and recovered native
     # toolsets even when an MCP server is explicitly listed. Derive the exact
     # suppression set using the installed resolver, then verify the result is

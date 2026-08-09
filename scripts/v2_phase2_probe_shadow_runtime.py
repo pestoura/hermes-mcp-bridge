@@ -138,6 +138,16 @@ servers = config.get("mcp_servers") or {}
 server_cfg = servers.get(server) if isinstance(servers, dict) else None
 platform = (config.get("platform_toolsets") or {}).get("api_server")
 resolved = sorted(str(item) for item in _get_platform_tools(config, "api_server"))
+
+# Progressive tool disclosure must be inert. Prove it from the installed
+# tool-search implementation itself, under the shadow HOME, rather than
+# trusting the written config: the bridge must be disabled outright.
+try:
+    from tools.tool_search import load_config as _load_ts_config
+    deferral_disabled = _load_ts_config().enabled == "off"
+except Exception:
+    deferral_disabled = False
+
 exact = bool(
     isinstance(servers, dict)
     and sorted(str(name) for name in servers) == [server]
@@ -150,7 +160,11 @@ exact = bool(
     and server_cfg["tools"].get("prompts") is False
     and server_cfg.get("supports_parallel_tool_calls") is False
 )
-print(json.dumps({"resolved": resolved, "config_exact": exact}, sort_keys=True))
+print(json.dumps({
+    "resolved": resolved,
+    "config_exact": exact,
+    "deferral_disabled": deferral_disabled,
+}, sort_keys=True))
 '''
     env = {
         "HOME": str(shadow_home),
@@ -190,7 +204,11 @@ print(json.dumps({"resolved": resolved, "config_exact": exact}, sort_keys=True))
         payload = json.loads(lines[-1])
     except json.JSONDecodeError as exc:
         raise ProbeError("SHADOW_RESOLVER_OUTPUT_INVALID") from exc
-    if not isinstance(payload, dict) or set(payload) != {"resolved", "config_exact"}:
+    if not isinstance(payload, dict) or set(payload) != {
+        "resolved",
+        "config_exact",
+        "deferral_disabled",
+    }:
         raise ProbeError("SHADOW_RESOLVER_OUTPUT_INVALID")
     resolved = payload.get("resolved")
     if (
@@ -203,6 +221,8 @@ print(json.dumps({"resolved": resolved, "config_exact": exact}, sort_keys=True))
         raise ProbeError("SHADOW_EFFECTIVE_TOOLSETS_NOT_EXACT")
     if payload.get("config_exact") is not True:
         raise ProbeError("SHADOW_MCP_SERVER_CONFIG_NOT_EXACT")
+    if payload.get("deferral_disabled") is not True:
+        raise ProbeError("SHADOW_TOOL_DEFERRAL_ACTIVE")
     return payload
 
 
@@ -277,6 +297,7 @@ def probe(args: argparse.Namespace) -> dict:
         # and exact MCP include/resources/prompts config have been verified.
         # The 15-sample collector then proves the tools are actually callable.
         "effective_tools": sorted(SHADOW_HERMES_TOOL_NAMES),
+        "tool_deferral_disabled": True,
         "resolver_exact": True,
         "mcp_server_config_exact": True,
         "repository_scopes": [args.repository],

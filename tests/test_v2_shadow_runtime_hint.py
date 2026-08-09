@@ -359,7 +359,13 @@ def test_shadow_isolation_payload_gains_no_new_keys() -> None:
 
     assert "hermes_python" not in shadow_isolation._ALLOWED_KEYS
     assert "hermes_runtime" not in shadow_isolation._ALLOWED_KEYS
-    assert len(shadow_isolation._ALLOWED_KEYS) == 24
+    # No runtime/interpreter/path key may ever enter the sanitized contract.
+    assert not any(
+        token in key
+        for key in shadow_isolation._ALLOWED_KEYS
+        for token in ("python", "path", "home", "runtime", "interpreter")
+    )
+    assert len(shadow_isolation._ALLOWED_KEYS) == 25
     probe_text = PROBE.read_text(encoding="utf-8")
     assert "\"hermes_python\":" not in probe_text
 
