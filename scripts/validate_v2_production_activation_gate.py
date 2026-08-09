@@ -254,7 +254,7 @@ def check_reachability() -> tuple[list[str], dict[str, Any]]:
             )
         )
         reachable["BATCH"] = result.aggregate_status is BatchStatus.SUCCESS
-    except Exception as exc:  # noqa: BLE001 - a gate reports, never crashes
+    except Exception as exc:  # a gate reports, never crashes
         reachable["BATCH"] = False
         failures.append(f"A-05: BATCH unreachable: {type(exc).__name__}")
     if not reachable.get("BATCH"):

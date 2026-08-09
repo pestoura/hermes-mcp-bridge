@@ -48,7 +48,11 @@ from hermes_mcp_bridge.v2.production_profile import (
     V2Capability,
     V2ProductionProfile,
 )
-from hermes_mcp_bridge.v2.provider_audit import IntegrationAuditLedger, MemoryAuditSink, OutcomeClass
+from hermes_mcp_bridge.v2.provider_audit import (
+    IntegrationAuditLedger,
+    MemoryAuditSink,
+    OutcomeClass,
+)
 from hermes_mcp_bridge.v2.provider_credentials import CredentialRecord, ProviderCredentialBroker
 from hermes_mcp_bridge.v2.provider_gateway import (
     PolicyPort,
@@ -102,7 +106,7 @@ def test_pa_01_default_profile_is_fully_disabled() -> None:
     assert profile.fully_active is False
     assert profile.active_capabilities == ()
     assert set(profile.disabled_capabilities) == set(V2Capability)
-    assert DISABLED_PROFILE == profile
+    assert profile == DISABLED_PROFILE
 
 
 def test_pa_02_master_switch_dominates_every_capability() -> None:
