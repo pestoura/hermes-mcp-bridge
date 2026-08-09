@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Controlled rollback from 1.0.0 to the exact known-good 0.9.0 image.
+# Controlled rollback from a 1.0.0 candidate to the exact accepted rollback image.
 # DRY-RUN BY DEFAULT. SQLite is not reverted: schema remains 0.6.1.
 
 set -Eeuo pipefail
@@ -21,6 +21,7 @@ require_file "$COMPOSE_FILE"
 [ -n "$REQUIRED_SHA" ] || fail "REQUIRED_SHA obrigatorio, inclusive em dry-run"
 [ -n "$ROLLBACK_IMAGE" ] || fail "ROLLBACK_IMAGE obrigatorio"
 [ -n "$ROLLBACK_IMAGE_ID" ] || fail "ROLLBACK_IMAGE_ID obrigatorio"
+[ -n "$ROLLBACK_BRIDGE_VERSION" ] || fail "ROLLBACK_BRIDGE_VERSION obrigatorio"
 assert_image_id "$ROLLBACK_IMAGE" "$ROLLBACK_IMAGE_ID"
 assert_image_version "$ROLLBACK_IMAGE" "$ROLLBACK_BRIDGE_VERSION"
 
@@ -41,7 +42,7 @@ if docker inspect "$CONTAINER_NAME" >/dev/null 2>&1; then
 fi
 
 if [ "$current_image_id" = "$ROLLBACK_IMAGE_ID" ]; then
-  ok "container ja no ID imutavel 0.9.0; apenas revalidar"
+  ok "container ja no ID imutavel da baseline $ROLLBACK_BRIDGE_VERSION; apenas revalidar"
 else
   compose "$COMPOSE_FILE" up -d --force-recreate
   export HEALTH_REQUIRE_HEALTHCHECK=1
@@ -51,14 +52,19 @@ fi
 
 running_image_id="$(docker inspect "$CONTAINER_NAME" --format '{{.Image}}')"
 [ "$running_image_id" = "$ROLLBACK_IMAGE_ID" ] \
-  || fail "contentor nao esta no ID imutavel 0.9.0 de rollback"
-ok "ID imutavel 0.9.0 confirmado no contentor"
+  || fail "contentor nao esta no ID imutavel da baseline de rollback"
+ok "ID imutavel da baseline $ROLLBACK_BRIDGE_VERSION confirmado no contentor"
+
+rollback_require_security=0
+if [ "$ROLLBACK_BRIDGE_VERSION" = "$BRIDGE_VERSION" ]; then
+  rollback_require_security=1
+fi
 
 MCP_PORT="${MCP_PORT:-8765}" \
 EXPECT_BRIDGE_VERSION="$ROLLBACK_BRIDGE_VERSION" \
 EXPECT_TOOL_COUNT="$ROLLBACK_TOOL_COUNT" \
 EXPECT_SCHEMA_VERSION="$SCHEMA_VERSION" \
-REQUIRE_1_0_SECURITY=0 \
+REQUIRE_1_0_SECURITY="$rollback_require_security" \
   bash "$HERE/validate.sh" || fail "validacao pos-rollback falhou"
 
 log "ROLLBACK_1_0_0: PASS"

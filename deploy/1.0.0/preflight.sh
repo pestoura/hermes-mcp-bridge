@@ -28,6 +28,7 @@ require_cmd docker df awk stat python3 curl jq sha256sum
 [ -n "$EXPECTED_SHA_1_0_0" ] || fail "EXPECTED_SHA_1_0_0 obrigatorio"
 [ -n "$ROLLBACK_IMAGE" ] || fail "ROLLBACK_IMAGE obrigatorio"
 [ -n "$ROLLBACK_IMAGE_ID" ] || fail "ROLLBACK_IMAGE_ID obrigatorio"
+[ -n "$ROLLBACK_BRIDGE_VERSION" ] || fail "ROLLBACK_BRIDGE_VERSION obrigatorio"
 [ -n "$SBOM_FILE" ] || fail "SBOM_FILE obrigatorio"
 [ -n "$SBOM_SHA256" ] || fail "SBOM_SHA256 obrigatorio"
 
@@ -44,8 +45,8 @@ if docker inspect "$CONTAINER_NAME" >/dev/null 2>&1; then
   log "producao: $state"
   [ "${state%%|*}" = "healthy" ] || fail "producao atual nao esta healthy"
   [ "$current_image_id" = "$ROLLBACK_IMAGE_ID" ] \
-    || fail "producao atual nao corresponde ao ID imutavel 0.9.0 de rollback"
-  ok "producao atual healthy e alinhada com rollback 0.9.0"
+    || fail "producao atual nao corresponde ao ID imutavel da baseline de rollback"
+  ok "producao atual healthy e alinhada com rollback $ROLLBACK_BRIDGE_VERSION"
 else
   fail "container de producao ausente; usar procedimento de primeira instalacao"
 fi
@@ -59,7 +60,7 @@ validate_state_db_read_only "$state_db"
 [ -d "$BRIDGE_SECRETS_DIR" ] || fail "secrets dir ausente"
 
 # 1.0.0 removes the transitional raw API-key rollback path. Both the candidate
-# and the 0.9.0 rollback compose consume the mounted file only.
+# and accepted rollback baselines consume the mounted file only.
 if env_has_nonempty "$BRIDGE_ENV_FILE" "HERMES_API_KEY"; then
   fail "HERMES_API_KEY raw deve ser removida do env antes do rollout 1.0.0"
 fi
