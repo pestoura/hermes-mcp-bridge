@@ -1,6 +1,7 @@
 # V2 Acceptance Evidence Index
 
-> **Phase 0:** `BASELINE_ACCEPTED` · **Phase 1:** `REGISTRY_ACCEPTED` · **Date:** 2026-08-08 · **V1 semantics preserved**
+> **Phase 0:** `BASELINE_ACCEPTED` · **Phase 1:** `REGISTRY_ACCEPTED` ·
+> **Phase 2:** `NOT_RUN` / `NOT_ACCEPTED` · **V1 semantics preserved**
 
 This directory indexes retained, sanitized evidence for the gated V2 evolution.
 Acceptance is evidence-driven: code existence alone does not promote a phase.
@@ -138,15 +139,97 @@ Phase 1 requirements
   -> REGISTRY_ACCEPTED
 ```
 
+## Phase 2 — GitHub DIRECT read-only (connected + OOB)
+
+> **Status: `NOT_RUN` · Gate: `DIRECT_READ_ACCEPTED` NOT DECLARED · Outer
+> `overall_status` NOT ACCEPTED.**
+
+This section is the **reception structure only**. No connected or out-of-band
+run has been retained in this repository. Every value below is a slot, not a
+measurement.
+
+Two independent gates must both pass; see the authoritative runbooks — do not
+restate their conditions here:
+
+- inner semantic/economics gate: [`../phase2-connected-acceptance.md`](../phase2-connected-acceptance.md);
+- outer integrity/provenance gate: [`../phase2-final-outer-gate.md`](../phase2-final-outer-gate.md).
+
+### Retention slots
+
+Files are retained here only after a real run on the exact commit under test.
+Until then each slot is absent and its status is `NOT_RUN`.
+
+| Slot (retained filename) | Producer | Validator | Status |
+| --- | --- | --- | --- |
+| `phase2-connected-evidence-<YYYYMMDD>.json` | `scripts/v2_phase2_connected_jarvas.sh` | `scripts/validate_v2_phase2_direct_read_evidence.py` | `NOT_RUN` |
+| `phase2-connected-gate-<YYYYMMDD>.json` | validator above | — | `NOT_RUN` |
+| `phase2-final-evidence-<YYYYMMDD>.json` | `scripts/build_v2_phase2_final_evidence.py` | `scripts/validate_v2_phase2_final_acceptance.py` | `NOT_RUN` |
+| `phase2-final-manifest-<YYYYMMDD>.json` | validator above | — | `NOT_RUN` |
+
+Filenames are dated on the day of the accepted run and are never renamed
+afterwards.
+
+### Expected fields (to be populated only by a real run)
+
+| Field | Source document | Recorded value |
+| --- | --- | --- |
+| Source commit under test (40-hex) | inner + outer + state integrity, all identical | `NOT_RUN` |
+| Bridge version / schema version | inner `runtime` | `NOT_RUN` |
+| CI run id for that commit | GitHub Actions | `NOT_RUN` |
+| Credential provider type (`github_app` / `fine_grained_token`) | inner `github_provider` | `NOT_RUN` |
+| `broad_pat` | inner `github_provider` | `NOT_RUN` |
+| Sample count / successful samples / semantic matches | outer `aggregate` | `NOT_RUN` |
+| `direct_total_tokens` | outer `aggregate` | `NOT_RUN` |
+| `agentic_total_tokens` / `token_reduction_percent` | outer `aggregate` | `NOT_RUN` |
+| `direct_provider_api_calls` / `mutations_observed` | outer `aggregate` | `NOT_RUN` |
+| `provenance_pass` / `provenance_fail` | outer `provenance` | `NOT_RUN` |
+| Real-state `fingerprint_before` / `fingerprint_after` (SHA-256) | `state_integrity` | `NOT_RUN` |
+| Real-state row deltas (`sessions`, `messages`, `session_model_usage`) | `state_integrity` | `NOT_RUN` |
+| `shadow_state_activity_observed` / `shadow_row_count_delta` | `state_integrity` | `NOT_RUN` |
+| Measurement window enclosing the inner samples | `state_integrity` + inner window | `NOT_RUN` |
+| Retained file SHA-256 digests | this index | `NOT_RUN` |
+| Inner gate result | inner gate document | `NOT_ACCEPTED` |
+| Outer `overall_status` | outer manifest | `NOT_ACCEPTED` |
+
+### Retention rules for this section
+
+1. A value is written here only after the corresponding validator has been run
+   against the retained document for the exact commit under test.
+2. Evidence produced for an earlier commit is never carried forward into a new
+   row; a new run produces new files and new digests.
+3. No value may be transcribed from CI mocks, fixtures, examples or a
+   validator's own defaults.
+4. `DIRECT_READ_ACCEPTED` and the outer `ACCEPTED` status are declared only by
+   the validators themselves, never by editing this document.
+5. Privacy controls are identical to the earlier phases: no prompt text, output
+   text, credential values, session ids, tool call ids, row contents or
+   filesystem paths.
+
+### Traceability
+
+```text
+Phase 2 requirements (docs/v2/requirements/traceability-matrix.md)
+  -> tests/test_v2_phase2_*.py
+  -> scripts/v2_phase2_connected_jarvas.sh                 [INNER, NOT_RUN]
+  -> scripts/validate_v2_phase2_direct_read_evidence.py    [NOT_RUN]
+  -> scripts/v2_phase2_final_out_of_band_acceptance.py     [OUTER, NOT_RUN]
+  -> scripts/build_v2_phase2_final_evidence.py             [NOT_RUN]
+  -> scripts/validate_v2_phase2_final_acceptance.py        [NOT_RUN]
+  -> retained slots above                                  [ABSENT]
+  -> DIRECT_READ_ACCEPTED                                  [NOT DECLARED]
+  -> outer overall_status                                  [NOT ACCEPTED]
+```
+
 ## Privacy controls
 
-| Control | Phase 0 | Phase 1 |
-| --- | --- | --- |
-| Prompt text retained | No | Not applicable / No |
-| Output text retained | No | Not applicable / No |
-| Raw credential values retained | No | No |
-| Secret/environment paths retained | No | No |
-| Free-text editorial metadata in canonical evidence | N/A | No |
+| Control | Phase 0 | Phase 1 | Phase 2 |
+| --- | --- | --- | --- |
+| Prompt text retained | No | Not applicable / No | No |
+| Output text retained | No | Not applicable / No | No |
+| Raw credential values retained | No | No | No |
+| Secret/environment paths retained | No | No | No |
+| Free-text editorial metadata in canonical evidence | N/A | No | No |
+| Session ids / tool call ids / row contents retained | N/A | N/A | No |
 
 ## Reproducing validators
 
