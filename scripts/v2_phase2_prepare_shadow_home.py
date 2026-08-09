@@ -321,6 +321,16 @@ def prepare(args: argparse.Namespace) -> dict[str, Any]:
         }
     }
     target["terminal"] = {"home_mode": "profile"}
+    # Progressive tool disclosure ("tool search") replaces every deferrable
+    # MCP tool in the model-facing tools array with the generic
+    # tool_search/tool_describe/tool_call bridge. Under that bridge the shadow
+    # agent never emits a named GitHub MCP tool call, so provenance recovery
+    # from the disposable shadow state DB sees only bridge calls and
+    # fail-closes with PROVENANCE_UNAUTHORIZED_TOOL_CALL. The acceptance
+    # contract requires the five named tools to be directly callable and
+    # individually attributable, so the bridge is disabled explicitly for the
+    # disposable shadow home. This narrows, never widens, the tool surface.
+    target["tools"] = {"tool_search": {"enabled": "off"}}
     target["agent"] = {"disabled_toolsets": []}
 
     # Hermes can auto-enable recently shipped, plugin and recovered native
