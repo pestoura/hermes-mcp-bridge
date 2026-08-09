@@ -178,7 +178,11 @@ mapping: `docs/v2/phase3/promotion.md`.
 
 Add one-request/many-node execution, bounded parallel worker pool, per-provider/resource/credential limits, budgets, backpressure, adaptive concurrency, circuit breakers, partial-success semantics, deterministic aggregation and result shaping/artifacts.
 
-**Gate:** `BATCH_ACCEPTED`.
+**Gate:** `BATCH_ACCEPTED` — **declared** with `failures: []` and a live
+`max_observed_inflight` of 2 proving real parallel execution. Evidence:
+`docs/v2/evidence/phase4-batch-acceptance.json`; runner and semantics:
+`docs/v2/phase4/promotion.md`. The runtime ships behind
+`BATCH_FEATURE_ENABLED = False` and is not wired to MCP.
 
 ## PHASE 5 — DAG Engine
 

@@ -30,6 +30,23 @@ projection/discovery (OD-012/OD-013) and later execution engines.
 
 from __future__ import annotations
 
+from .batch_contract import (
+    BATCH_FEATURE_ENABLED,
+    BATCH_MAX_INFLIGHT_GLOBAL,
+    BATCH_MAX_ITEMS,
+    BATCH_MAX_PARALLELISM,
+    BATCH_MAX_PARALLELISM_MUTATION,
+    BATCH_MAX_TIMEOUT_S,
+    BatchFailurePolicy,
+    BatchRequest,
+    BatchResult,
+    BatchStatus,
+    BatchStep,
+    BatchStepResult,
+    BatchValidationError,
+    StepStatus,
+)
+from .batch_scheduler import BatchScheduler, GlobalCapacity, StepDecision
 from .canonical import canonical_json_bytes, canonical_json_text, sha256_hex
 from .capabilities import CapabilityDescriptor, CapabilityRegistry
 from .credentials import (
@@ -186,6 +203,12 @@ __all__ = [
     "ALLOWED_HTTP_VERBS",
     "ALLOWED_MERGEABLE_STATES",
     "ATTESTATION_INPUT_SCHEMA",
+    "BATCH_FEATURE_ENABLED",
+    "BATCH_MAX_INFLIGHT_GLOBAL",
+    "BATCH_MAX_ITEMS",
+    "BATCH_MAX_PARALLELISM",
+    "BATCH_MAX_PARALLELISM_MUTATION",
+    "BATCH_MAX_TIMEOUT_S",
     "DEFAULT_SECRET_NAME",
     "FINAL_EVIDENCE_SCHEMA",
     "FINAL_MANIFEST_SCHEMA",
@@ -217,6 +240,14 @@ __all__ = [
     "AttestationError",
     "AuditWriteError",
     "AuthorizationStatus",
+    "BatchFailurePolicy",
+    "BatchRequest",
+    "BatchResult",
+    "BatchScheduler",
+    "BatchStatus",
+    "BatchStep",
+    "BatchStepResult",
+    "BatchValidationError",
     "BranchProtectionState",
     "CapabilityDescriptor",
     "CapabilityRegistry",
@@ -244,6 +275,7 @@ __all__ = [
     "GitHubProviderType",
     "GitHubReadReadinessBroker",
     "GitHubRepositoryScope",
+    "GlobalCapacity",
     "GovernedMergeExecutor",
     "IdempotencyConflictError",
     "IdempotencySemantics",
@@ -288,6 +320,8 @@ __all__ = [
     "SecurityTier",
     "StaticCredentialBroker",
     "StaticGitHubAuthorizationProvider",
+    "StepDecision",
+    "StepStatus",
     "ToolDefinition",
     "ToolProvenanceRecord",
     "ToolRegistry",
