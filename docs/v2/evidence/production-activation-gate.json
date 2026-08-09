@@ -40,12 +40,12 @@
       "source_commit": "791855067e9a81bb1dd2408c6cd0a0bc4146e490"
     }
   },
-  "required_sha": "e82dbd86abc8f1dcaf89ce84bf8430cb601c88a2",
+  "required_sha": "a8cc3480ff68afad12f2187a46e2ecc492e81c36",
   "schema": "hermes-v2-production-activation-gate/1",
-  "source_commit": "e82dbd86abc8f1dcaf89ce84bf8430cb601c88a2",
+  "source_commit": "a8cc3480ff68afad12f2187a46e2ecc492e81c36",
   "suite": {
     "returncode": 0,
-    "sha256": "14fc81fbef8c3b5f891f316b32a02e3c84ed3675c7631fdac17d16687f0759d8",
+    "sha256": "894b85b2916bd30b565f1eec20f54aae7de41a282a04a5c27eade34c21abaf40",
     "suite": "test_v2_production_activation.py"
   }
 }
