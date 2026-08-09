@@ -169,7 +169,10 @@ planned mutation test matrix. Supporting decisions: ADR-0020..ADR-0023
 (Proposed). No Phase 3 tool, code path or gate change exists, and none may be
 introduced before `DIRECT_READ_ACCEPTED`.
 
-**Gate:** `DIRECT_MUTATION_ACCEPTED`.
+**Gate:** `DIRECT_MUTATION_ACCEPTED` — **declared** at
+`8fc8363a3eb31db99c18afb39fcd78bde011e2b6` with `failures: []`. Evidence:
+`docs/v2/evidence/phase3-direct-mutation-acceptance.json`; runner and criteria
+mapping: `docs/v2/phase3/promotion.md`.
 
 ## PHASE 4 — BATCH Engine
 
