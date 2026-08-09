@@ -4,19 +4,21 @@ standard: JDS-002
 mode: PILOT
 platform:
   repository: pestoura/jarvas-engineering-platform
-  ref: 316574e0d351c3d8e53d59ceab569924eed5f290
+  ref: f25c8062bf3944560160de9419887fb7ad096918
 
 product:
   name: hermes-mcp-bridge
+  productRelease: 2.0.0
   acceptedPublicContract: 1.0.0
   schemaVersion: 0.6.1
   publicToolCount: 27
   acceptedReleaseMutable: false
 
 currentState:
-  repositoryHead: 5c761688fb6a28edfa8a65e18f2547b8fa3c7fba
+  releaseDefinitionCommit: 2b1aee114abce5e96d3785c2f89873f06e950b0a
+  v2AcceptedDevelopmentCommit: 5c761688fb6a28edfa8a65e18f2547b8fa3c7fba
   repositoryV2Gate: V2_PRODUCTION_READY
-  formalV2ReleaseVersion: NOT_DECLARED
+  formalV2ReleaseVersion: 2.0.0
   lastProvenLiveRevision: 7e4b6b1cd70ddda418f840f54ae7ecef30df52e9
 
 rules:
