@@ -328,9 +328,10 @@ def _enforce_prompt_policy(
     if approval.allowed:
         return None
 
+    approval_reason = reason or approval.reason or "approval required"
     return _structured_error(
         {
-            "message": f"policy requires approval: {reason or approval.reason or 'approval required'}",
+            "message": f"policy requires approval: {approval_reason}",
             "approval_required": True,
             "approval_id": approval.approval_id,
             "approval_decision": approval.decision,
