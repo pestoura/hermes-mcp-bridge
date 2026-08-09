@@ -5,6 +5,47 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 2.0.1 — V2 production activation (patch)
+
+`2.0.1` activates, in production, the V2 capabilities that `2.0.0` already
+accepted. `2.0.0` shipped DIRECT, BATCH, DAG, RUNBOOK, INTEGRATIONS and HYBRID
+as accepted code behind hardcoded `*_FEATURE_ENABLED = False` constants with no
+supported way to turn them on: V2 was present but not functionally active. This
+patch supplies the missing activation mechanism and the acceptance that proves
+activation, and nothing else.
+
+No client-visible contract change: `contract_version` `1.0.0`, wire and SQLite
+schema `0.6.1`, exactly 27 tools, migration ledger v10, no generic shell/HTTP
+surface, and no V1 module importing V2. Tag `v2.0.0` is unchanged.
+
+### Added
+
+- `src/hermes_mcp_bridge/v2/production_profile.py` — `V2ProductionProfile`, a
+  frozen, validated, fail-closed activation record replacing scattered booleans.
+  Unknown or malformed `BRIDGE_V2_*` settings are refused rather than defaulted.
+  `BRIDGE_V2_ENABLED=0` is a single-lever rollback to the `2.0.0` posture.
+- `src/hermes_mcp_bridge/v2/composition.py` — `V2Composition`, the intended
+  internal composition root. It builds the accepted engines from one profile and
+  raises `CapabilityDisabled` for any lane that is not active.
+- `tests/test_v2_production_activation.py` — `PA-01..PA-24`, proving activation
+  behaviourally: each lane is constructed and exercised through the composition
+  root, and each refuses when disabled.
+- `scripts/validate_v2_production_activation_gate.py` — fail-closed gate
+  `V2_PRODUCTION_ACTIVE` (checks `A-00..A-09`).
+- `docs/release-2.0.1.md` — release definition, configuration surface, rollback.
+- `docs/v2/evidence/production-activation-gate.json` — recorded gate verdict.
+- `docs/v2/evidence/phase9-production-gate.json` — the recomputed
+  `V2_PRODUCTION_READY` verdict, retained so the activation gate can verify its
+  predecessor chain mechanically instead of by document reference.
+
+### Unchanged
+
+- The per-module `*_FEATURE_ENABLED` constants still default to `False`. They
+  remain the import-time fail-closed posture asserted by the Phase 4–8 gates;
+  gate check `A-03` fails if activation were implemented by flipping them.
+- The Hybrid contract: deterministic preference `DIRECT > BATCH > DAG > RUNBOOK
+  > AGENTIC`, agentic token budget defaulting to zero.
+
 ## 2.0.0 — V2 programme release (product version)
 
 `2.0.0` is the **product/delivery version** of the gated V2 programme

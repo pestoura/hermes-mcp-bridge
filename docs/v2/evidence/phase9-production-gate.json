@@ -1,0 +1,130 @@
+{
+  "drills": {
+    "audit_rpo_records": 0,
+    "drills": [
+      {
+        "drill": "rollback",
+        "elapsed_seconds": 0.01,
+        "failures": [],
+        "observations": {
+          "live_after_drain": 0,
+          "providers_after": 1,
+          "providers_before": 2,
+          "withdrawn_reachable": false
+        },
+        "passed": true,
+        "target_seconds": 900.0
+      },
+      {
+        "drill": "credential_rotation",
+        "elapsed_seconds": 0.01,
+        "failures": [],
+        "observations": {
+          "capability_id": "github.read",
+          "inflight_outcome": "completed_on_old_material",
+          "provider_id": "github",
+          "ready_after_rotation": true,
+          "restart_required": false
+        },
+        "passed": true,
+        "target_seconds": null
+      },
+      {
+        "drill": "audit_restore",
+        "elapsed_seconds": 0.01,
+        "failures": [],
+        "observations": {
+          "chain_matches": true,
+          "original_records": 6,
+          "records_lost": 0,
+          "restored_records": 6
+        },
+        "passed": true,
+        "target_seconds": 300.0
+      }
+    ],
+    "failures": [],
+    "gateway_rto_seconds": 300.0,
+    "passed": true,
+    "rollback_rto_seconds": 900.0
+  },
+  "failures": [],
+  "gate": "V2_PRODUCTION_READY",
+  "performance": {
+    "scenarios": [
+      "batch_16_nodes",
+      "dag_8_nodes",
+      "direct_single_node",
+      "refusal_no_coverage"
+    ]
+  },
+  "predecessor_gates": {
+    "BASELINE_ACCEPTED": {
+      "source_commit": ""
+    },
+    "BATCH_ACCEPTED": {
+      "source_commit": "0f1814793169d8641e8a4223779a9c5d31a3d2ca"
+    },
+    "DAG_ACCEPTED": {
+      "source_commit": "ce6fd89e42b691504226912234dd9c8c92b4ceff"
+    },
+    "DIRECT_MUTATION_ACCEPTED": {
+      "source_commit": "8fc8363a3eb31db99c18afb39fcd78bde011e2b6"
+    },
+    "DIRECT_READ_ACCEPTED": {
+      "source_commit": "818c56a467ed00b1412a219c78e3c68007848df3"
+    },
+    "HYBRID_ACCEPTED": {
+      "source_commit": "3a82ba0eb12ed248490764b2139b6f7c2285f30a"
+    },
+    "INTEGRATIONS_ACCEPTED": {
+      "source_commit": "95520e1eb0b7c828485c0a1c1799bbe951cf15a5"
+    },
+    "REGISTRY_ACCEPTED": {
+      "source_commit": "4bc999084b88cc5ef5346f21c9f2e09717c63568"
+    },
+    "RUNBOOK_ACCEPTED": {
+      "source_commit": ""
+    }
+  },
+  "required_sha": "791855067e9a81bb1dd2408c6cd0a0bc4146e490",
+  "schema": "hermes-v2-phase9-production-gate/1",
+  "secret_scan": {
+    "ruleset_digest_sha256": "23b64117774cebcab66931a45950cb795c8454a0b67837bb30ddbe0533754d59",
+    "scope": {
+      "artifacts": {
+        "artifacts": 0
+      },
+      "history": {
+        "bytes": 2080954,
+        "commits": 25
+      },
+      "tree": {
+        "bytes": 4069061,
+        "files": 521
+      }
+    }
+  },
+  "source_commit": "791855067e9a81bb1dd2408c6cd0a0bc4146e490",
+  "suites": {
+    "pytest_returncode": 0,
+    "suites": {
+      "test_v2_phase9_audit_chain.py": "0a7e4e1bb794a5d3946d3cd1fc4e00f7e0a25896fbc81be75a4282412ced01e1",
+      "test_v2_phase9_chaos.py": "4467d99644adf539875a32a0d99e9c4823d9032aacd5cd02dbc5de23e18218c2",
+      "test_v2_phase9_continuity.py": "d1612a89f88199f11adb5af501dd4c10c4b646f80d4b91f2f7682ef5a4f33696",
+      "test_v2_phase9_drills.py": "3e8880e8fc8351aa6ac4c2790ff3b857394c6ccd3847df91d3275de8345c1d7e",
+      "test_v2_phase9_failure_catalogue.py": "95aaa3b37b649dc8e721b5a3836453ff829a7360159b5928200043b449a1d081",
+      "test_v2_phase9_lifecycle.py": "964471c944b1c73a3e369d553a8ed1877c8caab83742c2cb56a7180a5b1368bc",
+      "test_v2_phase9_replay.py": "7daec1326a404877204364a4dacf4a9ee616cc68ac7724d86a0552a82167b8ff"
+    }
+  },
+  "supply_chain": {
+    "base_digest": "sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de",
+    "dependencies": 4
+  },
+  "v1": {
+    "contract_version": "1.0.0",
+    "schema_version": "0.6.1",
+    "tool_count": 27
+  }
+}
