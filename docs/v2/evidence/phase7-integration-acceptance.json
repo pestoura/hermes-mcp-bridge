@@ -1,0 +1,45 @@
+{
+  "accepted_providers": [
+    "github",
+    "jira"
+  ],
+  "blocked_unconfirmed": [
+    "ritmo"
+  ],
+  "connected": "SUPPLIED",
+  "connected_digest_sha256": "6a5650fd28cca61fdc473d78d81903d0d554267f31b9ca54215bc5aa28dc3c26",
+  "criteria": [
+    "p7_01",
+    "p7_02",
+    "p7_03",
+    "p7_04",
+    "p7_05",
+    "p7_06",
+    "p7_07",
+    "p7_08",
+    "p7_09",
+    "p7_10",
+    "p7_11",
+    "p7_12",
+    "p7_13",
+    "p7_14",
+    "p7_15",
+    "p7_16",
+    "p7_17",
+    "p7_18",
+    "p7_19",
+    "p7_20"
+  ],
+  "failures": [],
+  "gate": "INTEGRATIONS_ACCEPTED",
+  "module_binding_sha256": {
+    "v2/provider_audit.py": "3415e17f3454d44d6fffffc8b17b0c0c4b58d557dfb798d1aecb5458221dc903",
+    "v2/provider_contract.py": "ffd71690f627c71d6a3d94b361f1571f9471dd619d96433f1cdcbd2b37e23943",
+    "v2/provider_credentials.py": "1b66b7cbe796f58300773bf5de94b8c63bf720697c0e62774f91669a74d1d52b",
+    "v2/provider_gateway.py": "985b79dd0e57e886c6da0d17a451819bec44d8163bd337ac33048804153b03cc",
+    "v2/provider_health.py": "59545bd3811a5d065cb0ba363b24c12fd2caabecd31e88496ed400dc39da4d27",
+    "v2/provider_manifests.py": "40b0a2f42f42e004e93891eea3d11ff224e3f6a8a62f7c200023fa988f2f64c5",
+    "v2/provider_registry.py": "38da7d33f5e6ec52ed4b7f5d8bfc9db69eb0ed43d4fa83a55841d4017fb182a6"
+  },
+  "source_commit": "7e4b6b1cd70ddda418f840f54ae7ecef30df52e9"
+}
