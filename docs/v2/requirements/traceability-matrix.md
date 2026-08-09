@@ -21,17 +21,17 @@ own retained evidence; a test name in this matrix is not itself an acceptance.
 | V2-FR-014, V2-SEC-002/006 | ADR-0006/0007 | Credential Broker / GitHub Authorization | 1/2 | Phase 1: capability-ID/status-only contract; Phase 2 core: redacted `GitHubAuthorizationProvider`, readiness-before-resolution and zero-resolution-on-deny tests; real least-privilege provider evidence pending | REGISTRY_ACCEPTED / DIRECT_READ_ACCEPTED |
 | V2-FR-016, V2-SEC-012 | ADR-0009 | Transform Engine | 5 | `test_transform_no_eval_or_code` | DAG_ACCEPTED |
 | V2-FR-017 | ADR-0011 | Policy Engine | 1/2 | Phase 1 policy acceptance; Phase 2 scope→policy/readiness→authorization ordering and explicit per-tool rules in `test_v2_phase2_github_direct.py` | REGISTRY_ACCEPTED / DIRECT_READ_ACCEPTED |
-| V2-FR-018, V2-SEC-004 | ADR-0013 | Idempotency Store | 3 | duplicate mutation/replay tests | DIRECT_MUTATION_ACCEPTED |
+| V2-FR-018, V2-SEC-004 | ADR-0013/0022 | Idempotency Store | 3 | planned duplicate mutation/replay tests in `docs/v2/phase3/test-matrix.md` (not implemented) | DIRECT_MUTATION_ACCEPTED |
 | V2-FR-020, V2-SEC-023 | ADR-0015/0018 | Evidence Layer | 4/9 | manifest/artifact integrity tests | V2_PRODUCTION_READY |
 | V2-FR-021 | ADR-0004 | Capability Health | 1 | exact seven-state configured/available/healthy/ready conformance matrix | REGISTRY_ACCEPTED |
 | V2-FR-022 | ADR-0015 | Replay Simulation | 5/9 | simulation does not call mutation backends | V2_PRODUCTION_READY |
 | V2-FR-023, V2-NFR-019 | ADR-0008 | Scheduler | 2/4 | Phase 2 stable 403/429/Retry-After classification without retry; later circuit-breaker/adaptive-concurrency tests | DIRECT_READ_ACCEPTED / BATCH_ACCEPTED |
 | V2-FR-025, V2-NFR-009/020 | ADR-0017 | Compatibility Layer | all | V1 27-tool regression in Phase 1/2; connected DIRECT-vs-V1 shadow comparison still pending | each affected gate / V2_PRODUCTION_READY |
 | V2-SEC-001/003/009/020 | ADR-0011 | Policy Engine | 1+ | Phase 1 fail-closed suite; Phase 2 exact repository scope before readiness, policy denial, missing material and zero-network negative tests | each affected gate |
-| V2-SEC-005/011 | ADR-0012 | Approval Store | 3/5 | digest mismatch/replay/TOCTOU tests | DIRECT_MUTATION_ACCEPTED |
+| V2-SEC-005/011 | ADR-0012/0021 | Approval Store | 3/5 | planned digest mismatch/replay/TOCTOU tests in `docs/v2/phase3/test-matrix.md` (not implemented) | DIRECT_MUTATION_ACCEPTED |
 | V2-SEC-007/015..018 | ADR-0003/0019 | Execution Sandbox | 2/3/7 | Phase 2 fixed `api.github.com`, GET-only, no redirects, `trust_env=false`, search qualifier-injection negative tests; broader path/service/egress/socket tests later | DIRECT_READ_ACCEPTED / V2_PRODUCTION_READY |
 | V2-SEC-013/014/019 | ADR-0004/0005 | Registry/Projection/Schema | 1 | no backend pass-through, materialized sensitive-schema rejection, editorial-text exclusion, snapshot/projection digests | REGISTRY_ACCEPTED |
-| V2-SEC-021 | ADR-0014 | Saga/Compensation | 5/6 | unsafe compensation rejection | DAG_ACCEPTED |
+| V2-SEC-021 | ADR-0014 | Saga/Compensation | 3/5/6 | unsafe compensation rejection; Phase 3 per-operation rules in `docs/v2/phase3/rollback-and-compensation.md` (planned) | DIRECT_MUTATION_ACCEPTED / DAG_ACCEPTED |
 | V2-SEC-022, V2-NFR-008/011 | ADR-0008 | Budgets/Scheduler | 2/4 | Phase 2 shaped-result byte budget; later fan-out budget/backpressure tests | DIRECT_READ_ACCEPTED / BATCH_ACCEPTED |
 | V2-SEC-024, V2-NFR-003..005/015 | ADR-0018 | Observability | 0/2/9 | Phase 2 raw-vs-returned byte counters in result contract; connected latency/API-call/zero-token evidence pending; later telemetry cardinality/secret scan | DIRECT_READ_ACCEPTED / V2_PRODUCTION_READY |
 | V2-NFR-013, V2-NFR-017 | ADR-0004 | Capability Snapshot / Registry Schema | 1 | canonical byte determinism, material-change hash test, explicit `v2.phase1.1` snapshot schema version | REGISTRY_ACCEPTED |
