@@ -181,6 +181,18 @@ Add one-request/many-node execution, bounded parallel worker pool, per-provider/
 
 Add explicit dependencies, typed bindings, topological scheduler, deterministic transformation nodes, canonical plan digest, checkpoint/resume, execution leases/heartbeat/recovery, dead-letter/manual-intervention state and replay simulation.
 
+**Preparation lane (design only, no implementation):** `docs/v2/phase5/` holds
+the `PlanDefinition` schema, DAG validation and cycle detection, bounded
+parallel scheduling, the persisted checkpoint/resume and lease contract,
+per-node policy/credential/idempotency/audit inheritance, the deterministic
+`plan_digest` and its composition with the Phase 3 `operation_digest`,
+compensation/saga semantics, failure propagation and `INDETERMINATE` behaviour,
+fail-closed acceptance criteria and the planned test matrix. No Phase 5 tool,
+code path or gate change exists, and none may be introduced before both
+`DIRECT_MUTATION_ACCEPTED` and `BATCH_ACCEPTED`. Phase 4 primitives the lane
+consumes are recorded as explicit `ASSUMPTION-P4-nn` items, not as accepted
+facts.
+
 **Gate:** `DAG_ACCEPTED`.
 
 ## PHASE 6 — RUNBOOK Registry
