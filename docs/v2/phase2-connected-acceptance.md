@@ -38,6 +38,14 @@ scripts/v2_phase2_direct_read_acceptance.py          # connected collector
 scripts/validate_v2_phase2_direct_read_evidence.py
 ```
 
+> **The gate below is now the INNER gate.** It is preserved unchanged as the
+> semantic/economics gate and remains independently runnable and debuggable. A
+> formal `ACCEPTED` additionally **REQUIRES** the stricter OUTER final gate
+> described in [`phase2-final-outer-gate.md`](phase2-final-outer-gate.md):
+> internal-tool provenance on all 15 samples plus a real out-of-band
+> zero-delta measurement of the real Hermes state database. Status remains
+> **NOT ACCEPTED** until a real out-of-band Jarvas run passes.
+
 The validator cannot generate or infer evidence: it only validates an externally
 collected connected evidence document. The collector cannot fabricate one
 either — it fails closed before emitting anything if the provider attestation,

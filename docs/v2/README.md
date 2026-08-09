@@ -83,7 +83,10 @@ which binds the 15-sample evidence to a live isolated-shadow proof for the same 
 
 Relevant Phase 2 documents:
 
-- `phase2-connected-acceptance.md` — connected sample/evidence contract;
+- `phase2-connected-acceptance.md` — connected sample/evidence contract (INNER gate);
+- `phase2-final-outer-gate.md` — OUTER final gate: internal-tool provenance plus
+  out-of-band real-state integrity. REQUIRED for a formal `ACCEPTED`; status is
+  still NOT ACCEPTED until a real out-of-band Jarvas run passes;
 - `github-app-runtime-credential.md` — least-privilege GitHub App mint/rotation boundary;
 - `phase2-jarvas-connected-launcher.md` — one-shot Jarvas execution path;
 - `phase2-isolated-readonly-shadow.md` — mechanical proof for V1 shadow non-mutation.

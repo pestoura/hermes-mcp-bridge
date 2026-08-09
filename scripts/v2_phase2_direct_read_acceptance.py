@@ -92,6 +92,10 @@ from hermes_mcp_bridge.v2.github_secret_provider import (  # noqa: E402
     FileGitHubAuthorizationProvider,
     GitHubProviderType,
 )
+from hermes_mcp_bridge.v2.tool_provenance import (  # noqa: E402
+    ProvenanceError,
+    collect_tool_provenance,
+)
 
 EVIDENCE_SCHEMA = "hermes-v2-phase2-direct-read-acceptance/1"
 COLLECTION_GATE = "DIRECT_READ_EVIDENCE_COLLECTED"
@@ -870,7 +874,24 @@ async def collect(args: argparse.Namespace) -> dict[str, Any]:
                 enter_phase(PHASE_VALIDATION)
                 shadow_digest = normalized_digest(tool_id, shadow_data)
                 if shadow_digest != direct_digest:
+                    # The LLM semantic digest/match stays the hard gate. It is
+                    # evaluated BEFORE provenance so a provenance PASS can never
+                    # rescue a semantic FAIL.
                     raise CollectorError(f"SEMANTIC_MISMATCH_{_tool_token(tool_id)}")
+
+                # Additive internal-tool provenance for this accepted sample,
+                # scoped strictly to this sample's shadow session.
+                try:
+                    provenance = collect_tool_provenance(
+                        shadow_state_db=args.hermes_state_db,
+                        session_id=session_id,
+                        expected_tool_id=tool_id,
+                        expected_arguments=arguments,
+                        direct_normalized_sha256=direct_digest,
+                        normalizer=normalized_digest,
+                    ).as_canonical()
+                except ProvenanceError as exc:
+                    raise CollectorError(exc.code) from exc
 
                 window = WindowIntegrity(
                     direct_transport_dedicated=True,
@@ -918,6 +939,7 @@ async def collect(args: argparse.Namespace) -> dict[str, Any]:
                             "direct_normalized_sha256": direct_digest,
                             "v1_normalized_sha256": shadow_digest,
                         },
+                        "tool_provenance": provenance,
                     }
                 )
         finally:
@@ -980,6 +1002,12 @@ async def collect(args: argparse.Namespace) -> dict[str, Any]:
             "v1_shadow_hermes_llm_tokens": shadow_total,
             "mutations_observed": 0,
             "contaminated_windows": 0,
+            "provenance_pass": sum(
+                1 for s in samples if s["tool_provenance"]["provenance_pass"] is True
+            ),
+            "provenance_fail": sum(
+                1 for s in samples if s["tool_provenance"]["provenance_pass"] is not True
+            ),
             "tool_sample_counts": {
                 tool: REPETITIONS_PER_TOOL for tool in sorted(GITHUB_DIRECT_READ_TOOL_IDS)
             },
