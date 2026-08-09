@@ -401,6 +401,7 @@ setsid env -i \
   MCP_PATH='/mcp' \
   LOG_LEVEL='WARNING' \
   BRIDGE_STATE_DB_PATH="$SHADOW_BRIDGE_STATE" \
+  HERMES_V2_ACCEPTANCE_STRICT_JSON='1' \
   "$VENV/bin/hermes-mcp-bridge" >"$SHADOW_BRIDGE_LOG" 2>&1 &
 SHADOW_BRIDGE_PID=$!
 

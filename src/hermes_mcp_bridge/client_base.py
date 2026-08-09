@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import math
+import os
 import re
 import time
 import uuid
@@ -42,6 +43,31 @@ _MAX_SUBAGENTS = 16
 _SESSION_TITLE_MAX_CHARS = 80
 _SESSION_CREATE_ATTEMPTS = 3
 _TERMINAL_EVENT_TYPES = frozenset({"run.completed", "run.failed", "run.cancelled"})
+
+#: Acceptance-only opt-in. Never exposed as an MCP argument or a config field;
+#: it is read from the process environment at call time (never cached at import
+#: time) so a disposable shadow bridge can enable it without touching any
+#: production deployment default.
+_ACCEPTANCE_STRICT_JSON_ENV = "HERMES_V2_ACCEPTANCE_STRICT_JSON"
+
+#: Fixed, task-agnostic serialization-only instruction. It carries no task
+#: intent: it only constrains the output encoding.
+_ACCEPTANCE_STRICT_JSON_INSTRUCTION = (
+    "Return exactly the JSON shape requested by the user prompt, preserving "
+    "the exact key names requested. Emit only that JSON: no prose, no "
+    "explanation, no code fence and no wrapper object."
+)
+
+
+def _acceptance_strict_json_enabled() -> bool:
+    """Return whether the acceptance-only strict JSON opt-in is active.
+
+    Evaluated at runtime on every call. Only the exact value ``"1"`` enables
+    it; absent, empty, ``"0"`` and any other value keep production behaviour
+    byte-for-byte identical.
+    """
+
+    return os.environ.get(_ACCEPTANCE_STRICT_JSON_ENV) == "1"
 
 
 @dataclass(frozen=True)
@@ -112,6 +138,8 @@ class HermesClient:
                 "Follow the requested agent assignment explicitly and report which "
                 "agents were used."
             )
+        if _acceptance_strict_json_enabled():
+            parts.append(_ACCEPTANCE_STRICT_JSON_INSTRUCTION)
         return " ".join(parts) or None
 
     async def submit_prompt(
