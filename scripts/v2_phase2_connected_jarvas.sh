@@ -35,6 +35,18 @@ SRC=''
 SHADOW_HERMES_PID=''
 SHADOW_BRIDGE_PID=''
 
+# Acceptance-only private handoff (blocker A). The OUTER final out-of-band
+# runner — and only it — enables this by exporting an absolute path in
+# HERMES_V2_FINAL_SHADOW_WITNESS_FILE. When enabled, this launcher writes a
+# sanitized shadow-activity witness BEFORE its own cleanup destroys the
+# disposable shadow home. Cleanup itself is never disabled, the witness lives
+# outside SHADOW_HOME, and it carries only schema/version, the pinned source
+# commit, row-count deltas and booleans. When the variable is unset the
+# mechanism is completely inert.
+SHADOW_WITNESS_FILE="${HERMES_V2_FINAL_SHADOW_WITNESS_FILE:-}"
+SHADOW_WITNESS_BASELINE="$BASE/.shadow-witness-baseline.json"
+SHADOW_WITNESS_ENABLED=0
+
 cleanup_process_group() {
   local pid="${1:-}"
   if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
@@ -47,12 +59,29 @@ cleanup_process_group() {
   fi
 }
 
+emit_shadow_witness() {
+  # Best effort and strictly sanitized: any failure leaves no witness, which
+  # the outer runner treats as "activity not observed" and blocks on.
+  [[ "$SHADOW_WITNESS_ENABLED" == '1' ]] || return 0
+  [[ -n "${SRC:-}" && -f "$SRC/scripts/v2_phase2_shadow_witness.py" ]] || return 0
+  [[ -n "${SOURCE_COMMIT:-}" ]] || return 0
+  "$VENV/bin/python" "$SRC/scripts/v2_phase2_shadow_witness.py" emit \
+    --shadow-state-db "$SHADOW_HOME/state.db" \
+    --source-state-db "$SOURCE_HERMES_HOME/state.db" \
+    --shadow-home "$SHADOW_HOME" \
+    --baseline "$SHADOW_WITNESS_BASELINE" \
+    --handoff "$SHADOW_WITNESS_FILE" \
+    --source-commit "$SOURCE_COMMIT" >/dev/null 2>&1 || true
+}
+
 cleanup() {
   cleanup_process_group "$SHADOW_BRIDGE_PID"
   cleanup_process_group "$SHADOW_HERMES_PID"
+  emit_shadow_witness
   [[ -n "${SRC:-}" && -d "${SRC:-}" ]] && rm -rf -- "$SRC"
   rm -rf -- "$SHADOW_HOME"
   rm -f -- "$SHADOW_API_KEY" "$SHADOW_BRIDGE_STATE" "$SHADOW_HERMES_LOG" "$SHADOW_BRIDGE_LOG"
+  rm -f -- "$SHADOW_WITNESS_BASELINE"
 }
 trap cleanup EXIT INT TERM
 
@@ -239,6 +268,16 @@ SOURCE_COMMIT="$(git -C "$SRC" rev-parse HEAD)"
 [[ "$SOURCE_COMMIT" == "$ACCEPTED_SOURCE_COMMIT" ]] \
   || blocked "SOURCE_COMMIT_MISMATCH"
 
+# Validate the acceptance-only handoff request, if any. The path must be
+# absolute and must not live inside the disposable shadow home, otherwise the
+# witness would be destroyed by the same cleanup it is meant to survive.
+if [[ -n "$SHADOW_WITNESS_FILE" ]]; then
+  [[ "$SHADOW_WITNESS_FILE" == /* ]] || blocked "SHADOW_WITNESS_PATH_INVALID"
+  [[ "$SHADOW_WITNESS_FILE" != "$SHADOW_HOME"/* ]] \
+    || blocked "SHADOW_WITNESS_PATH_INVALID"
+  SHADOW_WITNESS_ENABLED=1
+fi
+
 # Reinstall the exact source under test into the private acceptance venv without
 # resolving dependencies from the network.
 "$VENV/bin/python" -m pip install -q --no-deps --disable-pip-version-check "$SRC" \
@@ -338,6 +377,16 @@ SHADOW_HOME_OUTPUT=''
 
 [[ -s "$SHADOW_API_KEY" && "$(stat -c '%a' "$SHADOW_API_KEY")" == '600' ]] \
   || blocked "SHADOW_API_KEY_INVALID"
+
+# Capture the pre-run shadow baseline while the disposable runtime is still
+# idle. Only bounded COUNT(*) aggregates are stored, in a private 0600 file
+# that cleanup removes.
+if [[ "$SHADOW_WITNESS_ENABLED" == '1' ]]; then
+  "$VENV/bin/python" "$SRC/scripts/v2_phase2_shadow_witness.py" capture \
+    --shadow-state-db "$SHADOW_HOME/state.db" \
+    --baseline "$SHADOW_WITNESS_BASELINE" >/dev/null 2>&1 \
+    || blocked "SHADOW_WITNESS_BASELINE_FAILED"
+fi
 
 : >"$SHADOW_HERMES_LOG"
 : >"$SHADOW_BRIDGE_LOG"

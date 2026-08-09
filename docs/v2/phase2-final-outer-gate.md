@@ -174,3 +174,105 @@ python3 scripts/validate_v2_phase2_final_acceptance.py \
 **NOT ACCEPTED.** The code path is implemented and hermetically tested. Formal
 `ACCEPTED` requires a real out-of-band Jarvas run producing a passing manifest,
 which has not been performed.
+
+## Repaired blockers (final OOB acceptance, `fix/v2-phase2-oob-final-runner-blockers`)
+
+Three confirmed blockers found in the final out-of-band acceptance dry review,
+plus one background-state validity finding.
+
+### A) shadow positive control survives inner cleanup
+
+The inner launcher deletes `SHADOW_HOME` in its `EXIT` trap, so the outer
+runner could never observe post-run shadow activity. Cleanup is **not**
+disabled. Instead an acceptance-only private handoff was added:
+
+* the outer runner exports `HERMES_V2_FINAL_SHADOW_WITNESS_FILE=<abs path>`
+  when it invokes the inner launcher — nobody else sets it, and with the
+  variable unset the mechanism is completely inert;
+* the launcher captures a bounded `COUNT(*)` baseline before the shadow
+  runtime does any work, and, in `cleanup()` **before** `rm -rf "$SHADOW_HOME"`,
+  writes a sanitized `0600` witness to that path (rejected at startup if the
+  path is relative or lives inside `SHADOW_HOME`);
+* the witness contains only schema/version, the pinned `source_commit`, the
+  `sessions` / `session_model_usage` row-count deltas, and booleans proving
+  positive growth, that the shadow DB was a *different* file from the real
+  state DB (`st_dev`/`st_ino`), and that it lived inside the disposable home.
+  No path, row content, session id, token or prompt is ever serialized;
+* the outer runner validates schema, version and exact commit, **consumes the
+  file once** (it is unlinked whether or not it validated, so it can never be
+  replayed) and blocks with `FINAL_SHADOW_WITNESS_INVALID` otherwise.
+
+The `--shadow-row-count-after` CLI override was **removed**: no caller-supplied
+positive-control value can be fabricated any more.
+
+### B) minimal, explicit systemd write access
+
+`ProtectHome=read-only` blocked the canonical acceptance workspace.
+`ProtectSystem=strict`, `ProtectHome=read-only`, `NoNewPrivileges=yes`,
+`PrivateTmp=yes` and `UMask=0077` all stay on. Write access is now granted
+explicitly and minimally through `ReadWritePaths`, for exactly two canonical,
+non-secret directories: the acceptance working directory and the directory that
+receives the result marker. The credential source (the real Hermes home
+containing `state.db`) is mounted through `ReadOnlyPaths` and can never appear
+as a writable grant. `$HOME`, `/`, `/home`, `/etc`, `/var`, `/root` and any
+relative or secret-bearing path are rejected at plan-build time
+(`OOB_SANDBOX_PATH_TOO_BROAD`, `OOB_PATH_NOT_ABSOLUTE`,
+`OOB_SANDBOX_PATH_CONFLICT`, `OOB_SECRET_BEARING_ARGUMENT`). Tests assert no
+write access to arbitrary home and no secret in argv, environment or unit
+properties.
+
+### C) control-activity guard against the real Hermes 0.20 schema
+
+The old guard probed `api_runs` and `delegations`. Neither exists in Hermes
+0.20 (`schema_version = 25`): every probe was skipped and the guard silently
+answered "quiet" — the exact failure a guard must not have.
+`hermes_mcp_bridge.v2.control_activity` now introspects the real tables
+fail-closed (`sessions`, `async_delegations`, `delivery_obligations`,
+`compression_locks`) with the columns it depends on, and reports
+`QUIET` / `ACTIVE` / `UNMEASURABLE`:
+
+* `ACTIVE` — an in-flight `async_delegations.state`/`delivery_state`, a pending
+  `delivery_obligations.state`, a held `compression_locks` row, or a session
+  whose `last_activity_at` heartbeat is inside the recency window (the 0.20
+  replacement for the non-existent `api_runs` table);
+* `UNMEASURABLE` — missing table, missing column, unreadable DB or failed
+  query. It is **never** downgraded to quiet; the runner aborts with
+  `FINAL_CONTROL_GUARD_UNAVAILABLE`.
+
+Only bounded aggregates are read (`COUNT(*)` over closed vocabularies, one
+timestamp comparison). No row content or identifier is read or reported.
+
+### D) background-state validity — `FINAL_BACKGROUND_WRITER_UNCONTROLLED`
+
+Audited **read-only against the installed Hermes 0.20 source**; no gateway was
+stopped, restarted, or measured live, and no acceptance was executed.
+
+Finding: an idle real `hermes-gateway.service` is **not** provably write-free
+against the tracked tables during a short no-op window. Two periodic,
+non-request-driven writers touch `sessions`:
+
+* `gateway/run.py` housekeeping tick → `SessionDB.maybe_auto_archive()` →
+  `archive_stale_sessions()` → `set_session_archived()` flips
+  `sessions.archived` and writes `state_meta['last_auto_archive']`;
+* `gateway/run.py::_session_expiry_watcher` (300 s cadence) →
+  `set_expiry_finalized()` writes `sessions.expiry_finalized`.
+
+Both are timers, so an idle gateway can write inside the measurement window.
+The auto-archive path is config-gated (`sessions.auto_archive`, currently unset
+on this host) but that is a mutable runtime setting, not a code guarantee, and
+the expiry watcher is not gated at all. Code evidence therefore **cannot**
+prove an idle gateway is write-free.
+
+Consequently the runner adds an explicit precondition rather than proceeding
+silently: `execute` aborts with `FINAL_BACKGROUND_WRITER_UNCONTROLLED` unless
+the operator passes `--background-writer-controlled`. **Zero absolute delta is
+not relaxed in any way.**
+
+What must be controlled before scheduling the real acceptance:
+
+1. the real `hermes-gateway.service` must be stopped (or otherwise proven not
+   to hold the tracked DB) for the entire PRE→inner→POST window; and
+2. no Hermes cron job, kanban dispatch, delivery retry or CLI session may run
+   in that window; and
+3. that control must be established **out of band**, from outside any Hermes
+   control run — which is exactly why this repository never schedules it.

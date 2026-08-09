@@ -87,8 +87,52 @@ REASON_CODES: Final[frozenset[str]] = frozenset(
         "OOB_EXECUTION_NOT_PERMITTED",
         "OOB_MARKER_STATE_INVALID",
         "OOB_MARKER_WRITE_FAILED",
+        "OOB_SANDBOX_PATH_CONFLICT",
+        "OOB_SANDBOX_PATH_TOO_BROAD",
     }
 )
+
+#: Filesystem roots that must never be granted as a whole to the probe.
+_TOO_BROAD_ROOTS: Final[tuple[str, ...]] = ("/", "/home", "/root", "/etc", "/var")
+
+
+def _normalize_sandbox_paths(
+    values: tuple[str | os.PathLike[str], ...]
+    | list[str | os.PathLike[str]]
+    | None,
+) -> tuple[str, ...]:
+    """Return deduplicated absolute sandbox paths in a stable order."""
+    if not values:
+        return ()
+    normalized: list[str] = []
+    for item in values:
+        path = Path(item)
+        if not path.is_absolute():
+            raise OutOfBandError("OOB_PATH_NOT_ABSOLUTE")
+        if _contains_secret_token(str(path)):
+            raise OutOfBandError("OOB_SECRET_BEARING_ARGUMENT")
+        text = str(path)
+        if text not in normalized:
+            normalized.append(text)
+    return tuple(normalized)
+
+
+def _is_home_root(path: str) -> bool:
+    """True when the path is the operator's home itself or a filesystem root.
+
+    Granting ``$HOME`` (or any of :data:`_TOO_BROAD_ROOTS`) as ``ReadWritePaths``
+    would defeat ``ProtectHome=read-only`` entirely, so it is rejected.
+    """
+    candidate = Path(path)
+    if str(candidate) in _TOO_BROAD_ROOTS:
+        return True
+    home = os.environ.get("HOME")
+    if home:
+        try:
+            return candidate == Path(home)
+        except (OSError, ValueError):  # pragma: no cover - defensive
+            return False
+    return False
 
 
 class OutOfBandError(RuntimeError):
@@ -154,6 +198,12 @@ class TransientUnitPlan:
             "timeout_seconds": self.timeout_seconds,
             "properties": [list(item) for item in self.properties],
             "environment_count": len(self.environment),
+            "writable_path_count": sum(
+                1 for key, _ in self.properties if key == "ReadWritePaths"
+            ),
+            "read_only_path_count": sum(
+                1 for key, _ in self.properties if key == "ReadOnlyPaths"
+            ),
             "argv_length": len(self.argv),
         }
 
@@ -166,8 +216,22 @@ def build_transient_unit_plan(
     result_path: str | os.PathLike[str],
     delay_seconds: int,
     timeout_seconds: int,
+    writable_paths: tuple[str | os.PathLike[str], ...] | list[str | os.PathLike[str]]
+    | None = None,
+    read_only_paths: tuple[str | os.PathLike[str], ...]
+    | list[str | os.PathLike[str]]
+    | None = None,
 ) -> TransientUnitPlan:
-    """Validate and build a transient one-shot plan. Executes nothing."""
+    """Validate and build a transient one-shot plan. Executes nothing.
+
+    ``ProtectHome=read-only`` stays on: the probe must never be able to write
+    to arbitrary parts of ``$HOME``. Write access is granted **explicitly and
+    minimally** through ``ReadWritePaths``, and only for the canonical,
+    non-secret acceptance result/work directories the caller names in
+    ``writable_paths``. ``read_only_paths`` is the symmetric escape hatch for
+    directories the probe must be able to *read* (the credential source), and
+    is rendered as ``ReadOnlyPaths`` — never as a writable grant.
+    """
     if not isinstance(unit_name, str) or _UNIT_NAME_RE.fullmatch(unit_name) is None:
         raise OutOfBandError("OOB_UNIT_NAME_INVALID")
     if (
@@ -197,7 +261,15 @@ def build_transient_unit_plan(
         if _contains_secret_token(item):
             raise OutOfBandError("OOB_SECRET_BEARING_ARGUMENT")
 
-    properties: tuple[tuple[str, str], ...] = (
+    writable = _normalize_sandbox_paths(writable_paths)
+    read_only = _normalize_sandbox_paths(read_only_paths)
+    for item in writable:
+        if item in read_only:
+            raise OutOfBandError("OOB_SANDBOX_PATH_CONFLICT")
+        if _is_home_root(item):
+            raise OutOfBandError("OOB_SANDBOX_PATH_TOO_BROAD")
+
+    properties: list[tuple[str, str]] = [
         ("Type", "oneshot"),
         ("Restart", "no"),
         ("UMask", "0077"),
@@ -207,8 +279,16 @@ def build_transient_unit_plan(
         ("NoNewPrivileges", "yes"),
         ("ProtectSystem", "strict"),
         ("ProtectHome", "read-only"),
-        ("StandardOutput", "null"),
-        ("StandardError", "journal"),
+    ]
+    for item in writable:
+        properties.append(("ReadWritePaths", item))
+    for item in read_only:
+        properties.append(("ReadOnlyPaths", item))
+    properties.extend(
+        [
+            ("StandardOutput", "null"),
+            ("StandardError", "journal"),
+        ]
     )
     return TransientUnitPlan(
         unit_name=unit_name,
@@ -217,7 +297,7 @@ def build_transient_unit_plan(
         working_directory=str(workdir),
         result_path=str(result),
         argv=argv,
-        properties=properties,
+        properties=tuple(properties),
         environment=(),
     )
 
@@ -233,9 +313,46 @@ def assert_plan_is_secret_free(plan: TransientUnitPlan) -> None:
             raise OutOfBandError("OOB_SECRET_BEARING_ARGUMENT")
 
 
+def assert_sandbox_is_minimal(plan: TransientUnitPlan) -> None:
+    """Fail closed if the sandbox grants more write access than it must.
+
+    Enforces that hardening stays on (``ProtectSystem=strict``,
+    ``ProtectHome=read-only``, ``NoNewPrivileges=yes``) and that no
+    ``ReadWritePaths`` entry is the home directory or a filesystem root.
+    """
+    properties = plan.properties
+    required = {
+        "ProtectSystem": "strict",
+        "ProtectHome": "read-only",
+        "NoNewPrivileges": "yes",
+        "PrivateTmp": "yes",
+    }
+    mapping = dict(properties)
+    for key, value in required.items():
+        if mapping.get(key) != value:
+            raise OutOfBandError("OOB_SANDBOX_PATH_TOO_BROAD")
+    for key, value in properties:
+        if key == "ReadWritePaths":
+            if not Path(value).is_absolute():
+                raise OutOfBandError("OOB_PATH_NOT_ABSOLUTE")
+            if _is_home_root(value):
+                raise OutOfBandError("OOB_SANDBOX_PATH_TOO_BROAD")
+
+
+def writable_paths(plan: TransientUnitPlan) -> tuple[str, ...]:
+    """Return the explicit ``ReadWritePaths`` grants of a plan."""
+    return tuple(value for key, value in plan.properties if key == "ReadWritePaths")
+
+
+def read_only_paths(plan: TransientUnitPlan) -> tuple[str, ...]:
+    """Return the explicit ``ReadOnlyPaths`` grants of a plan."""
+    return tuple(value for key, value in plan.properties if key == "ReadOnlyPaths")
+
+
 def dry_run_report(plan: TransientUnitPlan) -> dict[str, Any]:
     """Return the sanitized dry-run description of a plan. Runs nothing."""
     assert_plan_is_secret_free(plan)
+    assert_sandbox_is_minimal(plan)
     report = dict(plan.as_canonical())
     report["mode"] = "DRY_RUN"
     report["executed"] = False
@@ -254,6 +371,7 @@ def schedule_transient_unit(
     future operator-driven acceptance can reuse this code path unchanged.
     """
     assert_plan_is_secret_free(plan)
+    assert_sandbox_is_minimal(plan)
     if not execute:
         return dry_run_report(plan)
     if runner is None:
@@ -370,10 +488,13 @@ __all__ = [
     "OutOfBandError",
     "TransientUnitPlan",
     "assert_plan_is_secret_free",
+    "assert_sandbox_is_minimal",
     "build_transient_unit_plan",
     "cleanup_run_artifacts",
     "dry_run_report",
+    "read_only_paths",
     "read_terminal_marker",
     "schedule_transient_unit",
+    "writable_paths",
     "write_terminal_marker",
 ]

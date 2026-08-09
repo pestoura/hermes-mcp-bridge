@@ -498,13 +498,39 @@ def test_state_measurement_itself_does_not_write(tmp_path: Path) -> None:
     assert not (tmp_path / "state.db-wal").exists()
 
 
-def test_control_activity_guard_detects_running_run(tmp_path: Path) -> None:
+def _add_control_schema(path: Path) -> None:
+    """Add the Hermes 0.20 control tables the activity guard introspects."""
+    connection = sqlite3.connect(path)
+    try:
+        connection.executescript(
+            """
+            ALTER TABLE sessions ADD COLUMN ended_at REAL;
+            ALTER TABLE sessions ADD COLUMN last_activity_at REAL;
+            CREATE TABLE async_delegations (
+                delegation_id TEXT PRIMARY KEY, state TEXT, delivery_state TEXT
+            );
+            CREATE TABLE delivery_obligations (
+                obligation_id TEXT PRIMARY KEY, state TEXT
+            );
+            CREATE TABLE compression_locks (
+                session_id TEXT PRIMARY KEY, expires_at REAL
+            );
+            """
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def test_control_activity_guard_detects_running_delegation(tmp_path: Path) -> None:
     db = tmp_path / "state.db"
     _make_state_db(db)
+    _add_control_schema(db)
     connection = sqlite3.connect(db)
     try:
-        connection.execute("CREATE TABLE api_runs (id TEXT, status TEXT)")
-        connection.execute("INSERT INTO api_runs VALUES ('r1', 'running')")
+        connection.execute(
+            "INSERT INTO async_delegations VALUES ('d1', 'running', 'pending')"
+        )
         connection.commit()
     finally:
         connection.close()
@@ -514,7 +540,17 @@ def test_control_activity_guard_detects_running_run(tmp_path: Path) -> None:
 def test_control_activity_guard_quiet_database(tmp_path: Path) -> None:
     db = tmp_path / "state.db"
     _make_state_db(db)
+    _add_control_schema(db)
     assert FINAL_RUNNER.control_activity_detected(str(db)) is False
+
+
+def test_control_activity_guard_is_unmeasurable_on_legacy_schema(
+    tmp_path: Path,
+) -> None:
+    """A pre-0.20 state DB has no async_delegations: never assume quiet."""
+    db = tmp_path / "state.db"
+    _make_state_db(db)
+    assert FINAL_RUNNER.control_activity_detected(str(db)) is None
 
 
 def test_control_activity_guard_unavailable_is_not_false(tmp_path: Path) -> None:
@@ -548,9 +584,12 @@ def test_execute_requires_explicit_flag_and_env(tmp_path: Path) -> None:
             str(launcher),
             "--result",
             str(result),
+            "--shadow-witness",
+            str(tmp_path / "witness.json"),
             "--source-commit",
             "0" * 40,
             "--i-understand-this-runs-a-real-acceptance",
+            "--background-writer-controlled",
         ]
     )
     assert code == 2
@@ -570,15 +609,15 @@ def test_final_plan_is_dry_run_and_secret_free(tmp_path: Path, capsys) -> None:
         [
             "plan",
             "--state-db",
-            str(tmp_path / "state.db"),
+            str(tmp_path / "hermes-home" / "state.db"),
             "--shadow-state-db",
-            str(tmp_path / "shadow.sqlite3"),
+            str(tmp_path / "acceptance" / "shadow.sqlite3"),
             "--inner-launcher",
-            str(tmp_path / "launcher.sh"),
+            str(tmp_path / "acceptance" / "launcher.sh"),
             "--result",
-            str(tmp_path / "result.json"),
+            str(tmp_path / "acceptance" / "result.json"),
             "--working-directory",
-            str(tmp_path),
+            str(tmp_path / "acceptance"),
             "--source-commit",
             "0" * 40,
         ]
