@@ -1,0 +1,38 @@
+schemaVersion: jds.validation/v1
+kind: ValidationCampaign
+id: VAL-BRIDGE-V2-RUNTIME-PROMOTION
+product: hermes-mcp-bridge
+objective: Validate the formal Bridge 2.0.0 product release for controlled runtime promotion while preserving the 1.0.0 public runtime contract.
+state: BLOCKED
+candidate:
+  version: 2.0.0
+  commit: 2b1aee114abce5e96d3785c2f89873f06e950b0a
+  artifactDigest: null
+environment: Hermes production promotion / OCI
+observations:
+  - id: OBS-001
+    required: true
+    result: PASS
+    status: RESOLVED
+    summary: Formal product release 2.0.0 is defined on main without changing the 1.0.0 runtime contract, schema 0.6.1 or 27-tool public surface.
+    changeRecord: null
+    evidence: 'pr:105; main:2b1aee114abce5e96d3785c2f89873f06e950b0a'
+  - id: OBS-002
+    required: true
+    result: PASS
+    status: RESOLVED
+    summary: The underlying V2 Phase 9 development baseline is V2_PRODUCTION_READY and the dedicated secret-scan CI enforcement is merged.
+    changeRecord: null
+    evidence: 'pr:103; pr:104; accepted-development:5c761688fb6a28edfa8a65e18f2547b8fa3c7fba'
+  - id: OBS-003
+    required: true
+    result: BLOCKED
+    status: OPEN
+    summary: The last proven live OCI revision remains older than the 2.0.0 release definition; exact 2.0.0 artifact promotion and runtime verification remain outstanding.
+    changeRecord: null
+    evidence: 'live:7e4b6b1cd70ddda418f840f54ae7ecef30df52e9'
+promotionRecommendation: HOLD
+timestamps:
+  startedAt: '2026-08-09T20:44:00Z'
+  updatedAt: '2026-08-09T20:54:00Z'
+  closedAt: null
