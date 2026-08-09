@@ -25,3 +25,4 @@ All ADRs are **Proposed** unless explicitly promoted later through the repositor
 | ADR-0017 | Versioning and backward compatibility |
 | ADR-0018 | Observability and token economics |
 | ADR-0019 | Execution sandbox boundaries |
+| ADR-0020 | Defer runtime-maintenance and concurrency hardening to V2.1 |
