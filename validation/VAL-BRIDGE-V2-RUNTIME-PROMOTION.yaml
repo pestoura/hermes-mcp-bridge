@@ -1,0 +1,38 @@
+schemaVersion: jds.validation/v1
+kind: ValidationCampaign
+id: VAL-BRIDGE-V2-RUNTIME-PROMOTION
+product: hermes-mcp-bridge
+objective: Validate the current V2 Phase 9 repository head for controlled runtime promotion without declaring a formal V2 release version.
+state: BLOCKED
+candidate:
+  version: v2-phase9-promotion-candidate
+  commit: 5c761688fb6a28edfa8a65e18f2547b8fa3c7fba
+  artifactDigest: null
+environment: Hermes production promotion / OCI
+observations:
+  - id: OBS-001
+    required: true
+    result: PASS
+    status: RESOLVED
+    summary: Repository Phase 9 production gate is V2_PRODUCTION_READY.
+    changeRecord: null
+    evidence: 'pr:103; gate:V2_PRODUCTION_READY'
+  - id: OBS-002
+    required: true
+    result: PASS
+    status: RESOLVED
+    summary: Phase 9 secret scanner is enforced as a dedicated blocking CI job.
+    changeRecord: null
+    evidence: 'pr:104'
+  - id: OBS-003
+    required: true
+    result: BLOCKED
+    status: OPEN
+    summary: The last proven live OCI revision is older than the current repository head; exact artifact promotion and runtime verification remain outstanding.
+    changeRecord: null
+    evidence: 'live:7e4b6b1cd70ddda418f840f54ae7ecef30df52e9'
+promotionRecommendation: HOLD
+timestamps:
+  startedAt: '2026-08-09T20:44:00Z'
+  updatedAt: '2026-08-09T20:44:00Z'
+  closedAt: null
