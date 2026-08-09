@@ -1,0 +1,53 @@
+{
+  "adrs": [
+    "ADR-0028-runbook-canonical-ir-and-admission.md",
+    "ADR-0029-runbook-plan-digest-and-approval-binding.md",
+    "ADR-0030-runbook-least-privilege-computed-capabilities.md",
+    "ADR-0031-destructive-marker-and-rollback-declaration.md"
+  ],
+  "criteria": [
+    "a6_01",
+    "a6_02",
+    "a6_03",
+    "a6_04",
+    "a6_05",
+    "a6_06",
+    "a6_07",
+    "a6_08",
+    "a6_09",
+    "a6_10",
+    "a6_11",
+    "a6_12",
+    "a6_13",
+    "a6_14",
+    "a6_15",
+    "a6_16",
+    "a6_17",
+    "a6_18",
+    "a6_19",
+    "a6_20",
+    "a6_21",
+    "a6_22",
+    "a6_23",
+    "a6_24",
+    "a6_25",
+    "a6_26"
+  ],
+  "determinism_probe_runbook_digest": "81f9c87eef16af0bb83a611ce93d925b1d4f6fad70587463ace7dc03e5ace4d9",
+  "failures": [],
+  "gate": "RUNBOOK_ACCEPTED",
+  "module_digests": {
+    "v2/runbook_admission.py": "4b312fc433a5ef54e430296daced78648e962510b989d491c86d63a376e05a84",
+    "v2/runbook_compile.py": "404a892a5d084dd4f2d98f3daed5f13cd22d1ea27836431784a0c17d1f3c5956",
+    "v2/runbook_contract.py": "f1552d4aaf44403d0852ed9731894b221e21bc880e0560f26075b0a4ac7f06fd",
+    "v2/runbook_digest.py": "8f0e39b57ffb33c612355a3f076b0a4e21a7109f6687d72fe2ddd16ce7d4222e",
+    "v2/runbook_engine.py": "e594c30e37c9c92e0f03087c682cb831143f307835d227393e74897c8dc80a1a",
+    "v2/runbook_loader.py": "d4d93a216eeb509e77a0db1ef2a92427da2b38a12e47589d7f991b28cf276afa",
+    "v2/runbook_registry.py": "81693c761b4768647fd45ae9ae198bc7625a07432ab4a5a2f74e838c375d6a18"
+  },
+  "v1_contract": {
+    "contract_version": "1.0.0",
+    "schema_version": "0.6.1",
+    "tool_count": 27
+  }
+}

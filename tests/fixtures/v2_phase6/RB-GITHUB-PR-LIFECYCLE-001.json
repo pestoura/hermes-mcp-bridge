@@ -1,0 +1,57 @@
+{
+  "runbook_id": "RB-GITHUB-PR-LIFECYCLE-001",
+  "version": "1.0.0",
+  "title": "GitHub branch lifecycle on a disposable repository",
+  "description": "Reference exemplar: read repository metadata, then create a branch under a pinned tool version, with a registered inverse.",
+  "nodes": [
+    {
+      "key": "read_repo",
+      "tool": "github.get_repo",
+      "tool_version": "1.0.0",
+      "args": {"repository": "owner/disposable"},
+      "node_timeout_ms": 30000,
+      "retry_class": "NONE"
+    },
+    {
+      "key": "make_branch",
+      "tool": "github.create_branch",
+      "tool_version": "1.0.0",
+      "args": {"repository": "owner/disposable", "branch": "b", "sha": "s"},
+      "depends_on": ["read_repo"],
+      "compensation": "github.delete_branch",
+      "node_timeout_ms": 30000,
+      "retry_class": "NONE"
+    }
+  ],
+  "parameter_schema": [
+    {
+      "name": "repository",
+      "type": "resource_ref",
+      "required": true,
+      "resource_kind": "github_repository",
+      "constraints": {"max_length": 64},
+      "sensitivity": "public"
+    }
+  ],
+  "requires_capabilities": ["github.create_branch", "github.get_repo"],
+  "credential_capability_ids": ["github.write"],
+  "resource_scope": "owner/disposable",
+  "min_capability_state": "READY",
+  "policy_class": "MUTATING_LOW",
+  "approval_class": "SINGLE",
+  "destructive_action": false,
+  "accepted_irreversibility": false,
+  "rollback_support": "AUTOMATIC",
+  "timeout_ms": 300000,
+  "approval_ttl_ms": 300000,
+  "lease_ttl_ms": 60000,
+  "max_agentic_escalations": 0,
+  "max_agentic_tokens": 0,
+  "owner": {
+    "id": "platform-security",
+    "kind": "team",
+    "contact": "team:platform-security",
+    "review_cadence_days": 90
+  },
+  "requires_signature": false
+}
