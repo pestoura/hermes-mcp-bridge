@@ -1,0 +1,53 @@
+{
+  "budget": {
+    "max_checkpoint_bytes": 65536,
+    "max_external_calls": 8,
+    "max_nodes": 8,
+    "max_parallelism": 2,
+    "max_result_bytes": 65536,
+    "max_total_wall_ms": 60000
+  },
+  "deadline_ms": 60000,
+  "dry_run": true,
+  "expected_reason_code": "PLAN_UNREACHABLE_NODE",
+  "failure_policy": "fail_fast",
+  "mode": "DAG",
+  "nodes": [
+    {
+      "args": {
+        "repository": "owner/disposable"
+      },
+      "id": "a",
+      "kind": "TOOL",
+      "tool": "github.get_repo"
+    },
+    {
+      "args": {
+        "repository": "owner/disposable"
+      },
+      "id": "orphan",
+      "kind": "TOOL",
+      "tool": "github.get_repo"
+    },
+    {
+      "args": {},
+      "bindings": {
+        "args.value": {
+          "from": "a.result.topics",
+          "max_bytes": 1024,
+          "required": true,
+          "type": "list"
+        }
+      },
+      "depends_on": [
+        "a"
+      ],
+      "id": "c",
+      "kind": "TRANSFORM",
+      "op": "count"
+    }
+  ],
+  "plan_id": "fixture",
+  "rollback_policy": "none",
+  "schema_version": "v2-phase5-draft"
+}

@@ -1,0 +1,42 @@
+{
+  "budget": {
+    "max_checkpoint_bytes": 65536,
+    "max_external_calls": 8,
+    "max_nodes": 8,
+    "max_parallelism": 2,
+    "max_result_bytes": 65536,
+    "max_total_wall_ms": 60000
+  },
+  "deadline_ms": 60000,
+  "dry_run": true,
+  "expected_reason_code": "PLAN_CYCLE_DETECTED",
+  "failure_policy": "fail_fast",
+  "mode": "DAG",
+  "nodes": [
+    {
+      "args": {
+        "repository": "owner/disposable"
+      },
+      "depends_on": [
+        "b"
+      ],
+      "id": "a",
+      "kind": "TOOL",
+      "tool": "github.get_repo"
+    },
+    {
+      "args": {
+        "repository": "owner/disposable"
+      },
+      "depends_on": [
+        "a"
+      ],
+      "id": "b",
+      "kind": "TOOL",
+      "tool": "github.get_repo"
+    }
+  ],
+  "plan_id": "fixture",
+  "rollback_policy": "none",
+  "schema_version": "v2-phase5-draft"
+}
