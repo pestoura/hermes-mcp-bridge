@@ -97,6 +97,15 @@ class DigestMismatchError(ApprovalError):
     """The approval's ``operation_digest`` does not bind these arguments."""
 
 
+class MergeGovernanceError(MutationDeniedError):
+    """A governed-merge precondition failed or could not be evaluated.
+
+    Every merge gate is fail-closed: an unevaluable protection state, an
+    absent required-check set or an unverifiable review state raises this
+    error rather than proceeding.
+    """
+
+
 class IdempotencyConflictError(MutationDeniedError):
     """A record for this idempotency key forbids issuing a new write."""
 
@@ -128,6 +137,7 @@ __all__ = [
     "DuplicateCapabilityError",
     "DuplicateToolError",
     "IdempotencyConflictError",
+    "MergeGovernanceError",
     "MutationDeniedError",
     "MutationError",
     "MutationIndeterminateError",
