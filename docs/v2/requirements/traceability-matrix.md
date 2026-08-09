@@ -73,19 +73,30 @@ sanitized provider attestation with live probes       [IMPLEMENTED]
         ↓
 connected collector (5x3, fail-closed)                [IMPLEMENTED]
         ↓
-least-privilege GitHub App / fine-grained credential  [BLOCKED]
+least-privilege GitHub App / fine-grained credential  [SATISFIED]
         ↓
-DIRECT vs V1 shadow evidence + zero Hermes LLM tokens [PENDING]
+DIRECT vs V1 shadow evidence + zero Hermes LLM tokens [MEASURED]
         ↓
-DIRECT_READ_ACCEPTED                                  [NOT DECLARED]
+OUTER out-of-band integrity/provenance gate           [ACCEPTED]
+        ↓
+retained connected + OOB evidence                     [RETAINED]
+        ↓
+DIRECT_READ_ACCEPTED                                  [DECLARED]
+        ↓
+OUTER overall_status                                  [ACCEPTED]
 ```
 
-Repo-side status: **CANARY/COLLECTOR IMPLEMENTED · CONNECTED CREDENTIAL
-BLOCKED.** The only GitHub credential currently present on the Jarvas host is a
-classic broad PAT, which this gate refuses as least-privilege evidence; the 15
-connected samples are deliberately not collected until a GitHub App installation
-or fine-grained least-privilege credential exists. See
-`docs/v2/phase2-connected-acceptance.md`.
+Repo-side status: **PHASE 2 ACCEPTED.** The connected run used a
+least-privilege GitHub App installation credential (`broad_pat=false`), not the
+classic broad PAT that this gate refuses. Accepted source commit
+`818c56a467ed00b1412a219c78e3c68007848df3`: 15/15 semantic matches, 15/15
+provenance pass, `direct_total_tokens=0` against `agentic_total_tokens=13784`
+(100% reduction), 15 DIRECT provider calls, zero upstream Hermes LLM calls,
+zero mutations, and an out-of-band real-state delta of exactly zero rows with an
+identical before/after fingerprint. Retained evidence and digests are indexed in
+`docs/v2/evidence/README.md`; the gate conditions remain authoritative in
+`docs/v2/phase2-connected-acceptance.md` and
+`docs/v2/phase2-final-outer-gate.md`.
 
 Deferred design decisions such as a real generalized credential backend
 (OD-005), principal/tenant authorization (OD-007) and dynamic

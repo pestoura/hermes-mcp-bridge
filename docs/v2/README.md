@@ -1,10 +1,10 @@
 # Hermes MCP Bridge v2 — Architecture Baseline
 
-> **V2 · IMPLEMENTATION IN PROGRESS · PHASES 0–1 ACCEPTED · PHASE 2 CONNECTED ACCEPTANCE IN PROGRESS · V1 PRESERVED**
+> **V2 · IMPLEMENTATION IN PROGRESS · PHASES 0–2 ACCEPTED · V1 PRESERVED**
 >
 > Baseline date: **2026-08-08**. Repository: `pestoura/hermes-mcp-bridge`.
 
-This directory records the evolution of the existing Hermes MCP Bridge into a **Hermes Execution Gateway / Secure Execution Control Plane**. V2 proceeds through explicit evidence gates. Phase 0 (`BASELINE_ACCEPTED`) and Phase 1 (`REGISTRY_ACCEPTED`) are accepted. Phase 2 (GitHub DIRECT Read-Only MVP) has its repository-side DIRECT executor, least-privilege GitHub App provider, canary, connected collector, mint/rotation helper and Jarvas launcher implemented; the real 15-sample Jarvas/Hermes acceptance is still required before `DIRECT_READ_ACCEPTED` may be declared. The operational V1 remains exactly 27 MCP tools.
+This directory records the evolution of the existing Hermes MCP Bridge into a **Hermes Execution Gateway / Secure Execution Control Plane**. V2 proceeds through explicit evidence gates. Phase 0 (`BASELINE_ACCEPTED`) and Phase 1 (`REGISTRY_ACCEPTED`) are accepted. Phase 2 (GitHub DIRECT Read-Only MVP) is accepted (`DIRECT_READ_ACCEPTED` inner gate plus OUTER `ACCEPTED`) on source commit `818c56a467ed00b1412a219c78e3c68007848df3`; see `evidence/README.md` for the retained sanitized evidence and digests. The operational V1 remains exactly 27 MCP tools.
 
 See `evidence/README.md` for the acceptance evidence index and `roadmap.md` for phase gates.
 
@@ -79,28 +79,31 @@ scripts/validate_v2_phase2_connected_gate.py
 
 which binds the 15-sample evidence to a live isolated-shadow proof for the same source commit and repository scope.
 
-`DIRECT_READ_ACCEPTED` is **not** declared until this strict connected gate returns zero failures on actual Jarvas/Hermes. ChatGPT's GitHub connector and repository CI are prerequisites/supporting evidence, not substitutes for that connected run.
+`DIRECT_READ_ACCEPTED` was declared only after this strict connected gate returned zero failures on actual Jarvas/Hermes, and the OUTER gate returned `ACCEPTED`. ChatGPT's GitHub connector and repository CI remained prerequisites/supporting evidence, never substitutes for that connected run.
 
 Relevant Phase 2 documents:
 
 - `phase2-connected-acceptance.md` — connected sample/evidence contract (INNER gate);
 - `phase2-final-outer-gate.md` — OUTER final gate: internal-tool provenance plus
-  out-of-band real-state integrity. REQUIRED for a formal `ACCEPTED`; status is
-  still NOT ACCEPTED until a real out-of-band Jarvas run passes;
+  out-of-band real-state integrity. REQUIRED for a formal `ACCEPTED`; a real
+  out-of-band Jarvas run passed and the manifest records `ACCEPTED`;
 - `github-app-runtime-credential.md` — least-privilege GitHub App mint/rotation boundary;
 - `phase2-jarvas-connected-launcher.md` — one-shot Jarvas execution path;
 - `phase2-isolated-readonly-shadow.md` — mechanical proof for V1 shadow non-mutation.
 
 ## Next gated phase
 
-Phase 3 — GitHub DIRECT mutations — remains blocked until Phase 2 produces:
+Phase 2 produced the required result:
 
 ```text
 failures=[]
 gate=DIRECT_READ_ACCEPTED
+overall_status=ACCEPTED
 ```
 
-There is no early implementation/promotion of Phase 3 from CI-only or mock evidence.
+Phase 3 — GitHub DIRECT mutations — is therefore unblocked as a design lane, but
+still carries its own gate `DIRECT_MUTATION_ACCEPTED`. There is no early
+implementation/promotion of Phase 3 from CI-only or mock evidence.
 
 ## Document map
 
