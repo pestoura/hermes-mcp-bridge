@@ -53,22 +53,39 @@ jobs:
       - name: Test
         run: python -m pytest -q
 
+  acceptance:
+    name: image / isolated acceptance / trivy / sbom
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install package and development dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev]'
+
       - name: Generate Phase 1 registry acceptance evidence
-        if: matrix.python-version == '3.12'
         run: |
           python scripts/v2_phase1_registry_acceptance.py \
             --source-commit "${{ github.sha }}" \
             --json-out phase1-registry-acceptance.json
 
       - name: Validate Phase 1 registry acceptance evidence
-        if: matrix.python-version == '3.12'
         run: |
           python scripts/validate_v2_phase1_registry_evidence.py \
             phase1-registry-acceptance.json \
             --json-out phase1-registry-gate.json
 
       - name: Retain Phase 1 registry acceptance evidence
-        if: matrix.python-version == '3.12'
         env:
           GH_TOKEN: ${{ github.token }}
           PHASE1_EVIDENCE_TAG: phase1-registry-evidence-${{ github.sha }}
@@ -121,10 +138,9 @@ jobs:
           printf 'retained_phase1_gate_sha256=%s\n' "$GATE_SHA256"
 
       # Preserve the established step name because acceptance tests treat its
-      # ordering as a release contract. The build itself now carries immutable
+      # ordering as a release contract. The build itself carries immutable
       # provenance and is separately validated before isolated acceptance.
       - name: Build runtime image
-        if: matrix.python-version == '3.12'
         run: |
           set -Eeuo pipefail
           CREATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -139,7 +155,6 @@ jobs:
             .
 
       - name: Validate image provenance
-        if: matrix.python-version == '3.12'
         run: |
           python scripts/validate_image_provenance.py \
             --image hermes-mcp-bridge:ci \
@@ -151,13 +166,11 @@ jobs:
             --output image-provenance.json
 
       - name: Accept candidate in isolated Docker stack
-        if: matrix.python-version == '3.12'
         run: |
           python scripts/isolated_acceptance_1_0_0.py \
             --image hermes-mcp-bridge:ci
 
       - name: Scan runtime image (Trivy)
-        if: matrix.python-version == '3.12'
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: hermes-mcp-bridge:ci
@@ -167,7 +180,6 @@ jobs:
           ignore-unfixed: true
 
       - name: Generate SBOM (CycloneDX)
-        if: matrix.python-version == '3.12'
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: hermes-mcp-bridge:ci
@@ -176,7 +188,6 @@ jobs:
           output: sbom-cyclonedx.json
 
       - name: Validate generated SBOM
-        if: matrix.python-version == '3.12'
         run: |
           python - <<'PY'
           import json
@@ -196,7 +207,6 @@ jobs:
       # Preserve the established retention step/error contract while extending
       # the same blocking draft-release evidence with sanitized provenance.
       - name: Retain SBOM as release evidence
-        if: matrix.python-version == '3.12'
         env:
           GH_TOKEN: ${{ github.token }}
           EVIDENCE_TAG: sbom-evidence-${{ github.sha }}
