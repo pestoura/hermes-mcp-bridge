@@ -25,3 +25,7 @@ All ADRs are **Proposed** unless explicitly promoted later through the repositor
 | ADR-0017 | Versioning and backward compatibility |
 | ADR-0018 | Observability and token economics |
 | ADR-0019 | Execution sandbox boundaries |
+| ADR-0020 | GitHub write capability separation (Phase 3 preparation) |
+| ADR-0021 | Operation digest for single-node mutations (Phase 3 preparation) |
+| ADR-0022 | GitHub mutation idempotency and optimistic concurrency (Phase 3 preparation) |
+| ADR-0023 | Governed merge and destructive-operation exclusion (Phase 3 preparation) |

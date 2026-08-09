@@ -105,6 +105,12 @@ Phase 3 — GitHub DIRECT mutations — is therefore unblocked as a design lane,
 still carries its own gate `DIRECT_MUTATION_ACCEPTED`. There is no early
 implementation/promotion of Phase 3 from CI-only or mock evidence.
 
+A **preparation-only** design lane for Phase 3 exists in `phase3/`. It contains
+the mutation threat model, credential split, operation semantics, governed merge
+policy, idempotency/concurrency model, approval/digest model, audit contract,
+rollback rules, fail-closed acceptance criteria and the planned mutation test
+matrix. It defines no tool, changes no gate and is not acceptance evidence.
+
 ## Document map
 
 - `architecture/` — as-is, target architecture, execution modes, registries, credentials, governance, scheduling, result shaping and observability.
@@ -112,6 +118,7 @@ implementation/promotion of Phase 3 from CI-only or mock evidence.
 - `requirements/` — functional, security and non-functional requirements plus traceability.
 - `contracts/` — conceptual DIRECT, BATCH, DAG, RUNBOOK and HYBRID contracts.
 - `adrs/` — architectural decision records and remaining open questions.
+- `phase3/` — Phase 3 preparation-only design lane (no implementation).
 - `evidence/` — retained acceptance evidence and release manifests.
 - `roadmap.md` — phased implementation plan and gates.
 - `risk-register.md` — V2 risks and mitigations.

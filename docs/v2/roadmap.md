@@ -160,6 +160,15 @@ Candidate operations include create branch and create PR; merge is conditional/g
 
 Add mutation-specific idempotency/replay protection, locks/optimistic concurrency where appropriate, plan/operation digests and approvals. Dedicated least-privilege write capability is required.
 
+**Preparation lane (design only, no implementation):** `docs/v2/phase3/` holds
+the mutation threat model, credential split, `create_branch`/`create_pr`
+semantics, governed merge and destructive-operation exclusion, idempotency and
+optimistic concurrency, operation digest/approval model, audit and evidence
+contract, rollback/compensation rules, fail-closed acceptance criteria and the
+planned mutation test matrix. Supporting decisions: ADR-0020..ADR-0023
+(Proposed). No Phase 3 tool, code path or gate change exists, and none may be
+introduced before `DIRECT_READ_ACCEPTED`.
+
 **Gate:** `DIRECT_MUTATION_ACCEPTED`.
 
 ## PHASE 4 — BATCH Engine
