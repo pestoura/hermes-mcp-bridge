@@ -73,12 +73,23 @@ sanitized provider attestation with live probes       [IMPLEMENTED]
         ↓
 connected collector (5x3, fail-closed)                [IMPLEMENTED]
         ↓
+OUTER out-of-band integrity/provenance gate           [IMPLEMENTED]
+        ↓
 least-privilege GitHub App / fine-grained credential  [BLOCKED]
         ↓
-DIRECT vs V1 shadow evidence + zero Hermes LLM tokens [PENDING]
+DIRECT vs V1 shadow evidence + zero Hermes LLM tokens [NOT_RUN]
+        ↓
+retained connected + OOB evidence slots               [NOT_RUN]
         ↓
 DIRECT_READ_ACCEPTED                                  [NOT DECLARED]
+        ↓
+OUTER overall_status                                  [NOT ACCEPTED]
 ```
+
+Evidence reception structure (slots, expected fields and retention rules) is
+defined in `docs/v2/evidence/README.md`. No connected or out-of-band evidence is
+retained yet, so no row in this matrix may be treated as satisfied by a Phase 2
+connected measurement.
 
 Repo-side status: **CANARY/COLLECTOR IMPLEMENTED · CONNECTED CREDENTIAL
 BLOCKED.** The only GitHub credential currently present on the Jarvas host is a

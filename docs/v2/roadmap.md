@@ -107,8 +107,20 @@ unwired from the V1 MCP server. The V1 contract remains exactly 27 tools.
 **Core CI status:** PR #49 reached a fully GREEN repository-side cycle on CI
 #197 after correcting lint and preserving the legacy `PHASE1_STATUS` marker;
 Phase 1 gate validation, image provenance, isolated Docker acceptance, Trivy and
-SBOM remained GREEN. A final CI cycle is still required after this roadmap and
-traceability update before merge.
+SBOM remained GREEN. Subsequent repository-side work (connected gate, canary
+router, OUTER final integrity/provenance gate and the Phase 2 shadow-home
+fixes) is merged into `main`; it adds assurance machinery only and declares no
+acceptance.
+
+**Two gates are required.** The inner semantic/economics gate
+(`docs/v2/phase2-connected-acceptance.md`) and the OUTER integrity/provenance
+gate (`docs/v2/phase2-final-outer-gate.md`) must both pass. An inner
+`DIRECT_READ_ACCEPTED` alone is not sufficient for formal acceptance.
+
+**Evidence reception:** the retention slots and expected fields for the
+connected and out-of-band documents are defined in
+`docs/v2/evidence/README.md`. All slots are currently `NOT_RUN`; no connected or
+out-of-band evidence is retained in this repository.
 
 **Still required for `DIRECT_READ_ACCEPTED`:**
 
@@ -120,12 +132,16 @@ traceability update before merge.
 5. shadow comparison of the five DIRECT reads against the V1 agentic path;
 6. measure latency, provider API calls and raw-vs-returned bytes while proving
    **zero Hermes LLM token usage** on DIRECT execution;
-7. retain connected, fail-closed acceptance evidence.
+7. retain connected, fail-closed acceptance evidence;
+8. execute the OUTER out-of-band state-integrity/provenance run and retain its
+   evidence and manifest.
 
 Availability/authorization must not be inferred from the ChatGPT GitHub
 connector. See `docs/v2/architecture/github-direct-read.md`.
 
-**Gate:** `DIRECT_READ_ACCEPTED` — **pending connected Jarvas evidence**.
+**Gate:** `DIRECT_READ_ACCEPTED` — **NOT DECLARED**, pending connected Jarvas
+evidence. OUTER `overall_status` — **NOT ACCEPTED**, pending a real
+out-of-band run. Issue #51 stays open until both are produced and validated.
 
 ## PHASE 3 — GitHub Mutations
 
