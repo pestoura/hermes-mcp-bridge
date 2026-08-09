@@ -158,12 +158,13 @@ the collector begins strict read-only `session_model_usage` accounting.
 The live probe writes only sanitized evidence with schema:
 
 ```text
-hermes-v2-phase2-shadow-isolation/2
+hermes-v2-phase2-shadow-isolation/3
 ```
 
 It records the source commit, exact repository scopes, zero native toolsets,
-exact resolver result, exact derived MCP tool names, GET-only server contract,
-probe status codes and a timezone-aware confirmation time. It does not record
+exact resolver result, exact derived MCP tool names, proof that progressive
+tool disclosure is disabled, GET-only server contract, probe status codes and a
+timezone-aware confirmation time. It does not record
 the API key, GitHub token, PEM, provider credential value, prompts, raw outputs,
 raw Hermes logs or secret paths.
 

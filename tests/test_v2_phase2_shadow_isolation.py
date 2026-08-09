@@ -44,6 +44,7 @@ def valid_shadow() -> dict[str, Any]:
         "effective_toolsets": [SHADOW_MCP_SERVER],
         "native_toolsets_enabled": [],
         "effective_tools": sorted(SHADOW_HERMES_TOOL_NAMES),
+        "tool_deferral_disabled": True,
         "resolver_exact": True,
         "mcp_server_config_exact": True,
         "repository_scopes": [REPOSITORY],
@@ -102,12 +103,22 @@ def test_shadow_isolation_rejects_native_toolset() -> None:
 
 
 def test_shadow_isolation_rejects_unproven_resolver_or_config() -> None:
-    for field in ("resolver_exact", "mcp_server_config_exact"):
+    for field in ("resolver_exact", "mcp_server_config_exact", "tool_deferral_disabled"):
         payload = valid_shadow()
         payload[field] = False
         assert f"shadow_isolation_invalid:{field}" in validate_shadow_isolation(
             payload, repositories={REPOSITORY}, source_commit=SOURCE_COMMIT
         )
+
+
+def test_shadow_isolation_requires_tool_deferral_field() -> None:
+    """Progressive disclosure would hide the authorized five-tool surface behind
+    generic bridge tools, so its absence must never validate silently."""
+    payload = valid_shadow()
+    del payload["tool_deferral_disabled"]
+    assert "shadow_isolation_fields_invalid" in validate_shadow_isolation(
+        payload, repositories={REPOSITORY}, source_commit=SOURCE_COMMIT
+    )
 
 
 def test_shadow_isolation_rejects_repo_or_commit_drift() -> None:
@@ -195,3 +206,16 @@ def test_shadow_probe_composes_native_endpoint_and_actual_resolver_proof() -> No
     assert 'server_cfg["tools"].get("include") == expected_tools' in text
     assert 'server_cfg["tools"].get("resources") is False' in text
     assert 'server_cfg["tools"].get("prompts") is False' in text
+    # Progressive tool disclosure must be proven inert from the installed
+    # tool-search implementation, not merely from the written config.
+    assert "from tools.tool_search import load_config as _load_ts_config" in text
+    assert 'deferral_disabled = _load_ts_config().enabled == "off"' in text
+    assert 'ProbeError("SHADOW_TOOL_DEFERRAL_ACTIVE")' in text
+
+
+def test_shadow_home_disables_progressive_tool_disclosure() -> None:
+    """All five authorized tools are MCP tools, so Hermes' default "auto"
+    deferral would replace them with tool_search/tool_describe/tool_call and
+    the connected run would fail provenance."""
+    text = PREPARE.read_text(encoding="utf-8")
+    assert 'target["tools"] = {"tool_search": {"enabled": "off"}}' in text

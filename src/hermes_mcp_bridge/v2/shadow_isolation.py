@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-SHADOW_ISOLATION_SCHEMA = "hermes-v2-phase2-shadow-isolation/2"
+SHADOW_ISOLATION_SCHEMA = "hermes-v2-phase2-shadow-isolation/3"
 SHADOW_SERVER_CONTRACT = "github-direct-read-fixed-repository/1"
 SHADOW_MCP_SERVER = "phase2-read"
 # Compatibility alias for the evidence vocabulary used by the Phase 2 gate.
@@ -43,6 +43,7 @@ _ALLOWED_KEYS = frozenset(
         "effective_toolsets",
         "native_toolsets_enabled",
         "effective_tools",
+        "tool_deferral_disabled",
         "resolver_exact",
         "mcp_server_config_exact",
         "repository_scopes",
@@ -120,6 +121,10 @@ def validate_shadow_isolation(
         "api_auth_required": True,
         "resolver_exact": True,
         "mcp_server_config_exact": True,
+        # Progressive tool disclosure (tool_search/tool_describe/tool_call)
+        # must be off, or the authorized five-tool surface is replaced by
+        # generic bridge tools and the shadow stops being a faithful V1 path.
+        "tool_deferral_disabled": True,
         "credential_provider_type": "github_app",
         "credential_capability": "github.read",
         "credential_file_backed": True,
