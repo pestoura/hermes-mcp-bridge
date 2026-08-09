@@ -681,6 +681,46 @@ def _shadow_data(payload: Any) -> Any:
     return None
 
 
+#: Envelope keys the V1 answer may be carried under, in a fixed order.
+_SHADOW_ENVELOPE_KEYS = ("result", "output", "text", "content", "response")
+
+
+def _shadow_data_strict(payload: Any) -> Any:
+    """Strict, fail-closed extraction of the V1 shadow answer.
+
+    Used by the connected acceptance path. Unlike :func:`_shadow_data` it
+    performs no brace repair, no substring scanning, no retry and no
+    heuristic unwrapping:
+
+    * the envelope must be an object carrying exactly one known answer key;
+    * a string answer must parse as a whole-string JSON **object**;
+    * anything else (prose, code fence, several concatenated objects, a
+      non-object JSON value, an empty object) yields ``None``.
+    """
+
+    if not isinstance(payload, dict):
+        return None
+
+    present = [key for key in _SHADOW_ENVELOPE_KEYS if key in payload]
+    if len(present) != 1:
+        return None
+    value = payload[present[0]]
+
+    if isinstance(value, dict):
+        if not value or any(key in value for key in _SHADOW_ENVELOPE_KEYS):
+            return None
+        return value
+
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value.strip())
+        except json.JSONDecodeError:
+            return None
+        if isinstance(parsed, dict) and parsed:
+            return parsed
+    return None
+
+
 async def _run_shadow(session: Any, prompt: str, wait_seconds: float) -> Any:
     from datetime import timedelta
 
@@ -815,7 +855,7 @@ async def collect(args: argparse.Namespace) -> dict[str, Any]:
                 )
                 shadow_latency = (time.monotonic() - shadow_started) * 1000.0
                 shadow_payload = _payload(shadow_raw)
-                shadow_data = _shadow_data(shadow_payload)
+                shadow_data = _shadow_data_strict(shadow_payload)
                 if shadow_data is None:
                     raise CollectorError("SHADOW_RESULT_UNPARSEABLE")
 
