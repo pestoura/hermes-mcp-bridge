@@ -1,0 +1,16 @@
+{
+  "base_commit": "",
+  "failures": [],
+  "gate": "DIRECT_MUTATION_ACCEPTED",
+  "module_binding_sha256": {
+    "v2/github_auth.py": "8cbaa86f059930dbd0ca5e6674c4d78f126dc2284070c736532f9d479068b59c",
+    "v2/github_governed_merge.py": "ae45c817d8b6c99950c500fc1320b5a7cb4f7f55717b7cdaca6358eb162f187b",
+    "v2/github_merge_executor.py": "023130a2c21d2108342bca6cd1eea5629dfb9325483d5e2d70f0e48930424e66",
+    "v2/github_mutations.py": "194d1037bd76b093fa5a9935e2972b7a6d46ba13332ac0756c739f5cf38bfa86",
+    "v2/github_write_credentials.py": "90bf11ab96bf0b40ed4fe354d9e3e9b6d76f2d321891664df5c6b38ccf7c2cbc",
+    "v2/mutation_audit.py": "40e1018e8aeab4df19ef3f65d0d090ac52ac5a7a4df23ea681ed9a2f16ff7ac2",
+    "v2/mutation_digest.py": "f22ee6ac5324093994d5bfa7576ab47c6a486fdf4da493b5efba385fa56ccc8e",
+    "v2/mutation_idempotency.py": "7bb078835c9a3578e446929064e5365594b78e8032196bc6f2f5ded5308d6ee3"
+  },
+  "source_commit": "8fc8363a3eb31db99c18afb39fcd78bde011e2b6"
+}
