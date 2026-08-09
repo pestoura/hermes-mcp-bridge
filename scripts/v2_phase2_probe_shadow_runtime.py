@@ -149,6 +149,11 @@ exact = bool(
     and server_cfg["tools"].get("resources") is False
     and server_cfg["tools"].get("prompts") is False
     and server_cfg.get("supports_parallel_tool_calls") is False
+    # Progressive tool disclosure must stay OFF: under the tool_search bridge
+    # the five named MCP tools are not directly callable and no named tool
+    # call is attributable in the shadow transcript.
+    and (((config.get("tools") or {}).get("tool_search") or {}).get("enabled"))
+    == "off"
 )
 print(json.dumps({"resolved": resolved, "config_exact": exact}, sort_keys=True))
 '''
