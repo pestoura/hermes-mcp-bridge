@@ -23,6 +23,12 @@ Hermes control run has fully ended, and finishes before any new control run
 begins. A measurement taken in-band can only ever prove a bounded, explained
 delta — never zero.
 
+> **Superseded for acceptance purposes.** This foundation is now consumed by
+> the OUTER final gate; see
+> [`phase2-final-outer-gate.md`](phase2-final-outer-gate.md), which adds the
+> guarded PRE/inner/POST runner, the shadow-activity proof and the final
+> validator/manifest. Status remains NOT ACCEPTED.
+
 ## Components landed in this branch
 
 | Concern | Location | Default |

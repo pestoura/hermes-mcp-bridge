@@ -55,6 +55,13 @@ from .errors import (
     UnknownToolError,
     V2Error,
 )
+from .final_gate import (
+    FINAL_EVIDENCE_SCHEMA,
+    FINAL_MANIFEST_SCHEMA,
+    STATE_INTEGRITY_DOC_SCHEMA,
+    final_manifest,
+    validate_final_evidence,
+)
 from .github_attestation import (
     ALLOWED_CONFIRMATION_SOURCES,
     ATTESTATION_INPUT_SCHEMA,
@@ -118,11 +125,19 @@ from .policy import (
 from .projection import ProjectedTool, ProjectionContext, ProjectionResult, project_capabilities
 from .registry import CapabilitySnapshot, ToolRegistry
 from .schema import ResourceKey, RetryPolicy, ToolDefinition
+from .tool_provenance import (
+    PROVENANCE_SCHEMA,
+    ProvenanceError,
+    ToolProvenanceRecord,
+    collect_tool_provenance,
+)
 
 __all__ = [
     "ALLOWED_CONFIRMATION_SOURCES",
     "ATTESTATION_INPUT_SCHEMA",
     "DEFAULT_SECRET_NAME",
+    "FINAL_EVIDENCE_SCHEMA",
+    "FINAL_MANIFEST_SCHEMA",
     "GITHUB_ACCEPT",
     "GITHUB_API_BASE_URL",
     "GITHUB_API_CAPABILITY",
@@ -132,7 +147,9 @@ __all__ = [
     "PHASE1_GATE",
     "PHASE1_STATUS",
     "PHASE2_STATUS",
+    "PROVENANCE_SCHEMA",
     "REQUIRED_PERMISSIONS",
+    "STATE_INTEGRITY_DOC_SCHEMA",
     "ApprovalRequirement",
     "AttestationError",
     "AuthorizationStatus",
@@ -170,6 +187,7 @@ __all__ = [
     "ProjectedTool",
     "ProjectionContext",
     "ProjectionResult",
+    "ProvenanceError",
     "ProviderAttestation",
     "ProviderAttestationInput",
     "ReasonCode",
@@ -183,6 +201,7 @@ __all__ = [
     "StaticCredentialBroker",
     "StaticGitHubAuthorizationProvider",
     "ToolDefinition",
+    "ToolProvenanceRecord",
     "ToolRegistry",
     "UnknownCapabilityError",
     "UnknownToolError",
@@ -193,11 +212,14 @@ __all__ = [
     "canonical_json_text",
     "capability_state_for",
     "classify_material",
+    "collect_tool_provenance",
+    "final_manifest",
     "github_direct_read_definitions",
     "github_direct_read_policy_rules",
     "load_attestation_input",
     "project_capabilities",
     "sha256_hex",
+    "validate_final_evidence",
 ]
 
 #: Legacy Phase 1 implementation marker retained for V1/V2 compatibility tests.
