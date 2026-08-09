@@ -49,6 +49,7 @@ from .batch_contract import (
 from .batch_scheduler import BatchScheduler, GlobalCapacity, StepDecision
 from .canonical import canonical_json_bytes, canonical_json_text, sha256_hex
 from .capabilities import CapabilityDescriptor, CapabilityRegistry
+from .composition import CapabilityDisabled, V2Composition
 from .credentials import (
     CredentialBroker,
     CredentialCapabilityStatus,
@@ -188,6 +189,15 @@ from .policy import (
     PolicyRuleSet,
     ReasonCode,
 )
+from .production_profile import (
+    DISABLED_PROFILE,
+    MAX_AGENTIC_TOKEN_BUDGET,
+    REQUIRED_PRODUCTION_CAPABILITIES,
+    V2_PROFILE_CONTRACT_VERSION,
+    ProfileConfigError,
+    V2Capability,
+    V2ProductionProfile,
+)
 from .projection import ProjectedTool, ProjectionContext, ProjectionResult, project_capabilities
 from .registry import CapabilitySnapshot, ToolRegistry
 from .schema import ResourceKey, RetryPolicy, ToolDefinition
@@ -210,6 +220,7 @@ __all__ = [
     "BATCH_MAX_PARALLELISM_MUTATION",
     "BATCH_MAX_TIMEOUT_S",
     "DEFAULT_SECRET_NAME",
+    "DISABLED_PROFILE",
     "FINAL_EVIDENCE_SCHEMA",
     "FINAL_MANIFEST_SCHEMA",
     "FORBIDDEN_PERMISSION",
@@ -219,6 +230,7 @@ __all__ = [
     "GITHUB_API_VERSION",
     "GITHUB_DIRECT_READ_TOOL_IDS",
     "GITHUB_READ_CREDENTIAL_CAPABILITY",
+    "MAX_AGENTIC_TOKEN_BUDGET",
     "MERGE_GATE_ORDER",
     "MERGE_POLICY_ACTION",
     "MERGE_RESULT_SCHEMA",
@@ -233,7 +245,9 @@ __all__ = [
     "PROVENANCE_SCHEMA",
     "READ_CAPABILITY_ID",
     "REQUIRED_PERMISSIONS",
+    "REQUIRED_PRODUCTION_CAPABILITIES",
     "STATE_INTEGRITY_DOC_SCHEMA",
+    "V2_PROFILE_CONTRACT_VERSION",
     "ApprovalError",
     "ApprovalRequirement",
     "ApprovalState",
@@ -250,6 +264,7 @@ __all__ = [
     "BatchValidationError",
     "BranchProtectionState",
     "CapabilityDescriptor",
+    "CapabilityDisabled",
     "CapabilityRegistry",
     "CapabilitySnapshot",
     "CapabilityState",
@@ -302,6 +317,7 @@ __all__ = [
     "PolicyEvaluation",
     "PolicyRule",
     "PolicyRuleSet",
+    "ProfileConfigError",
     "ProjectedTool",
     "ProjectionContext",
     "ProjectionResult",
@@ -327,7 +343,10 @@ __all__ = [
     "ToolRegistry",
     "UnknownCapabilityError",
     "UnknownToolError",
+    "V2Capability",
+    "V2Composition",
     "V2Error",
+    "V2ProductionProfile",
     "WriteCapabilityError",
     "WriteCapabilityId",
     "assert_no_repository_deletion_path",
