@@ -25,7 +25,7 @@ jobs:
           python-version: "3.12"
 
       - name: Validate release maintenance records
-        uses: pestoura/jarvas-engineering-platform/.github/actions/release-governance@316574e0d351c3d8e53d59ceab569924eed5f290
+        uses: pestoura/jarvas-engineering-platform/.github/actions/release-governance@f25c8062bf3944560160de9419887fb7ad096918
         with:
           change-dir: changes
           campaign-dir: validation
