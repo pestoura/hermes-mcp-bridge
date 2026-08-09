@@ -64,7 +64,7 @@ def _gateway_source_path() -> Path | None:
 
         if gateway.__file__:
             candidates.append(Path(gateway.__file__).resolve().parents[1])
-    except Exception:  # noqa: BLE001 - absence is a supported state, not an error
+    except Exception:  # absence is a supported state, not an error
         pass
     candidates.append(Path.home() / ".hermes" / "hermes-agent")
 

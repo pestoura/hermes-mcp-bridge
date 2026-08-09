@@ -1,38 +1,38 @@
 {
   "distributions": {
     "batch_16_nodes": {
-      "max_ms": 0.3825,
-      "mean_ms": 0.1734,
-      "p50_ms": 0.1406,
-      "p95_ms": 0.2783,
-      "p99_ms": 0.2943,
+      "max_ms": 0.2511,
+      "mean_ms": 0.1423,
+      "p50_ms": 0.1206,
+      "p95_ms": 0.2265,
+      "p99_ms": 0.2326,
       "samples": 2000,
       "warmup_samples": 200
     },
     "dag_8_nodes": {
-      "max_ms": 15.8448,
-      "mean_ms": 0.1861,
-      "p50_ms": 0.1405,
-      "p95_ms": 0.267,
-      "p99_ms": 0.2894,
+      "max_ms": 0.4996,
+      "mean_ms": 0.1128,
+      "p50_ms": 0.1083,
+      "p95_ms": 0.1314,
+      "p99_ms": 0.1842,
       "samples": 2000,
       "warmup_samples": 200
     },
     "direct_single_node": {
-      "max_ms": 0.1587,
-      "mean_ms": 0.0548,
-      "p50_ms": 0.043,
-      "p95_ms": 0.089,
-      "p99_ms": 0.0985,
+      "max_ms": 0.0907,
+      "mean_ms": 0.0398,
+      "p50_ms": 0.0388,
+      "p95_ms": 0.0475,
+      "p99_ms": 0.0677,
       "samples": 2000,
       "warmup_samples": 200
     },
     "refusal_no_coverage": {
-      "max_ms": 0.3806,
-      "mean_ms": 0.0688,
-      "p50_ms": 0.0756,
-      "p95_ms": 0.085,
-      "p99_ms": 0.0975,
+      "max_ms": 0.1101,
+      "mean_ms": 0.0333,
+      "p50_ms": 0.0324,
+      "p95_ms": 0.0385,
+      "p99_ms": 0.0523,
       "samples": 2000,
       "warmup_samples": 200
     }

@@ -56,12 +56,13 @@ class DrillResult:
     failures: tuple[str, ...] = ()
 
     def canonical(self) -> dict[str, Any]:
+        outcome = bool(self.passed)
         return {
             "drill": self.drill,
             "elapsed_seconds": round(self.elapsed_seconds, 3),
             "failures": list(self.failures),
             "observations": dict(sorted(self.observations.items())),
-            "passed": self.passed,
+            "passed": outcome,
             "target_seconds": self.target_seconds,
         }
 

@@ -225,8 +225,12 @@ def check_case_coverage() -> list[str]:
         return ["P9-06: failure/continuity catalogue suites missing"]
     catalogue_text = catalogue.read_text(encoding="utf-8")
     continuity_text = continuity.read_text(encoding="utf-8")
-    missing_f = [case for case in REQUIRED_FAILURE_CASES if f"def test_{case}" not in catalogue_text]
-    missing_c = [case for case in REQUIRED_CONTINUITY_CASES if f"def test_{case}" not in continuity_text]
+    missing_f = [
+        case for case in REQUIRED_FAILURE_CASES if f"def test_{case}" not in catalogue_text
+    ]
+    missing_c = [
+        case for case in REQUIRED_CONTINUITY_CASES if f"def test_{case}" not in continuity_text
+    ]
     if missing_f:
         failures.append(f"P9-06: failure cases without a test: {','.join(missing_f)}")
     if missing_c:
