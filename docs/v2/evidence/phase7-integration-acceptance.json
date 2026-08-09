@@ -33,13 +33,13 @@
   "failures": [],
   "gate": "INTEGRATIONS_ACCEPTED",
   "module_binding_sha256": {
-    "v2/provider_audit.py": "3415e17f3454d44d6fffffc8b17b0c0c4b58d557dfb798d1aecb5458221dc903",
-    "v2/provider_contract.py": "ffd71690f627c71d6a3d94b361f1571f9471dd619d96433f1cdcbd2b37e23943",
+    "v2/provider_audit.py": "d2d591d11360b46bc2f746d34ba8a2848ee1f9bf4c35bca2282f524b358e5286",
+    "v2/provider_contract.py": "e651e47970257381b5330fcc1213ea5961fc1bed209272d0a0bfc459ff0dbf27",
     "v2/provider_credentials.py": "1b66b7cbe796f58300773bf5de94b8c63bf720697c0e62774f91669a74d1d52b",
-    "v2/provider_gateway.py": "985b79dd0e57e886c6da0d17a451819bec44d8163bd337ac33048804153b03cc",
+    "v2/provider_gateway.py": "7f01da4ac473200790b72360ed28580846d27865e586115c4410eb344ab705c6",
     "v2/provider_health.py": "59545bd3811a5d065cb0ba363b24c12fd2caabecd31e88496ed400dc39da4d27",
-    "v2/provider_manifests.py": "40b0a2f42f42e004e93891eea3d11ff224e3f6a8a62f7c200023fa988f2f64c5",
-    "v2/provider_registry.py": "38da7d33f5e6ec52ed4b7f5d8bfc9db69eb0ed43d4fa83a55841d4017fb182a6"
+    "v2/provider_manifests.py": "b81d8420f34a797aa35d8086ec1831a12e95bbfedba1b09e388bdf914d7fa833",
+    "v2/provider_registry.py": "7723895fad85e352f464c18167dc9640f92589baca29dbca841e3ed2427c100c"
   },
-  "source_commit": "7e4b6b1cd70ddda418f840f54ae7ecef30df52e9"
+  "source_commit": "95520e1eb0b7c828485c0a1c1799bbe951cf15a5"
 }

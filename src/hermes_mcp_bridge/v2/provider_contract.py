@@ -328,7 +328,9 @@ class CredentialDomain:
     granted_scopes: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "provider_id", _identifier(self.provider_id, field_name="provider_id"))
+        object.__setattr__(
+            self, "provider_id", _identifier(self.provider_id, field_name="provider_id")
+        )
         for name in ("read_capability_id", "write_capability_id"):
             value = getattr(self, name)
             if value is not None:
@@ -387,7 +389,9 @@ class ProviderManifest:
     status: ProviderStatus = ProviderStatus.CANDIDATE
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "provider_id", _identifier(self.provider_id, field_name="provider_id"))
+        object.__setattr__(
+            self, "provider_id", _identifier(self.provider_id, field_name="provider_id")
+        )
         version = str(self.provider_version).strip()
         if not version or len(version) > 32 or not re.fullmatch(r"[0-9A-Za-z.+-]+", version):
             raise ProviderContractError(ProviderReason.E_MANIFEST_INVALID, "provider_version")
@@ -415,7 +419,9 @@ class ProviderManifest:
                 raise ProviderContractError(
                     ProviderReason.E_CRED_CROSS_DOMAIN, "credential_capability_id"
                 )
-            granted = set(self.credential_domain.granted_scopes[capability.credential_capability_id])
+            granted = set(
+                self.credential_domain.granted_scopes[capability.credential_capability_id]
+            )
             if not set(capability.scopes).issubset(granted):
                 raise ProviderContractError(
                     ProviderReason.E_CAP_SCOPE_EXCEEDS_CREDENTIAL, capability.capability_id

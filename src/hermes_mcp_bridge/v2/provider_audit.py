@@ -71,7 +71,7 @@ class AuditSink(Protocol):
 class MemoryAuditSink:
     """In-memory append-only sink (tests and hermetic acceptance runs)."""
 
-    __slots__ = ("_available", "_records", "_order")
+    __slots__ = ("_available", "_order", "_records")
 
     def __init__(self) -> None:
         self._records: dict[str, dict[str, Any]] = {}
@@ -168,7 +168,7 @@ class IntegrationAuditRecord:
 class IntegrationAuditLedger:
     """Chained, append-only ledger with structural redaction enforcement."""
 
-    __slots__ = ("_head", "_sink", "_terminal_ids", "_intent_ids", "_digests")
+    __slots__ = ("_digests", "_head", "_intent_ids", "_sink", "_terminal_ids")
 
     def __init__(self, sink: AuditSink) -> None:
         self._sink = sink

@@ -230,7 +230,7 @@ def _probe_fail_closed_ordering() -> list[str]:
     scopes.allow("jira.issue_read", ("PPE",))
     calls: list[int] = []
 
-    def _adapter(request, headers, deadline_ms):  # noqa: ANN001, ARG001
+    def _adapter(request, headers, deadline_ms):
         calls.append(1)
         return ProviderCallResult(payload={"ok": True}, byte_count=16)
 

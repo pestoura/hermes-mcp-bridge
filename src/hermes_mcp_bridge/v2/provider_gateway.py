@@ -17,7 +17,7 @@ Ordering is identical for every provider and is the whole point of the lane::
    11. result normalization, field allow-list, byte budget
    12. terminal audit record
 
-Steps 1–8 complete **zero** provider calls, and a scope or policy denial also
+Steps 1-8 complete **zero** provider calls, and a scope or policy denial also
 completes **zero** credential resolutions. Both facts are counted at runtime by
 the gateway itself (``provider_calls``/``credential_resolutions``) so a test can
 assert them rather than trusting the prose.
@@ -114,7 +114,7 @@ class GatewayOutcome:
 class PolicyPort:
     """Minimal policy port: a closed decision plus a stable reason code."""
 
-    __slots__ = ("_decisions", "_available")
+    __slots__ = ("_available", "_decisions")
 
     def __init__(self, decisions: Mapping[str, str] | None = None) -> None:
         self._decisions = dict(decisions or {})
@@ -136,7 +136,7 @@ class PolicyPort:
 class IdempotencyStore:
     """Keyed replay store. Unavailability refuses non-idempotent writes."""
 
-    __slots__ = ("_entries", "_available")
+    __slots__ = ("_available", "_entries")
 
     def __init__(self) -> None:
         self._entries: dict[str, GatewayOutcome] = {}
@@ -159,7 +159,7 @@ class IdempotencyStore:
 class ApprovalStore:
     """Approvals bind an immutable operation digest and are single-use."""
 
-    __slots__ = ("_approvals", "_consumed", "_available")
+    __slots__ = ("_approvals", "_available", "_consumed")
 
     def __init__(self) -> None:
         self._approvals: dict[str, str] = {}
@@ -359,7 +359,7 @@ class ProviderGateway:
         # 1-2. tool identification, provider allow-list resolution.
         try:
             declaration = self._registry.capability(request.capability_id)
-        except (ProviderRegistryError, Exception) as exc:  # noqa: BLE001 - normalized below
+        except (ProviderRegistryError, Exception) as exc:
             reason = getattr(exc, "reason", ProviderReason.E_PROVIDER_UNKNOWN)
             if not isinstance(reason, ProviderReason):
                 reason = ProviderReason.E_PROVIDER_UNKNOWN
@@ -553,7 +553,7 @@ class ProviderGateway:
             )
             reason = denied.reason
             payload = {}
-        except Exception:  # noqa: BLE001 - normalized, never propagated
+        except Exception:
             # A provider fault is contained: normalized, redacted, and it never
             # marks another provider or the gateway unhealthy.
             self._provider_calls += 1

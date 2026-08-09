@@ -4,11 +4,11 @@
 
 The allow-list is *code*, not configuration discovery: there is no entry-point
 scan, no plugin directory and no dynamic import. Removing a provider id from
-:data:`PROVIDER_ALLOW_LIST` is the layer-1 rollback path — the provider then
+:data:`PROVIDER_ALLOW_LIST` is the layer-1 rollback path - the provider then
 resolves to ``E-PROVIDER-UNKNOWN`` with zero side effects.
 
 Only two providers are declared ``ACCEPTED``: **github**, the reference
-implementation already carried by Phases 2–3, and **jira**, whose credential and
+implementation already carried by Phases 2-3, and **jira**, whose credential and
 contract are genuinely available on this host. Every other provider is either a
 ``CANDIDATE`` (shape defined, credential/contract not evidenced) or explicitly
 ``BLOCKED_UNCONFIRMED`` and is refused at registration.

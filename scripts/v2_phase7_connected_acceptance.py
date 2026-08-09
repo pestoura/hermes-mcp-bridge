@@ -42,7 +42,6 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from hermes_mcp_bridge.v2.enums import CapabilityState  # noqa: E402
 from hermes_mcp_bridge.v2.provider_audit import (  # noqa: E402
     AuditKind,
     IntegrationAuditLedger,
@@ -62,7 +61,7 @@ from hermes_mcp_bridge.v2.provider_gateway import (  # noqa: E402
     ProviderRequest,
     ScopeResolver,
 )
-from hermes_mcp_bridge.v2.provider_health import ProbeRequest, http_probe, probe_manifest  # noqa: E402
+from hermes_mcp_bridge.v2.provider_health import http_probe, probe_manifest  # noqa: E402
 from hermes_mcp_bridge.v2.provider_manifests import (  # noqa: E402
     PROVIDER_ALLOW_LIST,
     github_manifest,
@@ -359,7 +358,9 @@ def main() -> int:
         print(json.dumps({"error": "redaction", "findings": len(findings)}))
         return 2
     args.json_out.parent.mkdir(parents=True, exist_ok=True)
-    args.json_out.write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    args.json_out.write_text(
+        json.dumps(evidence, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     print(json.dumps(evidence, indent=2, sort_keys=True))
     return 0
 

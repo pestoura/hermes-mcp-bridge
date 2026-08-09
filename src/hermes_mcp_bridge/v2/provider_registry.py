@@ -93,7 +93,7 @@ class ProviderRegistryError(RuntimeError):
 class ProviderRegistry:
     """Fail-closed registry of provider manifests and capability readiness."""
 
-    __slots__ = ("_allow_list", "_manifests", "_states", "_tool_ids", "_frozen")
+    __slots__ = ("_allow_list", "_frozen", "_manifests", "_states", "_tool_ids")
 
     def __init__(self, *, allow_list: Iterable[str], tool_ids: Iterable[str]) -> None:
         self._allow_list = tuple(sorted({str(item).strip().lower() for item in allow_list}))
