@@ -1,0 +1,51 @@
+{
+  "activation": {
+    "reachable": {
+      "BATCH": true,
+      "DAG": true,
+      "DIRECT": true,
+      "HYBRID": true,
+      "INTEGRATIONS": true,
+      "RUNBOOK": true
+    }
+  },
+  "compatibility": {
+    "contract_version": "1.0.0",
+    "schema_version": "0.6.1",
+    "tool_count": 27
+  },
+  "failures": [],
+  "gate": "V2_PRODUCTION_ACTIVE",
+  "module_digests": {
+    "v2/composition.py": "3a366520779d3bd162dd39079fc633e8edf0e9e9bb0005e64eeb22718cf8e4c6",
+    "v2/production_profile.py": "dabdbb2bff4ac4ae484b04421a37c68092a11518420be44a8979bfeeb800867f"
+  },
+  "predecessor_gates": {
+    "BATCH_ACCEPTED": {
+      "source_commit": "0f1814793169d8641e8a4223779a9c5d31a3d2ca"
+    },
+    "DAG_ACCEPTED": {
+      "source_commit": "ce6fd89e42b691504226912234dd9c8c92b4ceff"
+    },
+    "HYBRID_ACCEPTED": {
+      "source_commit": "3a82ba0eb12ed248490764b2139b6f7c2285f30a"
+    },
+    "INTEGRATIONS_ACCEPTED": {
+      "source_commit": "95520e1eb0b7c828485c0a1c1799bbe951cf15a5"
+    },
+    "RUNBOOK_ACCEPTED": {
+      "source_commit": ""
+    },
+    "V2_PRODUCTION_READY": {
+      "source_commit": "791855067e9a81bb1dd2408c6cd0a0bc4146e490"
+    }
+  },
+  "required_sha": "e82dbd86abc8f1dcaf89ce84bf8430cb601c88a2",
+  "schema": "hermes-v2-production-activation-gate/1",
+  "source_commit": "e82dbd86abc8f1dcaf89ce84bf8430cb601c88a2",
+  "suite": {
+    "returncode": 0,
+    "sha256": "14fc81fbef8c3b5f891f316b32a02e3c84ed3675c7631fdac17d16687f0759d8",
+    "suite": "test_v2_production_activation.py"
+  }
+}
