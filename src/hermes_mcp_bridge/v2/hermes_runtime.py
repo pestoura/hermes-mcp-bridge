@@ -305,9 +305,7 @@ def resolve_hermes_python(
         ]
     )
     probe_env = _probe_env(
-        home=(
-            Path(probe_home).expanduser().resolve() if probe_home is not None else home_path
-        ),
+        home=(Path(probe_home).expanduser().resolve() if probe_home is not None else home_path),
         hermes_home=(
             Path(probe_hermes_home).expanduser().resolve()
             if probe_hermes_home is not None

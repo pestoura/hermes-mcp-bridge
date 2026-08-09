@@ -194,10 +194,7 @@ def validate_evidence(payload: dict[str, Any]) -> list[str]:
     unknown = policy.get("unknown_tool") if isinstance(policy, dict) else None
     if not isinstance(unknown, dict):
         failures.append("unknown_tool_evidence_missing")
-    elif (
-        unknown.get("decision") != "DENY"
-        or unknown.get("reason_code") != "UNKNOWN_TOOL"
-    ):
+    elif unknown.get("decision") != "DENY" or unknown.get("reason_code") != "UNKNOWN_TOOL":
         failures.append("unknown_tool_not_denied")
 
     projection = payload.get("projection")

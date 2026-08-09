@@ -112,9 +112,7 @@ class Counters:
         )
 
 
-def _worker(
-    db_path: str, worker_id: int, deadline: float, iterations_cap: int
-) -> Counters:
+def _worker(db_path: str, worker_id: int, deadline: float, iterations_cap: int) -> Counters:
     counters = Counters()
     runs = RunRegistry(db_path)
     locks = LockRegistry(db_path)
@@ -301,9 +299,7 @@ def main(argv: list[str] | None = None) -> int:
         "elapsed_seconds": round(elapsed, 2),
         "operations": operations,
         "throughput_ops_per_second": round(operations / elapsed, 2) if elapsed else 0.0,
-        "counters": {
-            key: value for key, value in vars(totals).items() if key != "error_samples"
-        },
+        "counters": {key: value for key, value in vars(totals).items() if key != "error_samples"},
         "error_samples": totals.error_samples,
         "error_ratio": round(error_ratio, 6),
         "verification": verification,

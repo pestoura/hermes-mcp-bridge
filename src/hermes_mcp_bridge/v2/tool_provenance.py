@@ -53,9 +53,7 @@ NORMALIZATION_PROFILE_ID: Final[str] = "hermes-v2-phase2-direct-read-normalizati
 #: Canonical tool id  ->  authorized Hermes-side MCP tool name.
 CANONICAL_TO_SHADOW_TOOL: Final[dict[str, str]] = {
     name.replace("_", ".", 1): hermes_name
-    for name, hermes_name in zip(
-        SHADOW_MCP_TOOL_NAMES, SHADOW_HERMES_TOOL_NAMES, strict=True
-    )
+    for name, hermes_name in zip(SHADOW_MCP_TOOL_NAMES, SHADOW_HERMES_TOOL_NAMES, strict=True)
 }
 #: Authorized Hermes-side MCP tool name  ->  canonical tool id.
 SHADOW_TO_CANONICAL_TOOL: Final[dict[str, str]] = {
@@ -313,18 +311,14 @@ def collect_tool_provenance(
     """
     if not isinstance(session_id, str) or not session_id.strip() or len(session_id) > 128:
         raise ProvenanceError("PROVENANCE_SESSION_SCOPE_INVALID")
-    allowed = set(authorized_tools or SHADOW_TO_CANONICAL_TOOL) | set(
-        BARE_TO_CANONICAL_TOOL
-    )
+    allowed = set(authorized_tools or SHADOW_TO_CANONICAL_TOOL) | set(BARE_TO_CANONICAL_TOOL)
     if expected_tool_id not in CANONICAL_TO_SHADOW_TOOL:
         raise ProvenanceError("PROVENANCE_TOOL_MISMATCH")
 
     connection = _read_only_connection(shadow_state_db)
     try:
         try:
-            columns = {
-                str(row[1]) for row in connection.execute("PRAGMA table_info(messages)")
-            }
+            columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(messages)")}
         except sqlite3.Error as exc:
             raise ProvenanceError("PROVENANCE_STATE_DB_UNREADABLE") from exc
         required = {"session_id", "role", "content", "tool_calls", "tool_call_id"}

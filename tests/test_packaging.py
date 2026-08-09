@@ -17,9 +17,7 @@ from hermes_mcp_bridge.protocol import (
 
 #: 0.9.0: the base image is pinned by digest through a single ARG, so both
 #: stages are guaranteed to use the very same immutable image.
-BASE_IMAGE_DIGEST = (
-    "sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de"
-)
+BASE_IMAGE_DIGEST = "sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de"
 BASE_IMAGE_REF = f"python:3.12-slim-trixie@{BASE_IMAGE_DIGEST}"
 REQUIRED_DOCKERFILE_TOKENS = (
     f"ARG BASE_IMAGE={BASE_IMAGE_REF}",
@@ -34,15 +32,13 @@ COMPOSE_REQUIRED_KEYS = ("user", "volumes", "healthcheck")
 def test_version_aligned() -> None:
     init = Path("src/hermes_mcp_bridge/__init__.py").read_text(encoding="utf-8")
     pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
-    assert f"__version__ = \"{__version__}\"" in init
-    assert f"version = \"{__version__}\"" in pyproject
+    assert f'__version__ = "{__version__}"' in init
+    assert f'version = "{__version__}"' in pyproject
 
 
 def test_dockerfile_multi_stage_and_nonroot() -> None:
     dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
-    from_lines = [
-        line for line in dockerfile.splitlines() if line.startswith("FROM ")
-    ]
+    from_lines = [line for line in dockerfile.splitlines() if line.startswith("FROM ")]
     assert len(from_lines) == 2
     assert "USER bridge:bridge" in dockerfile
     for token in REQUIRED_DOCKERFILE_TOKENS:
@@ -50,9 +46,7 @@ def test_dockerfile_multi_stage_and_nonroot() -> None:
 
 
 def test_http_runner_preserves_structured_logging() -> None:
-    runner = Path("src/hermes_mcp_bridge/http_runner.py").read_text(
-        encoding="utf-8"
-    )
+    runner = Path("src/hermes_mcp_bridge/http_runner.py").read_text(encoding="utf-8")
     assert "configure_logging(force=True)" in runner
     assert "log_config=None" in runner
     assert "access_log=False" in runner
@@ -122,9 +116,7 @@ def test_capability_manifest_hashes_match() -> None:
     manifest = CapabilityManifest.build(
         bridge_version="0.5.0",
         manifest_version="0.5.0",
-        tools=[
-            ToolManifest(name="hermes_health", description="Health", read_only=True)
-        ],
+        tools=[ToolManifest(name="hermes_health", description="Health", read_only=True)],
         orchestration_modes=["auto"],
         limits={},
         provenance={"source": "test"},

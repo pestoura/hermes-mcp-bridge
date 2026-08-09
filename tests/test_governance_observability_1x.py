@@ -127,9 +127,11 @@ def test_approval_pending_and_wait_are_derived_from_real_registry_state(tmp_path
         )
 
         assert get_registry().gauge("bridge_approvals_pending", "unused").value() == 0.0
-        wait = get_registry().histogram(
-            "bridge_approval_wait_seconds", "unused"
-        ).snapshot(outcome="approved")
+        wait = (
+            get_registry()
+            .histogram("bridge_approval_wait_seconds", "unused")
+            .snapshot(outcome="approved")
+        )
         assert wait["count"] == 1
         assert wait["sum"] >= 10.0
 

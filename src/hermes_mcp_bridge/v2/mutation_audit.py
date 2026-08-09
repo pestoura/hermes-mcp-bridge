@@ -73,9 +73,7 @@ MUTATION_EVIDENCE_SCHEMA: Final[str] = "v2.phase3.mutation-evidence.1"
 
 #: The only metric label names this lane may emit (V2-SEC-024). Repository,
 #: ref, PR identifier, principal, digests and approval ids are forbidden.
-AUDIT_METRIC_LABELS: Final[frozenset[str]] = frozenset(
-    {"operation", "outcome", "stage", "reason"}
-)
+AUDIT_METRIC_LABELS: Final[frozenset[str]] = frozenset({"operation", "outcome", "stage", "reason"})
 
 #: Lowercase 40-hex git object id.
 _SHA1_RE: Final[re.Pattern[str]] = re.compile(r"^[0-9a-f]{40}$")
@@ -819,9 +817,7 @@ class MutationAuditLedger:
         self._open[audit_id] = handle
         return handle
 
-    def finalize(
-        self, handle: AuditHandle, observation: ProviderObservation
-    ) -> MutationEvidence:
+    def finalize(self, handle: AuditHandle, observation: ProviderObservation) -> MutationEvidence:
         """Close an attempt with an explicit outcome and emit evidence."""
         if not isinstance(handle, AuditHandle) or handle._ledger_token is not self._token:
             raise _audit_error(MutationReasonCode.AUDIT_RECORD_UNWRITABLE)

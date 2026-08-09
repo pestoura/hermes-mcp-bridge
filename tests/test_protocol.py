@@ -47,9 +47,7 @@ def test_capability_manifest_hashes_match() -> None:
     manifest = CapabilityManifest.build(
         bridge_version="0.5.0",
         manifest_version="0.5.0",
-        tools=[
-            ToolManifest(name="hermes_health", description="Health", read_only=True)
-        ],
+        tools=[ToolManifest(name="hermes_health", description="Health", read_only=True)],
         orchestration_modes=["auto"],
         limits={},
         provenance={"source": "test"},

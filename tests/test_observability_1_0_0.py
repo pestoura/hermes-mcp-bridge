@@ -112,11 +112,7 @@ def test_grafana_cloud_profile_is_loopback_only_and_secret_free() -> None:
 def test_alert_rules_use_real_restart_signal_and_have_runbooks() -> None:
     text = RULES_FILE.read_text(encoding="utf-8")
     document = yaml.safe_load(text)
-    alerts = [
-        rule
-        for group in document["groups"]
-        for rule in group.get("rules", [])
-    ]
+    alerts = [rule for group in document["groups"] for rule in group.get("rules", [])]
     names = {rule["alert"] for rule in alerts}
 
     assert "HermesBridgeRecentlyStarted" in names

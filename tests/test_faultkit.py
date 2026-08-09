@@ -71,9 +71,7 @@ async def test_transport_replays_script_then_default() -> None:
         script=[ScriptedResponse(status_code=201, json_body={"a": 1})],
         default=ScriptedResponse(status_code=200, json_body={"b": 2}),
     )
-    async with httpx.AsyncClient(
-        transport=transport, base_url="http://127.0.0.1:9"
-    ) as client:
+    async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:9") as client:
         first = await client.get("/v1/runs/x")
         second = await client.get("/v1/runs/x")
     assert first.status_code == 201
@@ -87,9 +85,7 @@ async def test_transport_profile_takes_precedence_over_script() -> None:
         script=[ScriptedResponse(status_code=200, json_body={"ok": True})],
         profile=FaultProfile(seed=3, status_500_rate=1.0),
     )
-    async with httpx.AsyncClient(
-        transport=transport, base_url="http://127.0.0.1:9"
-    ) as client:
+    async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:9") as client:
         response = await client.get("/v1/runs/x")
     assert response.status_code == 500
 
@@ -183,8 +179,6 @@ def test_sse_script_frames_are_valid_json_events() -> None:
 def test_faultkit_is_not_imported_by_runtime_package() -> None:
     src = Path(__file__).resolve().parents[1] / "src"
     offenders = [
-        path.name
-        for path in src.rglob("*.py")
-        if "faultkit" in path.read_text(encoding="utf-8")
+        path.name for path in src.rglob("*.py") if "faultkit" in path.read_text(encoding="utf-8")
     ]
     assert offenders == []

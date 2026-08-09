@@ -1,0 +1,38 @@
+{
+  "determinism_probe_digest": "bd991ff51eb68a539bc09920e381ac3d5d59c8b038eee3f0d65f4493c7e952b1",
+  "failures": [],
+  "gate": "DAG_ACCEPTED",
+  "limits": {
+    "DAG_MAX_DEPTH": 16,
+    "DAG_MAX_FANOUT": 16,
+    "DAG_MAX_NODES": 64,
+    "DAG_MAX_NODE_TIMEOUT_MS": 120000,
+    "DAG_MAX_PARALLELISM": 4,
+    "DAG_MAX_PARALLELISM_MUTATION": 1,
+    "DAG_MAX_TOTAL_WALL_MS": 900000
+  },
+  "module_binding_sha256": {
+    "v2/dag_contract.py": "ad5ccb71b741041b2c8dd97cc075841a14a462a585740fc71f9620d167a6128b",
+    "v2/dag_digest.py": "47d10778b2584b47462bbf62ee9eb3dce0eca4e5744313107c2d2a4adcaf3d7e",
+    "v2/dag_engine.py": "75528d80ff2177651c329f8f503de225403e949dbd2ab57e64046c4cb51cc1ce",
+    "v2/dag_loader.py": "685c6a7f283452e5fecf8458c8daba7fa788f67f3990bce17905a5735bb79c09",
+    "v2/dag_store.py": "9ce226bfd7c0f124b3da4f3888e8ada453be70d98e2365a3253e3221580cf64e",
+    "v2/dag_transform.py": "7a42028e9d1c3babdc290541c82f4831c8bdba723467f7d83b85e2cbbabb8c1b",
+    "v2/dag_validation.py": "972fc0129b6cfcf5088a7b44fdd098dce4cb355b4ede12f2025a6ee353b3c8c6"
+  },
+  "source_commit": "ce6fd89e42b691504226912234dd9c8c92b4ceff",
+  "transform_ops": [
+    "count",
+    "filter_eq",
+    "filter_in",
+    "first",
+    "map_field",
+    "merge_objects",
+    "project",
+    "require_non_empty",
+    "select",
+    "sort_by",
+    "to_list",
+    "unique"
+  ]
+}

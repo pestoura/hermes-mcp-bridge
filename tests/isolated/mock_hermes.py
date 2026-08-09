@@ -52,9 +52,7 @@ class Handler(BaseHTTPRequestHandler):
             {
                 "event": "mock.request",
                 "method": "GET",
-                "path_class": self.path
-                if self.path in ALLOWED_GET_PATHS
-                else "unknown",
+                "path_class": self.path if self.path in ALLOWED_GET_PATHS else "unknown",
                 "authorized": self._authorized(),
             }
         )

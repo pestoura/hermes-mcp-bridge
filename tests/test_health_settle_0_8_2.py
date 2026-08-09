@@ -157,16 +157,14 @@ def _run_legacy_0_8_1(bin_dir: Path, tmp_path: Path, settle: int) -> bool:
         "#!/usr/bin/env bash\n"
         "set -Eeuo pipefail\n"
         f"sleep {settle}\n"
-        "hs=\"$(docker inspect hermes-mcp-bridge "
+        'hs="$(docker inspect hermes-mcp-bridge '
         "--format '{{.State.Health.Status}}')\"\n"
         'if [ "$hs" = "healthy" ]; then echo LEGACY_PASS; else echo LEGACY_FAIL; fi\n',
         encoding="utf-8",
     )
     env = _clean_env()
     env["PATH"] = f"{bin_dir}:{env['PATH']}"
-    out = subprocess.run(
-        ["bash", str(probe)], capture_output=True, text=True, env=env, check=False
-    )
+    out = subprocess.run(["bash", str(probe)], capture_output=True, text=True, env=env, check=False)
     return "LEGACY_PASS" in out.stdout
 
 

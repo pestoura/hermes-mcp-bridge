@@ -144,10 +144,10 @@ def test_ci_builds_and_validates_exact_provenance() -> None:
     workflow = yaml.safe_load(workflow_text)
     assert workflow["jobs"]["test"]
     for token in (
-        "--build-arg OCI_IMAGE_REVISION=\"${{ github.sha }}\"",
-        "--build-arg BRIDGE_BUILD_ID=\"${{ github.run_id }}.${{ github.run_attempt }}\"",
+        '--build-arg OCI_IMAGE_REVISION="${{ github.sha }}"',
+        '--build-arg BRIDGE_BUILD_ID="${{ github.run_id }}.${{ github.run_attempt }}"',
         "scripts/validate_image_provenance.py",
-        "--revision \"${{ github.sha }}\"",
+        '--revision "${{ github.sha }}"',
         "image-provenance.json",
         "sbom-cyclonedx.json",
     ):

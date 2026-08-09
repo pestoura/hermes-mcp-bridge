@@ -79,9 +79,7 @@ class GitHubRepositoryScope:
     __slots__ = ("_repositories",)
 
     def __init__(self, repositories: Iterable[str]) -> None:
-        normalized = frozenset(
-            _normalize_repository_ref(value) for value in repositories
-        )
+        normalized = frozenset(_normalize_repository_ref(value) for value in repositories)
         if not normalized:
             raise ValueError("at least one repository scope is required")
         self._repositories = normalized
@@ -196,10 +194,7 @@ def _safe_search_text(value: str) -> str:
     if not text or len(text) > 200:
         raise GitHubDirectDenied("INVALID_SEARCH_TEXT")
     unsafe = (
-        ":" in text
-        or "(" in text
-        or ")" in text
-        or _SEARCH_BOOLEAN_RE.search(text) is not None
+        ":" in text or "(" in text or ")" in text or _SEARCH_BOOLEAN_RE.search(text) is not None
     )
     if unsafe:
         raise GitHubDirectDenied("UNSAFE_SEARCH_SYNTAX")
@@ -260,11 +255,7 @@ def _ref_summary(value: Any) -> dict[str, Any] | None:
 
 def _normalize_repo(payload: dict[str, Any]) -> dict[str, Any]:
     license_payload = payload.get("license")
-    license_id = (
-        license_payload.get("spdx_id")
-        if isinstance(license_payload, dict)
-        else None
-    )
+    license_id = license_payload.get("spdx_id") if isinstance(license_payload, dict) else None
     return {
         "archived": bool(payload.get("archived", False)),
         "default_branch": payload.get("default_branch"),
@@ -373,9 +364,7 @@ def _normalize_search(payload: dict[str, Any]) -> dict[str, Any]:
                     "created_at": item.get("created_at"),
                     "html_url": item.get("html_url"),
                     "item_type": (
-                        "pull_request"
-                        if isinstance(item.get("pull_request"), dict)
-                        else "issue"
+                        "pull_request" if isinstance(item.get("pull_request"), dict) else "issue"
                     ),
                     "number": item.get("number"),
                     "state": item.get("state"),

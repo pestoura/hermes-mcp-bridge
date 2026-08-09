@@ -219,9 +219,7 @@ class BatchRequest:
                 f"max_parallelism: {self.max_parallelism} exceeds ceiling {BATCH_MAX_PARALLELISM}"
             )
         if self.batch_timeout_s > BATCH_MAX_TIMEOUT_S:
-            raise BatchValidationError(
-                f"batch_timeout_s: exceeds ceiling {BATCH_MAX_TIMEOUT_S}"
-            )
+            raise BatchValidationError(f"batch_timeout_s: exceeds ceiling {BATCH_MAX_TIMEOUT_S}")
         for step in self.steps:
             if step.step_timeout_s > self.batch_timeout_s:
                 raise BatchValidationError(

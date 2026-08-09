@@ -137,10 +137,7 @@ async def test_safe_health_get_retries_timeout_then_succeeds() -> None:
     assert calls == 2
     assert delays == [0.01]
     metrics = get_registry().render()
-    assert (
-        'bridge_upstream_retries_total{endpoint_class="health",reason="timeout"} 1'
-        in metrics
-    )
+    assert 'bridge_upstream_retries_total{endpoint_class="health",reason="timeout"} 1' in metrics
 
 
 @pytest.mark.asyncio

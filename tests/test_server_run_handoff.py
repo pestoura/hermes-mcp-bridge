@@ -36,35 +36,37 @@ class _DummyContext:
 def test_exact_seven_tools_registered(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     server = _make_server_module(monkeypatch, tmp_path)
     tools = server.server_tool_names()
-    expected = sorted([
-        "hermes_agent_card",
-        "hermes_capabilities",
-        "hermes_health",
-        "hermes_prompt",
-        "hermes_readiness",
-        "hermes_recent_runs",
-        "hermes_status",
-        "hermes_stop",
-        "hermes_submit",
-        "hermes_wait",
-        "hermes_policy_evaluate",
-        "hermes_approval_create",
-        "hermes_approval_respond",
-        "hermes_approval_status",
-        "hermes_result_manifest",
-        "hermes_plan",
-        "hermes_execute_approved_plan",
-        "hermes_checkpoint_create",
-        "hermes_checkpoint_status",
-        "hermes_continue",
-        "hermes_saga_start",
-        "hermes_saga_status",
-        "hermes_saga_compensate",
-        "hermes_lock_acquire",
-        "hermes_lock_status",
-        "hermes_lock_release",
-        "hermes_quota_status",
-    ])
+    expected = sorted(
+        [
+            "hermes_agent_card",
+            "hermes_capabilities",
+            "hermes_health",
+            "hermes_prompt",
+            "hermes_readiness",
+            "hermes_recent_runs",
+            "hermes_status",
+            "hermes_stop",
+            "hermes_submit",
+            "hermes_wait",
+            "hermes_policy_evaluate",
+            "hermes_approval_create",
+            "hermes_approval_respond",
+            "hermes_approval_status",
+            "hermes_result_manifest",
+            "hermes_plan",
+            "hermes_execute_approved_plan",
+            "hermes_checkpoint_create",
+            "hermes_checkpoint_status",
+            "hermes_continue",
+            "hermes_saga_start",
+            "hermes_saga_status",
+            "hermes_saga_compensate",
+            "hermes_lock_acquire",
+            "hermes_lock_status",
+            "hermes_lock_release",
+            "hermes_quota_status",
+        ]
+    )
     assert tools == expected
 
 
@@ -91,9 +93,7 @@ async def test_five_concurrent_same_key_creates_one_post(
             post_count += 1
             execution_id = f"run-{post_count}"
             execution_ids.add(execution_id)
-            return httpx.Response(
-                202, json={"run_id": execution_id, "status": "started"}
-            )
+            return httpx.Response(202, json={"run_id": execution_id, "status": "started"})
         raise AssertionError(f"Unexpected request: {request.method} {request.url}")
 
     settings = Settings(
@@ -101,9 +101,7 @@ async def test_five_concurrent_same_key_creates_one_post(
         hermes_api_base_url="http://hermes.test",
         bridge_state_db_path=db_path,
     )
-    client = HermesClient(
-        settings, transport_factory=lambda: httpx.MockTransport(handler)
-    )
+    client = HermesClient(settings, transport_factory=lambda: httpx.MockTransport(handler))
     monkeypatch.setattr("hermes_mcp_bridge.server.client", client)
 
     async def submit() -> dict[str, Any]:
@@ -138,9 +136,7 @@ async def test_two_different_keys_can_create_in_parallel(
         if request.method == "POST" and request.url.path == "/v1/runs":
             # If these run truly in parallel, we should see both POSTs
             counter += 1
-            return httpx.Response(
-                202, json={"run_id": f"run-{counter}", "status": "started"}
-            )
+            return httpx.Response(202, json={"run_id": f"run-{counter}", "status": "started"})
         raise AssertionError(f"Unexpected request: {request.method} {request.url}")
 
     settings = Settings(
@@ -148,18 +144,12 @@ async def test_two_different_keys_can_create_in_parallel(
         hermes_api_base_url="http://hermes.test",
         bridge_state_db_path=db_path,
     )
-    client = HermesClient(
-        settings, transport_factory=lambda: httpx.MockTransport(handler)
-    )
+    client = HermesClient(settings, transport_factory=lambda: httpx.MockTransport(handler))
     monkeypatch.setattr("hermes_mcp_bridge.server.client", client)
 
     results = await asyncio.gather(
-        server.hermes_submit(
-            prompt="task", ctx=_DummyContext(), client_request_id="a"
-        ),
-        server.hermes_submit(
-            prompt="task", ctx=_DummyContext(), client_request_id="b"
-        ),
+        server.hermes_submit(prompt="task", ctx=_DummyContext(), client_request_id="a"),
+        server.hermes_submit(prompt="task", ctx=_DummyContext(), client_request_id="b"),
     )
     assert {results[0]["execution_id"], results[1]["execution_id"]} == {"run-1", "run-2"}
 
@@ -198,9 +188,7 @@ async def test_retry_same_key_reuses_execution_id(
         hermes_api_base_url="http://hermes.test",
         bridge_state_db_path=db_path,
     )
-    client = HermesClient(
-        settings, transport_factory=lambda: httpx.MockTransport(handler)
-    )
+    client = HermesClient(settings, transport_factory=lambda: httpx.MockTransport(handler))
     monkeypatch.setattr("hermes_mcp_bridge.server.client", client)
     result = await server.hermes_submit(
         prompt="same request", ctx=_DummyContext(), client_request_id="retry"
@@ -237,9 +225,7 @@ async def test_different_fingerprint_fails_before_post(
         hermes_api_base_url="http://hermes.test",
         bridge_state_db_path=db_path,
     )
-    client = HermesClient(
-        settings, transport_factory=lambda: httpx.MockTransport(handler)
-    )
+    client = HermesClient(settings, transport_factory=lambda: httpx.MockTransport(handler))
     monkeypatch.setattr("hermes_mcp_bridge.server.client", client)
     result = await server.hermes_submit(
         prompt="new request", ctx=_DummyContext(), client_request_id="conflict"
@@ -264,9 +250,7 @@ async def test_registry_failure_after_post_returns_execution_id_with_warning(
                 201, json={"object": "hermes.session", "session": {"id": "session-1"}}
             )
         if request.method == "POST" and request.url.path == "/v1/runs":
-            return httpx.Response(
-                202, json={"run_id": "created-run", "status": "started"}
-            )
+            return httpx.Response(202, json={"run_id": "created-run", "status": "started"})
         raise AssertionError(f"Unexpected request: {request.method} {request.url}")
 
     class FailAfterPostRegistry(RunRegistry):
@@ -282,9 +266,7 @@ async def test_registry_failure_after_post_returns_execution_id_with_warning(
         hermes_api_base_url="http://hermes.test",
         bridge_state_db_path=db_path,
     )
-    client = HermesClient(
-        settings, transport_factory=lambda: httpx.MockTransport(handler)
-    )
+    client = HermesClient(settings, transport_factory=lambda: httpx.MockTransport(handler))
     monkeypatch.setattr("hermes_mcp_bridge.server.client", client)
     result = await server.hermes_submit(
         prompt="recoverable", ctx=_DummyContext(), client_request_id="recover"
@@ -308,6 +290,7 @@ async def test_cancel_during_persist_does_not_cancel_persistence(
     def slow_record(*args: Any, **kwargs: object) -> dict[str, object]:
         # Simulate slow persistence that survives task cancellation
         import time
+
         time.sleep(0.05)
         return original_record(*args, **kwargs)
 
@@ -319,9 +302,7 @@ async def test_cancel_during_persist_does_not_cancel_persistence(
                 201, json={"object": "hermes.session", "session": {"id": "session-1"}}
             )
         if request.method == "POST" and request.url.path == "/v1/runs":
-            return httpx.Response(
-                202, json={"run_id": "persist-run", "status": "started"}
-            )
+            return httpx.Response(202, json={"run_id": "persist-run", "status": "started"})
         raise AssertionError(f"Unexpected request: {request.method} {request.url}")
 
     settings = Settings(
@@ -329,18 +310,13 @@ async def test_cancel_during_persist_does_not_cancel_persistence(
         hermes_api_base_url="http://hermes.test",
         bridge_state_db_path=db_path,
     )
-    client = HermesClient(
-        settings, transport_factory=lambda: httpx.MockTransport(handler)
-    )
+    client = HermesClient(settings, transport_factory=lambda: httpx.MockTransport(handler))
     monkeypatch.setattr("hermes_mcp_bridge.server.client", client)
 
     task = asyncio.create_task(
-        server.hermes_submit(
-            prompt="persist me", ctx=_DummyContext(), client_request_id="persist"
-        )
+        server.hermes_submit(prompt="persist me", ctx=_DummyContext(), client_request_id="persist")
     )
     await asyncio.sleep(0.01)
-
 
     task.cancel()
     with suppress(asyncio.CancelledError):
@@ -368,9 +344,7 @@ async def test_get_run_fallback_uses_registry(
     )
     monkeypatch.setattr("hermes_mcp_bridge.server.registry", registry)
 
-    async def fake_get_run(
-        execution_id: str, **kwargs: object
-    ) -> HermesPromptResult:
+    async def fake_get_run(execution_id: str, **kwargs: object) -> HermesPromptResult:
         raise HermesAPIError("missing upstream")
 
     monkeypatch.setattr(server.client, "get_run", fake_get_run)
@@ -419,9 +393,7 @@ async def test_hermes_wait_defaults_to_forty_five_seconds(
     server = _make_server_module(monkeypatch, tmp_path)
     seen: list[float] = []
 
-    async def fake_wait(
-        execution_id: str, **kwargs: object
-    ) -> HermesPromptResult:
+    async def fake_wait(execution_id: str, **kwargs: object) -> HermesPromptResult:
         seen.append(float(kwargs.get("max_wait_seconds", 0.0)))
         return HermesPromptResult(execution_id=execution_id, status=RunStatus.COMPLETED)
 
@@ -445,13 +417,9 @@ async def test_health_includes_bridge_fields(
     result = await server.hermes_health()
     assert result["upstream"] == {"status": "healthy", "authenticated": True}
     assert (
-        result["bridge"]["default_wait_seconds"]
-        == server.settings.hermes_run_default_wait_seconds
+        result["bridge"]["default_wait_seconds"] == server.settings.hermes_run_default_wait_seconds
     )
-    assert (
-        result["bridge"]["max_wait_seconds"]
-        == server.settings.hermes_run_max_wait_seconds
-    )
+    assert result["bridge"]["max_wait_seconds"] == server.settings.hermes_run_max_wait_seconds
     assert "state_registry" in result["bridge"]
 
 
@@ -496,8 +464,6 @@ async def test_prompt_stop_on_disconnect_true_requests_stop(
 
     monkeypatch.setattr(server.client, "submit_prompt", fake_submit_prompt)
 
-    result = await server.hermes_prompt(
-        "task", ctx=_DummyContext(), stop_on_disconnect=True
-    )
+    result = await server.hermes_prompt("task", ctx=_DummyContext(), stop_on_disconnect=True)
     assert result["execution_id"] == "run-1"
     assert captured.get("stop_on_cancel") is True

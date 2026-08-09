@@ -67,9 +67,12 @@ def valid_shadow() -> dict[str, Any]:
 
 
 def test_exact_shadow_isolation_contract_is_accepted() -> None:
-    assert validate_shadow_isolation(
-        valid_shadow(), repositories={REPOSITORY}, source_commit=SOURCE_COMMIT
-    ) == []
+    assert (
+        validate_shadow_isolation(
+            valid_shadow(), repositories={REPOSITORY}, source_commit=SOURCE_COMMIT
+        )
+        == []
+    )
 
 
 def test_shadow_isolation_uses_current_hermes_mcp_naming() -> None:
@@ -157,9 +160,9 @@ def test_shadow_mcp_surface_has_no_generic_or_mutating_tools() -> None:
     ):
         assert f'@mcp.tool(name="{tool}")' in text
     for forbidden in (
-        "@mcp.tool(name=\"terminal\")",
-        "@mcp.tool(name=\"write_file\")",
-        "@mcp.tool(name=\"execute_code\")",
+        '@mcp.tool(name="terminal")',
+        '@mcp.tool(name="write_file")',
+        '@mcp.tool(name="execute_code")',
         "executor.create_",
         "executor.update_",
         "executor.delete_",
@@ -174,7 +177,7 @@ def test_shadow_home_config_uses_exact_mcp_server_allowlist() -> None:
     assert "_ensure_hermes_runtime_python(args, raw_argv)" in text
     assert "resolve_hermes_python(" in text
     assert "_constrain_platform_to_shadow_mcp(target)" in text
-    assert 'final != {SHADOW_MCP_SERVER}' in text
+    assert "final != {SHADOW_MCP_SERVER}" in text
     assert '"resources": False' in text
     assert '"prompts": False' in text
     assert '"supports_parallel_tool_calls": False' in text
@@ -185,12 +188,12 @@ def test_shadow_home_config_uses_exact_mcp_server_allowlist() -> None:
 
 def test_shadow_probe_composes_native_endpoint_and_actual_resolver_proof() -> None:
     text = PROBE.read_text(encoding="utf-8")
-    assert 'if native_enabled:' in text
+    assert "if native_enabled:" in text
     assert 'ProbeError("SHADOW_NATIVE_TOOLSETS_NOT_EMPTY")' in text
     assert "_validated_hermes_runtime_python(args.hermes_python, shadow_home)" in text
     assert "validate_hermes_python_hint(" in text
     assert '_get_platform_tools(config, "api_server")' in text
-    assert 'resolved != [SHADOW_MCP_SERVER]' in text
+    assert "resolved != [SHADOW_MCP_SERVER]" in text
     assert 'ProbeError("SHADOW_EFFECTIVE_TOOLSETS_NOT_EXACT")' in text
     assert 'server_cfg["tools"].get("include") == expected_tools' in text
     assert 'server_cfg["tools"].get("resources") is False' in text

@@ -2,7 +2,10 @@
 
 > **V2 · PLANNED · NOT IMPLEMENTED · NO IMPACT ON V1**
 
-All ADRs are **Proposed** unless explicitly promoted later through the repository governance process.
+All ADRs are **Proposed** unless explicitly promoted later through the repository
+governance process. ADR-0024..ADR-0027 are **Accepted** for Phase 5: they are
+implemented behind `DAG_FEATURE_ENABLED` and bound by the executable
+`DAG_ACCEPTED` gate.
 
 | ADR | Decision topic |
 |---|---|
@@ -29,3 +32,7 @@ All ADRs are **Proposed** unless explicitly promoted later through the repositor
 | ADR-0021 | Operation digest for single-node mutations (Phase 3 preparation) |
 | ADR-0022 | GitHub mutation idempotency and optimistic concurrency (Phase 3 preparation) |
 | ADR-0023 | Governed merge and destructive-operation exclusion (Phase 3 preparation) |
+| ADR-0024 | Durable DAG state store — SQLite/WAL with fence tokens (Phase 5, closes OD-003) |
+| ADR-0025 | Canonical plan digest — deterministic JSON, versioned (Phase 5, closes OD-018 for plans) |
+| ADR-0026 | TRANSFORM nodes are a closed operation set (Phase 5, closes OD-024) |
+| ADR-0027 | DAG replay format — shaped results, providers disabled (Phase 5, closes OD-021) |

@@ -52,21 +52,14 @@ _WRAPPER = _MODULE_DIR / "scripts" / "v2_phase2_out_of_band_state_integrity.sh"
 def _make_state_db(path: Path, *, sessions: int = 2, usage: bool = True) -> Path:
     connection = sqlite3.connect(path)
     try:
-        connection.execute(
-            "CREATE TABLE sessions (id INTEGER PRIMARY KEY, name TEXT NOT NULL)"
-        )
-        connection.execute(
-            "CREATE TABLE messages (id INTEGER PRIMARY KEY, body TEXT NOT NULL)"
-        )
+        connection.execute("CREATE TABLE sessions (id INTEGER PRIMARY KEY, name TEXT NOT NULL)")
+        connection.execute("CREATE TABLE messages (id INTEGER PRIMARY KEY, body TEXT NOT NULL)")
         if usage:
             connection.execute(
-                "CREATE TABLE session_model_usage ("
-                "id INTEGER PRIMARY KEY, tokens INTEGER NOT NULL)"
+                "CREATE TABLE session_model_usage (id INTEGER PRIMARY KEY, tokens INTEGER NOT NULL)"
             )
         for index in range(sessions):
-            connection.execute(
-                "INSERT INTO sessions (name) VALUES (?)", (f"session-{index}",)
-            )
+            connection.execute("INSERT INTO sessions (name) VALUES (?)", (f"session-{index}",))
         connection.commit()
     finally:
         connection.close()
@@ -74,9 +67,7 @@ def _make_state_db(path: Path, *, sessions: int = 2, usage: bool = True) -> Path
 
 
 def _snapshot(path: Path, salt: bytes):
-    return capture_state_snapshot(
-        str(path), metadata=read_state_metadata(str(path)), salt=salt
-    )
+    return capture_state_snapshot(str(path), metadata=read_state_metadata(str(path)), salt=salt)
 
 
 def _digest_of_file(path: Path) -> tuple[bytes, int, int]:
@@ -199,9 +190,7 @@ def test_table_presence_change_is_detected(tmp_path: Path) -> None:
         connection.close()
     after = _snapshot(db, salt)
     comparison = compare_snapshots(before, after)
-    usage = next(
-        item for item in comparison.tables if item.name == "session_model_usage"
-    )
+    usage = next(item for item in comparison.tables if item.name == "session_model_usage")
     assert usage.presence_changed is True
     assert usage.changed is True
 
@@ -271,9 +260,7 @@ def test_corrupt_database_fails_closed(tmp_path: Path) -> None:
     db = tmp_path / "corrupt.db"
     db.write_bytes(b"this is not a sqlite database at all" * 8)
     with pytest.raises(StateIntegrityError) as excinfo:
-        capture_state_snapshot(
-            str(db), metadata=read_state_metadata(str(db)), salt=new_run_salt()
-        )
+        capture_state_snapshot(str(db), metadata=read_state_metadata(str(db)), salt=new_run_salt())
     assert excinfo.value.code in {"STATE_DB_QUERY_FAILED", "STATE_DB_UNREADABLE"}
 
 
@@ -350,9 +337,7 @@ def test_identical_paths_are_rejected(tmp_path: Path) -> None:
 
 def test_same_directory_is_rejected(tmp_path: Path) -> None:
     with pytest.raises(StateIntegrityError) as excinfo:
-        assert_state_paths_disjoint(
-            str(tmp_path / "live.db"), str(tmp_path / "shadow.db")
-        )
+        assert_state_paths_disjoint(str(tmp_path / "live.db"), str(tmp_path / "shadow.db"))
     assert excinfo.value.code == "STATE_PATHS_NOT_DISJOINT"
 
 
@@ -389,9 +374,7 @@ def test_snapshot_and_comparison_leak_nothing(tmp_path: Path) -> None:
         connection.close()
 
     salt = b"S" * MIN_SALT_BYTES
-    snapshot = capture_state_snapshot(
-        str(db), metadata=read_state_metadata(str(db)), salt=salt
-    )
+    snapshot = capture_state_snapshot(str(db), metadata=read_state_metadata(str(db)), salt=salt)
     rendered = json.dumps(snapshot.as_canonical()) + repr(snapshot)
     comparison = compare_snapshots(snapshot, snapshot)
     rendered += json.dumps(comparison.as_canonical())
@@ -584,9 +567,7 @@ def test_terminal_marker_overwrite_is_atomic(tmp_path: Path) -> None:
 
 def test_invalid_marker_state_is_rejected(tmp_path: Path) -> None:
     with pytest.raises(OutOfBandError) as excinfo:
-        write_terminal_marker(
-            str(tmp_path / "result.json"), state="PENDING", payload={}
-        )
+        write_terminal_marker(str(tmp_path / "result.json"), state="PENDING", payload={})
     assert excinfo.value.code == "OOB_MARKER_STATE_INVALID"
 
 
@@ -646,9 +627,7 @@ def test_cleanup_returns_basenames_only(tmp_path: Path) -> None:
 
 
 def _instructions(text: str) -> str:
-    return "\n".join(
-        line for line in text.splitlines() if not line.lstrip().startswith("#")
-    )
+    return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
 
 
 def test_wrapper_script_is_dry_run_by_default_and_secret_free() -> None:

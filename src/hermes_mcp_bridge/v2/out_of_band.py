@@ -97,9 +97,7 @@ _TOO_BROAD_ROOTS: Final[tuple[str, ...]] = ("/", "/home", "/root", "/etc", "/var
 
 
 def _normalize_sandbox_paths(
-    values: tuple[str | os.PathLike[str], ...]
-    | list[str | os.PathLike[str]]
-    | None,
+    values: tuple[str | os.PathLike[str], ...] | list[str | os.PathLike[str]] | None,
 ) -> tuple[str, ...]:
     """Return deduplicated absolute sandbox paths in a stable order."""
     if not values:
@@ -198,12 +196,8 @@ class TransientUnitPlan:
             "timeout_seconds": self.timeout_seconds,
             "properties": [list(item) for item in self.properties],
             "environment_count": len(self.environment),
-            "writable_path_count": sum(
-                1 for key, _ in self.properties if key == "ReadWritePaths"
-            ),
-            "read_only_path_count": sum(
-                1 for key, _ in self.properties if key == "ReadOnlyPaths"
-            ),
+            "writable_path_count": sum(1 for key, _ in self.properties if key == "ReadWritePaths"),
+            "read_only_path_count": sum(1 for key, _ in self.properties if key == "ReadOnlyPaths"),
             "argv_length": len(self.argv),
         }
 
@@ -216,8 +210,7 @@ def build_transient_unit_plan(
     result_path: str | os.PathLike[str],
     delay_seconds: int,
     timeout_seconds: int,
-    writable_paths: tuple[str | os.PathLike[str], ...] | list[str | os.PathLike[str]]
-    | None = None,
+    writable_paths: tuple[str | os.PathLike[str], ...] | list[str | os.PathLike[str]] | None = None,
     read_only_paths: tuple[str | os.PathLike[str], ...]
     | list[str | os.PathLike[str]]
     | None = None,

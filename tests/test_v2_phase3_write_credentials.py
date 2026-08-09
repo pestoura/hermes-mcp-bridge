@@ -424,9 +424,7 @@ def test_superset_permissions_deny_even_with_valid_material(tmp_path: Path) -> N
 def test_unattested_permissions_block_readiness(tmp_path: Path) -> None:
     path = _secret_file(tmp_path, "branch.token", SYNTHETIC_APP_MATERIAL)
     provider = _provider(WriteCapabilityId.BRANCH, _env_for(WriteCapabilityId.BRANCH, path))
-    broker = WriteCapabilityBroker(
-        [provider], policy_allows={WriteCapabilityId.BRANCH: True}
-    )
+    broker = WriteCapabilityBroker([provider], policy_allows={WriteCapabilityId.BRANCH: True})
     readiness = broker.readiness(WriteCapabilityId.BRANCH.value)
     assert readiness is not None
     assert readiness.is_ready is False
@@ -579,9 +577,7 @@ def test_symlinked_secret_file_is_rejected(tmp_path: Path) -> None:
     real = _secret_file(tmp_path, "real.token", SYNTHETIC_APP_MATERIAL)
     link = tmp_path / "link.token"
     link.symlink_to(real)
-    provider = _provider(
-        WriteCapabilityId.BRANCH, _env_for(WriteCapabilityId.BRANCH, link)
-    )
+    provider = _provider(WriteCapabilityId.BRANCH, _env_for(WriteCapabilityId.BRANCH, link))
     assert provider.probe() is AuthorizationStatus.FILE_NOT_REGULAR
 
 
@@ -597,15 +593,11 @@ def test_empty_and_truncated_files_are_rejected(tmp_path: Path) -> None:
     empty = _secret_file(tmp_path, "empty.token", "   ")
     short = _secret_file(tmp_path, "short.token", "ghs_abc")
     assert (
-        _provider(
-            WriteCapabilityId.BRANCH, _env_for(WriteCapabilityId.BRANCH, empty)
-        ).probe()
+        _provider(WriteCapabilityId.BRANCH, _env_for(WriteCapabilityId.BRANCH, empty)).probe()
         is AuthorizationStatus.FILE_EMPTY
     )
     assert (
-        _provider(
-            WriteCapabilityId.BRANCH, _env_for(WriteCapabilityId.BRANCH, short)
-        ).probe()
+        _provider(WriteCapabilityId.BRANCH, _env_for(WriteCapabilityId.BRANCH, short)).probe()
         is AuthorizationStatus.MATERIAL_MALFORMED
     )
 
@@ -779,5 +771,5 @@ def test_no_admin_capability_is_representable() -> None:
 
 def test_module_declares_no_repository_deletion_surface() -> None:
     source = MODULE_PATH.read_text(encoding="utf-8").lower()
-    for marker in ("delete_repository", "\"delete\"", "'delete'"):
+    for marker in ("delete_repository", '"delete"', "'delete'"):
         assert marker not in source

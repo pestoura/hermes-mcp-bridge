@@ -345,11 +345,7 @@ def test_rules_only_reference_exported_metrics() -> None:
     get_registry().reset()
     get_metrics()  # (re)declare the catalogue
     exported = set(get_registry().render().splitlines())
-    declared = {
-        line.split()[2]
-        for line in exported
-        if line.startswith("# TYPE ")
-    }
+    declared = {line.split()[2] for line in exported if line.startswith("# TYPE ")}
     text = RULES_FILE.read_text(encoding="utf-8")
     referenced = set(re.findall(r"\bbridge_[a-z_]+", text))
     unknown = set()

@@ -61,21 +61,23 @@ def test_execution_summary_aggregates_only_observed_lifecycle(monkeypatch) -> No
         )
 
     registry = get_registry()
-    assert registry.histogram(
-        "bridge_execution_tool_calls", "unused"
-    ).snapshot(outcome="success") == {"count": 1, "sum": 2.0}
-    assert registry.histogram(
-        "bridge_execution_upstream_calls", "unused"
-    ).snapshot(outcome="success") == {"count": 1, "sum": 3.0}
-    assert registry.histogram(
-        "bridge_execution_poll_iterations", "unused"
-    ).snapshot(outcome="success") == {"count": 1, "sum": 2.0}
-    assert registry.histogram(
-        "bridge_execution_retries", "unused"
-    ).snapshot(outcome="success") == {"count": 1, "sum": 1.0}
-    assert registry.counter(
-        "bridge_execution_terminal_total", "unused"
-    ).value(outcome="success") == 1.0
+    assert registry.histogram("bridge_execution_tool_calls", "unused").snapshot(
+        outcome="success"
+    ) == {"count": 1, "sum": 2.0}
+    assert registry.histogram("bridge_execution_upstream_calls", "unused").snapshot(
+        outcome="success"
+    ) == {"count": 1, "sum": 3.0}
+    assert registry.histogram("bridge_execution_poll_iterations", "unused").snapshot(
+        outcome="success"
+    ) == {"count": 1, "sum": 2.0}
+    assert registry.histogram("bridge_execution_retries", "unused").snapshot(outcome="success") == {
+        "count": 1,
+        "sum": 1.0,
+    }
+    assert (
+        registry.counter("bridge_execution_terminal_total", "unused").value(outcome="success")
+        == 1.0
+    )
 
     summaries = [fields for event, fields in events if event == "bridge.execution.summary"]
     assert len(summaries) == 1
@@ -107,9 +109,10 @@ def test_old_terminal_status_does_not_fabricate_task_summary(monkeypatch) -> Non
         )
 
     assert "bridge.execution.summary" not in events
-    assert get_registry().counter(
-        "bridge_execution_terminal_total", "unused"
-    ).value(outcome="success") == 0.0
+    assert (
+        get_registry().counter("bridge_execution_terminal_total", "unused").value(outcome="success")
+        == 0.0
+    )
 
 
 def test_failed_started_execution_has_bounded_terminal_outcome() -> None:
@@ -145,8 +148,8 @@ def test_client_decode_records_real_serialization_boundary() -> None:
     response = httpx.Response(200, json={"status": "ok"})
     payload = client_module.HermesClient._decode(response, expected={200})
     assert payload == {"status": "ok"}
-    snapshot = get_registry().histogram(
-        "bridge_serialization_duration_seconds", "unused"
-    ).snapshot()
+    snapshot = (
+        get_registry().histogram("bridge_serialization_duration_seconds", "unused").snapshot()
+    )
     assert snapshot["count"] == 1
     assert snapshot["sum"] >= 0.0

@@ -83,9 +83,7 @@ class StaticGitHubAuthorizationProvider:
         repository: str,
     ) -> GitHubAuthorization | None:
         self.resolve_calls += 1
-        return self._entries.get(
-            (capability_id.strip().lower(), repository.strip().lower())
-        )
+        return self._entries.get((capability_id.strip().lower(), repository.strip().lower()))
 
     def __repr__(self) -> str:
         count = len(self._entries)

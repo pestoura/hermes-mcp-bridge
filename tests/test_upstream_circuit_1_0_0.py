@@ -240,9 +240,7 @@ def test_env_example_keeps_circuit_disabled_and_bounded() -> None:
 
 
 def test_circuit_runbook_preserves_activation_and_rollback_boundaries() -> None:
-    runbook = (REPO_ROOT / "docs" / "circuit-breaker-1.0.0.md").read_text(
-        encoding="utf-8"
-    )
+    runbook = (REPO_ROOT / "docs" / "circuit-breaker-1.0.0.md").read_text(encoding="utf-8")
 
     assert "BRIDGE_CIRCUIT_ENABLED=false" in runbook
     assert "No mutation is rejected because of circuit state" in runbook

@@ -284,9 +284,7 @@ def _tracked_table_fingerprints(
             f'SELECT COUNT(*), MAX(rowid) FROM "{name}"'
         ).fetchone()
         row_count = int(count_row[0]) if count_row is not None else 0
-        max_rowid = (
-            int(count_row[1]) if count_row is not None and count_row[1] is not None else 0
-        )
+        max_rowid = int(count_row[1]) if count_row is not None and count_row[1] is not None else 0
         fingerprints.append(
             TableFingerprint(
                 name=name,
@@ -333,9 +331,7 @@ def capture_state_snapshot(
     try:
         try:
             user_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-            sqlite_schema_version = int(
-                connection.execute("PRAGMA schema_version").fetchone()[0]
-            )
+            sqlite_schema_version = int(connection.execute("PRAGMA schema_version").fetchone()[0])
             fingerprints = _tracked_table_fingerprints(connection, tables)
         except (sqlite3.Error, TypeError, ValueError) as exc:
             raise StateIntegrityError("STATE_DB_QUERY_FAILED") from exc
@@ -370,9 +366,7 @@ def compare_snapshots(before: StateSnapshot, after: StateSnapshot) -> StateCompa
         raise StateIntegrityError("STATE_SNAPSHOT_SCHEMA_MISMATCH")
     if not hmac.compare_digest(before.salt_fingerprint, after.salt_fingerprint):
         raise StateIntegrityError("STATE_SNAPSHOT_SALT_MISMATCH")
-    if tuple(item.name for item in before.tables) != tuple(
-        item.name for item in after.tables
-    ):
+    if tuple(item.name for item in before.tables) != tuple(item.name for item in after.tables):
         raise StateIntegrityError("STATE_SNAPSHOT_SCHEMA_MISMATCH")
 
     deltas: list[TableDelta] = []
@@ -395,9 +389,7 @@ def compare_snapshots(before: StateSnapshot, after: StateSnapshot) -> StateCompa
     return StateComparison(
         digest_equal=hmac.compare_digest(before.digest, after.digest),
         user_version_changed=before.user_version != after.user_version,
-        sqlite_schema_version_changed=(
-            before.sqlite_schema_version != after.sqlite_schema_version
-        ),
+        sqlite_schema_version_changed=(before.sqlite_schema_version != after.sqlite_schema_version),
         size_changed=before.metadata.size_bytes != after.metadata.size_bytes,
         size_delta=int(after.metadata.size_bytes - before.metadata.size_bytes),
         mtime_changed=before.metadata.mtime_ns != after.metadata.mtime_ns,

@@ -406,9 +406,7 @@ class DigestBinding:
 
     def __post_init__(self) -> None:
         if not self.operation_digest:
-            object.__setattr__(
-                self, "operation_digest", compute_operation_digest(self.descriptor)
-            )
+            object.__setattr__(self, "operation_digest", compute_operation_digest(self.descriptor))
 
     def evidence(self) -> dict[str, str]:
         merged = digest_evidence(self.descriptor)

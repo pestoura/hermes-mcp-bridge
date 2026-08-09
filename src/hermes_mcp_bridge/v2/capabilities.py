@@ -97,9 +97,7 @@ class CapabilityRegistry:
         if self._frozen:
             raise RegistryFrozenError("capability registry is frozen")
         if capability.capability_id in self._capabilities:
-            raise DuplicateCapabilityError(
-                f"duplicate capability_id: {capability.capability_id}"
-            )
+            raise DuplicateCapabilityError(f"duplicate capability_id: {capability.capability_id}")
         self._capabilities[capability.capability_id] = capability
         return capability
 

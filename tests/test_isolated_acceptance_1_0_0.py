@@ -101,10 +101,7 @@ def test_harness_requires_restart_state_and_json_log_evidence() -> None:
     restart_call = '_docker("restart", resources["bridge"])'
     assert restart_call in source
     assert source.count(restart_call) == 1
-    assert (
-        "authorized restart did not replace the container process exactly once"
-        in source
-    )
+    assert "authorized restart did not replace the container process exactly once" in source
     assert 'before_state.get("Pid")' in source
     assert 'after_state.get("Pid")' in source
     assert 'before_state.get("StartedAt")' in source
@@ -124,7 +121,7 @@ def test_harness_requires_restart_state_and_json_log_evidence() -> None:
 def test_mock_is_finite_read_only_and_does_not_log_headers_or_bodies() -> None:
     source = MOCK.read_text(encoding="utf-8")
 
-    assert 'ALLOWED_GET_PATHS = frozenset({' in source
+    assert "ALLOWED_GET_PATHS = frozenset({" in source
     assert '"/health"' in source
     assert '"/health/detailed"' in source
     assert '"/v1/capabilities"' in source
@@ -133,9 +130,7 @@ def test_mock_is_finite_read_only_and_does_not_log_headers_or_bodies() -> None:
     assert "do_PATCH = _reject_mutation" in source
     assert "do_DELETE = _reject_mutation" in source
     assert '"mock.mutation_rejected"' in source
-    assert "self.headers" not in source.replace(
-        'self.headers.get("Authorization")', ""
-    )
+    assert "self.headers" not in source.replace('self.headers.get("Authorization")', "")
     assert "self.rfile" not in source
 
 
@@ -168,9 +163,7 @@ def test_ci_retains_sbom_as_blocking_release_evidence() -> None:
     )
     assert "if" not in retention
     assert retention.get("continue-on-error") is not True
-    assert retention["env"]["EVIDENCE_TAG"] == (
-        "sbom-evidence-${{ github.sha }}"
-    )
+    assert retention["env"]["EVIDENCE_TAG"] == ("sbom-evidence-${{ github.sha }}")
 
     command = retention["run"]
     assert "gh release create" in command

@@ -72,9 +72,7 @@ async def test_submit_prompt_loads_session_history_and_waits_for_completion() ->
             )
         raise AssertionError(f"Unexpected request: {request.method} {request.url}")
 
-    client = HermesClient(
-        settings(), transport_factory=lambda: httpx.MockTransport(handler)
-    )
+    client = HermesClient(settings(), transport_factory=lambda: httpx.MockTransport(handler))
     result = await client.submit_prompt(
         prompt="Validate service Z",
         session_id="session-1",
@@ -114,9 +112,7 @@ async def test_submit_prompt_creates_native_session_when_missing(
             return httpx.Response(202, json={"run_id": "run-2", "status": "started"})
         raise AssertionError(f"Unexpected request: {request.method} {request.url}")
 
-    client = HermesClient(
-        settings(), transport_factory=lambda: httpx.MockTransport(handler)
-    )
+    client = HermesClient(settings(), transport_factory=lambda: httpx.MockTransport(handler))
     result = await client.submit_prompt(prompt="Long task", wait_seconds=0)
 
     assert result.execution_id == "run-2"
@@ -142,11 +138,7 @@ async def test_duplicate_session_title_is_retried(
             if len(titles) == 1:
                 return httpx.Response(
                     400,
-                    json={
-                        "error": {
-                            "message": "Title already in use by session api_existing"
-                        }
-                    },
+                    json={"error": {"message": "Title already in use by session api_existing"}},
                 )
             return httpx.Response(
                 201,
@@ -156,9 +148,7 @@ async def test_duplicate_session_title_is_retried(
             return httpx.Response(202, json={"run_id": "run-retry", "status": "started"})
         raise AssertionError(f"Unexpected request: {request.method} {request.url}")
 
-    client = HermesClient(
-        settings(), transport_factory=lambda: httpx.MockTransport(handler)
-    )
+    client = HermesClient(settings(), transport_factory=lambda: httpx.MockTransport(handler))
     result = await client.submit_prompt(prompt="Repeated task", wait_seconds=0)
 
     assert titles == [
@@ -195,9 +185,7 @@ async def test_compression_tip_session_id_is_used_for_new_run() -> None:
             return httpx.Response(202, json={"run_id": "run-tip", "status": "started"})
         raise AssertionError(f"Unexpected request: {request.method} {request.url}")
 
-    client = HermesClient(
-        settings(), transport_factory=lambda: httpx.MockTransport(handler)
-    )
+    client = HermesClient(settings(), transport_factory=lambda: httpx.MockTransport(handler))
     result = await client.submit_prompt(
         prompt="Continue",
         session_id="source-session",
@@ -212,9 +200,7 @@ async def test_unknown_session_is_rejected() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(404, json={"error": {"message": "not found"}})
 
-    client = HermesClient(
-        settings(), transport_factory=lambda: httpx.MockTransport(handler)
-    )
+    client = HermesClient(settings(), transport_factory=lambda: httpx.MockTransport(handler))
 
     with pytest.raises(HermesAPIError, match="Hermes session not found"):
         await client.submit_prompt(prompt="Continue", session_id="missing")
@@ -225,9 +211,7 @@ async def test_empty_prompt_is_rejected_before_network_call() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         raise AssertionError(f"Unexpected request: {request.method} {request.url}")
 
-    client = HermesClient(
-        settings(), transport_factory=lambda: httpx.MockTransport(handler)
-    )
+    client = HermesClient(settings(), transport_factory=lambda: httpx.MockTransport(handler))
 
     with pytest.raises(HermesAPIError, match="must not be empty"):
         await client.submit_prompt(prompt="  \n ")
@@ -238,9 +222,7 @@ async def test_invalid_session_identifier_is_rejected_before_network_call() -> N
     def handler(request: httpx.Request) -> httpx.Response:
         raise AssertionError(f"Unexpected request: {request.method} {request.url}")
 
-    client = HermesClient(
-        settings(), transport_factory=lambda: httpx.MockTransport(handler)
-    )
+    client = HermesClient(settings(), transport_factory=lambda: httpx.MockTransport(handler))
 
     with pytest.raises(HermesAPIError, match="Invalid Hermes session_id"):
         await client.submit_prompt(prompt="Continue", session_id="../other-session")
@@ -251,9 +233,7 @@ async def test_invalid_execution_identifier_is_rejected_before_network_call() ->
     def handler(request: httpx.Request) -> httpx.Response:
         raise AssertionError(f"Unexpected request: {request.method} {request.url}")
 
-    client = HermesClient(
-        settings(), transport_factory=lambda: httpx.MockTransport(handler)
-    )
+    client = HermesClient(settings(), transport_factory=lambda: httpx.MockTransport(handler))
 
     with pytest.raises(HermesAPIError, match="Invalid Hermes execution_id"):
         await client.get_run("../../run")
@@ -266,9 +246,7 @@ async def test_non_finite_wait_is_rejected_before_network_call() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         raise AssertionError(f"Unexpected request: {request.method} {request.url}")
 
-    client = HermesClient(
-        settings(), transport_factory=lambda: httpx.MockTransport(handler)
-    )
+    client = HermesClient(settings(), transport_factory=lambda: httpx.MockTransport(handler))
 
     for value in (math.inf, -math.inf, math.nan):
         with pytest.raises(HermesAPIError, match="finite number"):
@@ -288,9 +266,7 @@ async def test_api_error_uses_bounded_structured_message() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(401, json={"error": {"message": "denied"}})
 
-    client = HermesClient(
-        settings(), transport_factory=lambda: httpx.MockTransport(handler)
-    )
+    client = HermesClient(settings(), transport_factory=lambda: httpx.MockTransport(handler))
 
     with pytest.raises(HermesAPIError, match="HTTP 401: denied"):
         await client.health()
@@ -301,9 +277,7 @@ async def test_network_failure_is_normalized() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("connection refused", request=request)
 
-    client = HermesClient(
-        settings(), transport_factory=lambda: httpx.MockTransport(handler)
-    )
+    client = HermesClient(settings(), transport_factory=lambda: httpx.MockTransport(handler))
 
     with pytest.raises(HermesAPIError, match="Unable to reach"):
         await client.health()

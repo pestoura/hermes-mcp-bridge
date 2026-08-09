@@ -85,9 +85,7 @@ async def _capture_payload(
             return httpx.Response(200, json={"object": "list", "data": []})
         raise AssertionError(f"Unexpected request: {request.method} {request.url}")
 
-    client = HermesClient(
-        _settings(), transport_factory=lambda: httpx.MockTransport(handler)
-    )
+    client = HermesClient(_settings(), transport_factory=lambda: httpx.MockTransport(handler))
     await client.create_run(
         prompt="Read only task",
         session_id="session-1",
@@ -114,9 +112,7 @@ async def test_payload_is_byte_identical_when_flag_is_not_exactly_one(
     orchestration: OrchestrationMode,
 ) -> None:
     monkeypatch.delenv(ENV_FLAG, raising=False)
-    baseline = await _capture_payload(
-        agent=agent, subagents=subagents, orchestration=orchestration
-    )
+    baseline = await _capture_payload(agent=agent, subagents=subagents, orchestration=orchestration)
 
     if flag_value is None:
         monkeypatch.delenv(ENV_FLAG, raising=False)
@@ -145,17 +141,13 @@ async def test_flag_on_appends_exactly_one_serialization_instruction(
 ) -> None:
     monkeypatch.delenv(ENV_FLAG, raising=False)
     baseline_body = json.loads(
-        await _capture_payload(
-            agent=agent, subagents=subagents, orchestration=orchestration
-        )
+        await _capture_payload(agent=agent, subagents=subagents, orchestration=orchestration)
     )
     baseline_instructions = baseline_body.get("instructions")
 
     monkeypatch.setenv(ENV_FLAG, "1")
     body = json.loads(
-        await _capture_payload(
-            agent=agent, subagents=subagents, orchestration=orchestration
-        )
+        await _capture_payload(agent=agent, subagents=subagents, orchestration=orchestration)
     )
     instructions = body["instructions"]
 
@@ -216,15 +208,9 @@ def test_tool_contract_surface_is_unchanged_at_27() -> None:
 
 
 def test_flag_is_not_exposed_as_config_field_or_mcp_argument() -> None:
-    assert not any(
-        "acceptance_strict_json" in name for name in Settings.model_fields
-    )
-    server_source = (ROOT / "src" / "hermes_mcp_bridge" / "server.py").read_text(
-        encoding="utf-8"
-    )
-    config_source = (ROOT / "src" / "hermes_mcp_bridge" / "config.py").read_text(
-        encoding="utf-8"
-    )
+    assert not any("acceptance_strict_json" in name for name in Settings.model_fields)
+    server_source = (ROOT / "src" / "hermes_mcp_bridge" / "server.py").read_text(encoding="utf-8")
+    config_source = (ROOT / "src" / "hermes_mcp_bridge" / "config.py").read_text(encoding="utf-8")
     assert ENV_FLAG not in server_source
     assert ENV_FLAG not in config_source
 
@@ -239,9 +225,7 @@ def test_launcher_sets_flag_only_in_shadow_bridge_env() -> None:
     assert text.count(ENV_FLAG) == 1
     assert f"  {ENV_FLAG}='1' \\\n  \"$VENV/bin/hermes-mcp-bridge\"" in text
     # Not exported into the shadow Hermes gateway process.
-    gateway_block = text.split('"$HERMES_BIN" gateway run')[0].rsplit(
-        "setsid env -i", 1
-    )[-1]
+    gateway_block = text.split('"$HERMES_BIN" gateway run')[0].rsplit("setsid env -i", 1)[-1]
     assert ENV_FLAG not in gateway_block
 
 

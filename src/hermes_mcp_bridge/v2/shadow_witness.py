@@ -120,9 +120,7 @@ def read_shadow_counts(shadow_state_db: str | os.PathLike[str]) -> ShadowCounts:
     try:
         present = {
             str(row[0])
-            for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table'"
-            )
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
         }
         values: dict[str, int] = {}
         for table in WITNESS_TABLES:
@@ -207,9 +205,7 @@ def build_witness(
     }
 
 
-def write_witness(
-    handoff_path: str | os.PathLike[str], document: dict[str, Any]
-) -> Path:
+def write_witness(handoff_path: str | os.PathLike[str], document: dict[str, Any]) -> Path:
     """Atomically write the witness with mode ``0600``."""
     destination = Path(handoff_path)
     if not destination.is_absolute():
@@ -298,9 +294,7 @@ def consume_witness(
     except (OSError, json.JSONDecodeError):
         payload = None
     validated = (
-        validate_witness(payload, expected_commit=expected_commit)
-        if payload is not None
-        else None
+        validate_witness(payload, expected_commit=expected_commit) if payload is not None else None
     )
     with contextlib.suppress(OSError):
         path.unlink()

@@ -51,16 +51,17 @@ def test_real_approval_registry_operations_record_latency_and_return_inflight_to
     assert loaded.approval_id == approval.approval_id
 
     metrics = get_registry()
-    successful = metrics.histogram(
-        "bridge_sqlite_operation_duration_seconds", "unused"
-    ).snapshot(kind="approvals", outcome="success")
+    successful = metrics.histogram("bridge_sqlite_operation_duration_seconds", "unused").snapshot(
+        kind="approvals", outcome="success"
+    )
     # create() performs its own write and a real nested get(); the explicit get
     # above is a third operation. Counting all three exposes actual DB chatter.
     assert successful["count"] >= 3
     assert successful["sum"] >= 0.0
-    assert metrics.gauge(
-        "bridge_sqlite_transactions_inflight", "unused"
-    ).value(kind="approvals") == 0.0
+    assert (
+        metrics.gauge("bridge_sqlite_transactions_inflight", "unused").value(kind="approvals")
+        == 0.0
+    )
 
     text = render_prometheus()
     assert "sensitive-db-name" not in text
@@ -80,13 +81,11 @@ def test_sqlite_error_timing_preserves_original_exception() -> None:
         fail_exactly()
 
     metrics = get_registry()
-    error = metrics.histogram(
-        "bridge_sqlite_operation_duration_seconds", "unused"
-    ).snapshot(kind="state", outcome="error")
+    error = metrics.histogram("bridge_sqlite_operation_duration_seconds", "unused").snapshot(
+        kind="state", outcome="error"
+    )
     assert error["count"] == 1
-    assert metrics.gauge(
-        "bridge_sqlite_transactions_inflight", "unused"
-    ).value(kind="state") == 0.0
+    assert metrics.gauge("bridge_sqlite_transactions_inflight", "unused").value(kind="state") == 0.0
 
     text = render_prometheus()
     assert "synthetic locked database marker" not in text
@@ -98,9 +97,11 @@ def test_unknown_kind_falls_back_to_other_without_new_cardinality() -> None:
         return 7
 
     assert succeed() == 7
-    snapshot = get_registry().histogram(
-        "bridge_sqlite_operation_duration_seconds", "unused"
-    ).snapshot(kind="other", outcome="success")
+    snapshot = (
+        get_registry()
+        .histogram("bridge_sqlite_operation_duration_seconds", "unused")
+        .snapshot(kind="other", outcome="success")
+    )
     assert snapshot["count"] == 1
     assert "user-controlled-kind-must-not-be-label" not in render_prometheus()
 

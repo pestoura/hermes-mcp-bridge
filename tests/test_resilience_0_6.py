@@ -91,9 +91,7 @@ def test_tracing_readiness_reported() -> None:
 
 
 @pytest.mark.asyncio
-async def test_quota_decisions(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+async def test_quota_decisions(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     server = _make_server(monkeypatch, tmp_path)
     result = await server.hermes_quota_status(principal="p", resource="r", mutation=True)
     assert result["quota"]["decision"] in {QuotaDecision.ALLOW.value, QuotaDecision.REJECT.value}

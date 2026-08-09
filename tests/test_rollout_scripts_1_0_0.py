@@ -121,9 +121,7 @@ def test_candidate_compose_is_current_key_only_and_fail_closed() -> None:
     assert environment["HERMES_API_KEY"] == ""
     assert environment["HERMES_API_KEY_FILE"] == "/run/secrets/hermes_api_key"
     assert environment["HERMES_BRIDGE_HMAC_SECRET"] == ""
-    assert environment["HERMES_BRIDGE_HMAC_SECRET_FILE"].endswith(
-        "/hermes_bridge_hmac_secret"
-    )
+    assert environment["HERMES_BRIDGE_HMAC_SECRET_FILE"].endswith("/hermes_bridge_hmac_secret")
     assert environment["HERMES_BRIDGE_HMAC_SECRET_PREVIOUS"] == ""
     assert environment["HERMES_BRIDGE_HMAC_SECRET_PREVIOUS_FILE"] == ""
     assert environment["HERMES_BRIDGE_HMAC_PREVIOUS_VALID_FROM"] == ""
@@ -149,9 +147,7 @@ def test_rollback_compose_is_file_backed_and_requires_exact_image() -> None:
     assert environment["HERMES_API_KEY"] == ""
     assert environment["HERMES_API_KEY_FILE"] == "/run/secrets/hermes_api_key"
     assert environment["HERMES_BRIDGE_HMAC_SECRET"] == ""
-    assert environment["HERMES_BRIDGE_HMAC_SECRET_FILE"].endswith(
-        "/hermes_bridge_hmac_secret"
-    )
+    assert environment["HERMES_BRIDGE_HMAC_SECRET_FILE"].endswith("/hermes_bridge_hmac_secret")
     assert environment["BRIDGE_RETRY_ENABLED"] == "false"
     assert environment["BRIDGE_CIRCUIT_ENABLED"] == "false"
     assert set(service["secrets"]) == {
@@ -192,7 +188,7 @@ def test_validate_requires_full_1_0_posture_and_disabled_features() -> None:
     text = _read("validate.sh")
     for expression in (
         '.components.security_posture.status == "ready"',
-        '.components.security_posture.policy.valid == true',
+        ".components.security_posture.policy.valid == true",
         '.components.security_posture.policy.source == "file"',
         '.components.security_posture.hmac.source_type == "file"',
         ".components.security_posture.hmac.previous_configured == false",
@@ -273,9 +269,7 @@ def _write_state_db(path: Path) -> None:
         connection.execute(
             "CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT)"
         )
-        connection.execute(
-            "INSERT INTO schema_migrations VALUES (10, '2026-08-06T00:00:00Z')"
-        )
+        connection.execute("INSERT INTO schema_migrations VALUES (10, '2026-08-06T00:00:00Z')")
         connection.commit()
     finally:
         connection.close()
@@ -295,21 +289,21 @@ def _prepare_preflight_fixture(tmp_path: Path) -> tuple[dict[str, str], Path]:
         '    *org.opencontainers.image.revision*) [ "$image" = "candidate:test" ] && echo "goodsha" || echo "rollbacksha" ;;\n'
         '    *org.opencontainers.image.version*) [ "$image" = "candidate:test" ] && echo "1.0.0" || echo "0.9.0" ;;\n'
         '    *"{{.Id}}"*) [ "$image" = "candidate:test" ] && echo "sha256:candidate" || echo "sha256:rollback" ;;\n'
-        '  esac\n'
-        '  exit 0\n'
-        'fi\n'
+        "  esac\n"
+        "  exit 0\n"
+        "fi\n"
         'if [ "$1" = "inspect" ]; then\n'
         '  case "$*" in\n'
         '    *"{{.Image}}"*) echo "sha256:rollback" ;;\n'
         '    *RestartCount*) echo "healthy|0" ;;\n'
         '    *) echo "healthy" ;;\n'
-        '  esac\n'
-        '  exit 0\n'
-        'fi\n'
+        "  esac\n"
+        "  exit 0\n"
+        "fi\n"
         'if [ "$1" = "compose" ]; then\n'
         '  for arg in "$@"; do [ "$arg" = "config" ] && exit 0; done\n'
-        '  exit 0\n'
-        'fi\n'
+        "  exit 0\n"
+        "fi\n"
         "exit 0\n",
         encoding="utf-8",
     )

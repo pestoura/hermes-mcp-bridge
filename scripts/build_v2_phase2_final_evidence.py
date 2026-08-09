@@ -87,9 +87,7 @@ def build_final_evidence(
         record = sample.get("tool_provenance") if isinstance(sample, dict) else None
         if not isinstance(record, dict):
             continue
-        provenance.append(
-            {key: record[key] for key in _SANITIZED_PROVENANCE_KEYS if key in record}
-        )
+        provenance.append({key: record[key] for key in _SANITIZED_PROVENANCE_KEYS if key in record})
 
     direct_total = aggregate.get("direct_hermes_llm_tokens")
     agentic_total = aggregate.get("v1_shadow_hermes_llm_tokens")
@@ -115,9 +113,7 @@ def build_final_evidence(
             "token_measurement_mode": TOKEN_MEASUREMENT_MODE,
             "direct_total_tokens": direct_total,
             "agentic_total_tokens": agentic_total,
-            "token_reduction_percent": token_reduction_percent(
-                direct_total, agentic_total
-            ),
+            "token_reduction_percent": token_reduction_percent(direct_total, agentic_total),
             "direct_provider_api_calls": aggregate.get("direct_provider_api_calls"),
             "mutations_observed": aggregate.get("mutations_observed"),
         },

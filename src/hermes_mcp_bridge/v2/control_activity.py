@@ -113,12 +113,8 @@ class ControlActivityReport:
             "active_delegations": int(self.indicators.get("active_delegations", 0)),
             "pending_deliveries": int(self.indicators.get("pending_deliveries", 0)),
             "pending_obligations": int(self.indicators.get("pending_obligations", 0)),
-            "held_compression_locks": int(
-                self.indicators.get("held_compression_locks", 0)
-            ),
-            "recently_active_sessions": int(
-                self.indicators.get("recently_active_sessions", 0)
-            ),
+            "held_compression_locks": int(self.indicators.get("held_compression_locks", 0)),
+            "recently_active_sessions": int(self.indicators.get("recently_active_sessions", 0)),
             "row_contents_read": False,
             "identifiers_read": False,
             "blockers": list(self.blockers),
@@ -126,9 +122,7 @@ class ControlActivityReport:
 
 
 def _unmeasurable(code: str) -> ControlActivityReport:
-    return ControlActivityReport(
-        status=STATUS_UNMEASURABLE, indicators={}, blockers=(code,)
-    )
+    return ControlActivityReport(status=STATUS_UNMEASURABLE, indicators={}, blockers=(code,))
 
 
 def _introspect(connection: sqlite3.Connection) -> str | None:
@@ -136,9 +130,7 @@ def _introspect(connection: sqlite3.Connection) -> str | None:
     try:
         present = {
             str(row[0])
-            for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table'"
-            )
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
         }
     except sqlite3.Error:
         return "CONTROL_DB_QUERY_FAILED"
@@ -188,9 +180,7 @@ def evaluate_control_activity(
         return _unmeasurable("CONTROL_DB_UNREADABLE")
     uri = f"file:{path.as_posix()}?mode=ro"
     try:
-        connection = sqlite3.connect(
-            uri, uri=True, timeout=_SQLITE_TIMEOUT_SECONDS
-        )
+        connection = sqlite3.connect(uri, uri=True, timeout=_SQLITE_TIMEOUT_SECONDS)
         connection.execute("PRAGMA query_only = ON")
     except sqlite3.Error:
         return _unmeasurable("CONTROL_DB_UNREADABLE")
@@ -221,8 +211,7 @@ def evaluate_control_activity(
                 ),
             }
             row = connection.execute(
-                "SELECT COUNT(*) FROM compression_locks "
-                "WHERE expires_at IS NULL OR expires_at > ?",
+                "SELECT COUNT(*) FROM compression_locks WHERE expires_at IS NULL OR expires_at > ?",
                 (moment,),
             ).fetchone()
             indicators["held_compression_locks"] = int(row[0]) if row else 0

@@ -61,9 +61,7 @@ def _run(
         check=False,
     )
     if check and result.returncode != 0:
-        raise AcceptanceError(
-            f"command failed rc={result.returncode}: {_redact(result.stderr)}"
-        )
+        raise AcceptanceError(f"command failed rc={result.returncode}: {_redact(result.stderr)}")
     return result
 
 
@@ -152,15 +150,11 @@ async def _probe_mcp(url: str) -> dict[str, Any]:
             health = _tool_payload(
                 await session.call_tool("hermes_health", arguments={"detailed": False})
             )
-            readiness = _tool_payload(
-                await session.call_tool("hermes_readiness", arguments={})
-            )
+            readiness = _tool_payload(await session.call_tool("hermes_readiness", arguments={}))
             capabilities = _tool_payload(
                 await session.call_tool("hermes_capabilities", arguments={})
             )
-            agent_card = _tool_payload(
-                await session.call_tool("hermes_agent_card", arguments={})
-            )
+            agent_card = _tool_payload(await session.call_tool("hermes_agent_card", arguments={}))
             for name, payload in (
                 ("health", health),
                 ("readiness", readiness),
@@ -289,8 +283,7 @@ def _inspect_security(container: str, host_port: int) -> dict[str, Any]:
 
     bindings = (host.get("PortBindings") or {}).get("8765/tcp") or []
     if not any(
-        item.get("HostIp") == "127.0.0.1"
-        and int(item.get("HostPort") or 0) == host_port
+        item.get("HostIp") == "127.0.0.1" and int(item.get("HostPort") or 0) == host_port
         for item in bindings
     ):
         raise AcceptanceError("candidate MCP port is not bound to loopback")
@@ -388,9 +381,7 @@ def _validate_mock_logs(container: str) -> dict[str, Any]:
     return {
         "request_count": len(request_records),
         "methods": sorted({str(item.get("method")) for item in request_records}),
-        "path_classes": sorted(
-            {str(item.get("path_class")) for item in request_records}
-        ),
+        "path_classes": sorted({str(item.get("path_class")) for item in request_records}),
     }
 
 
@@ -438,17 +429,10 @@ def _accept(image: str, repo_root: Path) -> dict[str, Any]:
     port = _free_loopback_port()
     policy = repo_root / "config" / "policies" / "production.json"
     mock_script = repo_root / "tests" / "isolated" / "mock_hermes.py"
-    state_mount = (
-        f"type=volume,src={resources['state_volume']},"
-        "dst=/var/lib/hermes-mcp-bridge"
-    )
-    secrets_mount = (
-        f"type=volume,src={resources['secrets_volume']},"
-        "dst=/run/secrets,readonly"
-    )
+    state_mount = f"type=volume,src={resources['state_volume']},dst=/var/lib/hermes-mcp-bridge"
+    secrets_mount = f"type=volume,src={resources['secrets_volume']},dst=/run/secrets,readonly"
     policy_mount = (
-        f"type=bind,src={policy},"
-        "dst=/etc/hermes-mcp-bridge/policies/production.json,readonly"
+        f"type=bind,src={policy},dst=/etc/hermes-mcp-bridge/policies/production.json,readonly"
     )
     result: dict[str, Any] | None = None
 
@@ -625,16 +609,12 @@ root.chmod(0o700)
         state_before = _state_integrity(resources["bridge"])
         bridge_logs_before = _parse_json_logs(resources["bridge"])
 
-        before_state = json.loads(
-            _docker("inspect", resources["bridge"]).stdout
-        )[0]["State"]
+        before_state = json.loads(_docker("inspect", resources["bridge"]).stdout)[0]["State"]
         before_pid = int(before_state.get("Pid") or 0)
         before_started_at = str(before_state.get("StartedAt") or "")
         _docker("restart", resources["bridge"])
         _wait_container_health(resources["bridge"])
-        after_state = json.loads(
-            _docker("inspect", resources["bridge"]).stdout
-        )[0]["State"]
+        after_state = json.loads(_docker("inspect", resources["bridge"]).stdout)[0]["State"]
         after_pid = int(after_state.get("Pid") or 0)
         after_started_at = str(after_state.get("StartedAt") or "")
         if (

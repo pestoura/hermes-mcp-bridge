@@ -157,9 +157,7 @@ def _reject_sensitive_identifier(value: str, *, field: str) -> None:
     Exact segment matching only. Human prose must never be passed here.
     """
     if _is_sensitive_identifier(value):
-        raise RegistryValidationError(
-            f"{field} must not be named after credential material"
-        )
+        raise RegistryValidationError(f"{field} must not be named after credential material")
 
 
 def _is_materialized(value: Any) -> bool:
@@ -208,9 +206,7 @@ def _reject_materialized_credentials(
 
     items = node.get("items")
     if isinstance(items, dict):
-        _reject_materialized_credentials(
-            items, field=field, path=f"{path}[]", sensitive=sensitive
-        )
+        _reject_materialized_credentials(items, field=field, path=f"{path}[]", sensitive=sensitive)
     elif isinstance(items, list):
         for index, child in enumerate(items):
             _reject_materialized_credentials(
@@ -350,9 +346,7 @@ class ToolDefinition(RegistryModel):
     credential_capability_id: str | None = None
 
     # --- reliability ------------------------------------------------------
-    timeout_seconds: Annotated[
-        int, Field(ge=MIN_TIMEOUT_SECONDS, le=MAX_TIMEOUT_SECONDS)
-    ]
+    timeout_seconds: Annotated[int, Field(ge=MIN_TIMEOUT_SECONDS, le=MAX_TIMEOUT_SECONDS)]
     retry_policy: RetryPolicy = RetryPolicy()
     resource_key: ResourceKey
 

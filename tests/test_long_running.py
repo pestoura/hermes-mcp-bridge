@@ -39,12 +39,8 @@ async def test_connected_stream_reports_events_and_returns_final_status() -> Non
         if request.method == "GET" and request.url.path.endswith("/events"):
             body = "".join(
                 [
-                    "data: "
-                    + json.dumps({"event": "tool.started", "tool": "github"})
-                    + "\n\n",
-                    "data: "
-                    + json.dumps({"event": "run.completed", "output": "done"})
-                    + "\n\n",
+                    "data: " + json.dumps({"event": "tool.started", "tool": "github"}) + "\n\n",
+                    "data: " + json.dumps({"event": "run.completed", "output": "done"}) + "\n\n",
                     ": stream closed\n\n",
                 ]
             )
@@ -174,9 +170,7 @@ async def test_event_stream_failure_falls_back_to_polling() -> None:
     )
 
     assert result.status == RunStatus.COMPLETED
-    assert any(
-        event["event"] == "bridge.event_stream_fallback" for event in events
-    )
+    assert any(event["event"] == "bridge.event_stream_fallback" for event in events)
 
 
 def test_default_wait_supports_two_hour_runs() -> None:

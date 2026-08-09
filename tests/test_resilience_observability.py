@@ -120,9 +120,7 @@ def test_structured_logs_from_resilience_paths_are_sanitized(capsys) -> None:  #
     for payload in payloads:
         assert "prompt" not in payload
         assert "output" not in payload
-        assert not any(
-            key in payload for key in ("run_id", "execution_id", "session_id", "token")
-        )
+        assert not any(key in payload for key in ("run_id", "execution_id", "session_id", "token"))
 
 
 # -- load harness -------------------------------------------------------

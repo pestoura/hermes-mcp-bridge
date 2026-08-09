@@ -425,32 +425,37 @@ def test_launcher_retains_no_raw_collector_artifacts() -> None:
     assert "collector.log" not in text
 
 
-FRAGMENT_TEMPLATE = "\n".join(
-  [
-    '#!/usr/bin/env bash',
-    'set -uo pipefail',
-    'VENV_PY="__PY__"',
-    '__HELPER__',
-    'blocked() {',
-    '  printf \'{"gate":"DIRECT_READ_BLOCKED","reason":"%s"}\\n\' "$1"',
-    '  exit 2',
-    '}',
-    "COLLECTOR_OUTPUT=''",
-    'COLLECTOR_STATUS=0',
-    'COLLECTOR_OUTPUT="$("__FAKE__" 2>/dev/null)" || COLLECTOR_STATUS=$?',
-    'if [[ "$COLLECTOR_STATUS" -ne 0 ]]; then',
-    ('  COLLECTOR_REASON="$(printf \'%s\' "$COLLECTOR_O'
-     'UTPUT" | collector_output_field reason || true)"'),
-    "  COLLECTOR_OUTPUT=''",
-    '  if [[ -n "$COLLECTOR_REASON" ]]; then',
-    '    blocked "$COLLECTOR_REASON"',
-    '  fi',
-    '  blocked "CONNECTED_EVIDENCE_COLLECTION_ABNORMAL_EXIT"',
-    'fi',
-    "COLLECTOR_OUTPUT=''",
-    'echo OK',
-  ]
-) + "\n"
+FRAGMENT_TEMPLATE = (
+    "\n".join(
+        [
+            "#!/usr/bin/env bash",
+            "set -uo pipefail",
+            'VENV_PY="__PY__"',
+            "__HELPER__",
+            "blocked() {",
+            '  printf \'{"gate":"DIRECT_READ_BLOCKED","reason":"%s"}\\n\' "$1"',
+            "  exit 2",
+            "}",
+            "COLLECTOR_OUTPUT=''",
+            "COLLECTOR_STATUS=0",
+            'COLLECTOR_OUTPUT="$("__FAKE__" 2>/dev/null)" || COLLECTOR_STATUS=$?',
+            'if [[ "$COLLECTOR_STATUS" -ne 0 ]]; then',
+            (
+                "  COLLECTOR_REASON=\"$(printf '%s' \"$COLLECTOR_O"
+                'UTPUT" | collector_output_field reason || true)"'
+            ),
+            "  COLLECTOR_OUTPUT=''",
+            '  if [[ -n "$COLLECTOR_REASON" ]]; then',
+            '    blocked "$COLLECTOR_REASON"',
+            "  fi",
+            '  blocked "CONNECTED_EVIDENCE_COLLECTION_ABNORMAL_EXIT"',
+            "fi",
+            "COLLECTOR_OUTPUT=''",
+            "echo OK",
+        ]
+    )
+    + "\n"
+)
 
 
 def _run_launcher_fragment(collector_stdout: str, exit_code: int, tmp_path: Path) -> str:

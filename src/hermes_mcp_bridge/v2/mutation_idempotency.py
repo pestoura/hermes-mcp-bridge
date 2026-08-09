@@ -320,9 +320,7 @@ class IdempotencyStore:
                 held = self._records.get(holder)
                 if held is not None and held.outcome is MutationOutcome.PENDING:
                     if held.lease is not None and not held.lease.is_expired(moment):
-                        raise _conflict(
-                            MutationReasonCode.OPERATION_IN_PROGRESS, detail="lock_key"
-                        )
+                        raise _conflict(MutationReasonCode.OPERATION_IN_PROGRESS, detail="lock_key")
                     # An expired lease leaves the provider state unknown.
                     self._records[holder] = replace(
                         held,
@@ -331,9 +329,7 @@ class IdempotencyStore:
                         updated_at=moment,
                         lease=None,
                     )
-                    raise _conflict(
-                        MutationReasonCode.RECONCILIATION_REQUIRED, detail="lock_key"
-                    )
+                    raise _conflict(MutationReasonCode.RECONCILIATION_REQUIRED, detail="lock_key")
 
             record = IdempotencyRecord(
                 idempotency_key=idempotency_key,

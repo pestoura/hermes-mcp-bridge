@@ -126,9 +126,7 @@ def capability(
     state: CapabilityState = CapabilityState.READY,
     provider: str = "github",
 ) -> CapabilityDescriptor:
-    return CapabilityDescriptor(
-        capability_id=capability_id, provider=provider, state=state
-    )
+    return CapabilityDescriptor(capability_id=capability_id, provider=provider, state=state)
 
 
 def registry_with(
@@ -401,18 +399,14 @@ def test_snapshot_contains_no_timestamps_or_paths() -> None:
     "mutate",
     [
         pytest.param(lambda t: t.model_copy(update={"version": 2}), id="version"),
-        pytest.param(
-            lambda t: t.model_copy(update={"timeout_seconds": 31}), id="timeout"
-        ),
+        pytest.param(lambda t: t.model_copy(update={"timeout_seconds": 31}), id="timeout"),
         pytest.param(
             lambda t: t.model_copy(
                 update={"input_schema": {"type": "object", "properties": {"x": {}}}}
             ),
             id="schema",
         ),
-        pytest.param(
-            lambda t: t.model_copy(update={"security_tier": SecurityTier.T1}), id="tier"
-        ),
+        pytest.param(lambda t: t.model_copy(update={"security_tier": SecurityTier.T1}), id="tier"),
         pytest.param(
             lambda t: t.model_copy(update={"policy_action": "github.pr.read_alt"}),
             id="policy_action",
@@ -466,11 +460,7 @@ def test_policy_explicit_deny() -> None:
 def test_policy_require_approval_by_rule() -> None:
     registry = registry_with([read_tool()])
     rules = PolicyRuleSet(
-        [
-            PolicyRule(
-                policy_action="github.pr.read", decision=PolicyDecision.APPROVAL_REQUIRED
-            )
-        ]
+        [PolicyRule(policy_action="github.pr.read", decision=PolicyDecision.APPROVAL_REQUIRED)]
     )
     result = PolicyEngine(registry, rules).evaluate("github.get_pr")
     assert result.decision is PolicyDecision.APPROVAL_REQUIRED
@@ -499,11 +489,7 @@ def test_conditional_approval_requires_approval_under_an_approval_rule() -> None
     tool = read_tool(approval=ApprovalRequirement.CONDITIONAL)
     registry = registry_with([tool])
     rules = PolicyRuleSet(
-        [
-            PolicyRule(
-                policy_action="github.pr.read", decision=PolicyDecision.APPROVAL_REQUIRED
-            )
-        ]
+        [PolicyRule(policy_action="github.pr.read", decision=PolicyDecision.APPROVAL_REQUIRED)]
     )
     result = PolicyEngine(registry, rules).evaluate("github.get_pr")
     assert result.decision is PolicyDecision.APPROVAL_REQUIRED
@@ -512,9 +498,7 @@ def test_conditional_approval_requires_approval_under_an_approval_rule() -> None
 
 def test_conditional_and_required_are_not_semantically_equal() -> None:
     """Under the same ALLOW rule the two enum values must diverge."""
-    registry_conditional = registry_with(
-        [read_tool(approval=ApprovalRequirement.CONDITIONAL)]
-    )
+    registry_conditional = registry_with([read_tool(approval=ApprovalRequirement.CONDITIONAL)])
     registry_required = registry_with([read_tool(approval=ApprovalRequirement.REQUIRED)])
     rules = allow_rules("github.pr.read")
 
@@ -533,9 +517,7 @@ def test_conditional_does_not_bypass_the_destructive_backstop() -> None:
         approval=ApprovalRequirement.CONDITIONAL,
     )
     registry = registry_with([tool])
-    result = PolicyEngine(registry, allow_rules("github.pr.create")).evaluate(
-        "github.create_pr"
-    )
+    result = PolicyEngine(registry, allow_rules("github.pr.create")).evaluate("github.create_pr")
     assert result.decision is PolicyDecision.DENY
     assert result.reason_code is ReasonCode.DESTRUCTIVE_DENIED_BY_DEFAULT
 
@@ -757,9 +739,7 @@ def test_unregistered_terminal_and_filesystem_ids_are_not_projected() -> None:
 
     for tool_id in ("terminal.exec", "filesystem.any"):
         assert tool_id not in result.tool_ids
-    assert not any(
-        tool.provider in ("terminal", "filesystem", "shell") for tool in result.tools
-    )
+    assert not any(tool.provider in ("terminal", "filesystem", "shell") for tool in result.tools)
     # every projected tool is one that was explicitly registered
     assert set(result.tool_ids) <= {tool.tool_id for tool in registry.ordered()}
 
@@ -783,9 +763,7 @@ def test_projection_accepts_a_typed_credential_broker() -> None:
 
 def test_projection_context_is_opaque_and_not_serialized() -> None:
     registry, rules, broker = _projection_fixture()
-    context = ProjectionContext(
-        principal_ref="opaque-principal", resource_scope_ref="opaque-scope"
-    )
+    context = ProjectionContext(principal_ref="opaque-principal", resource_scope_ref="opaque-scope")
     with_ctx = project_capabilities(registry, rules, broker, context)
     without_ctx = project_capabilities(registry, rules, broker)
     assert with_ctx.projection_hash() == without_ctx.projection_hash()
@@ -970,9 +948,7 @@ def test_description_is_non_canonical_and_non_projected() -> None:
     """
     caps = CapabilityRegistry([capability("github.api")])
     registry = ToolRegistry(caps)
-    tool = ToolDefinition(
-        **{**read_tool().model_dump(), "description": f"Notes {SECRET_SENTINEL}"}
-    )
+    tool = ToolDefinition(**{**read_tool().model_dump(), "description": f"Notes {SECRET_SENTINEL}"})
     assert tool.description.endswith(SECRET_SENTINEL)
 
     assert "description" not in tool.canonical()

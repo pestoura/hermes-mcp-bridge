@@ -528,9 +528,7 @@ class WriteCapabilityBroker:
                 if probe_status in _DENIED_STATUSES
                 else CapabilityState.UNAVAILABLE
             )
-            return self._not_ready(
-                capability, state, MutationReasonCode.WRITE_CAPABILITY_NOT_READY
-            )
+            return self._not_ready(capability, state, MutationReasonCode.WRITE_CAPABILITY_NOT_READY)
 
         granted = self._permissions.get(capability)
         failure = permission_failure(capability, granted)

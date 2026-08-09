@@ -28,9 +28,7 @@ from hermes_mcp_bridge.contracts import (
 DOCKERFILE = Path("Dockerfile")
 COMPOSE = Path("compose.yml")
 
-BASE_IMAGE_DIGEST = (
-    "sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de"
-)
+BASE_IMAGE_DIGEST = "sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de"
 BASE_IMAGE_REF = f"python:3.12-slim-trixie@{BASE_IMAGE_DIGEST}"
 
 _DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -58,9 +56,7 @@ def test_base_image_arg_is_pinned_by_digest() -> None:
 def _instructions(text: str) -> str:
     """Return the Dockerfile with comment lines stripped."""
 
-    return "\n".join(
-        line for line in text.splitlines() if not line.strip().startswith("#")
-    )
+    return "\n".join(line for line in text.splitlines() if not line.strip().startswith("#"))
 
 
 def test_base_image_is_python_312_slim_trixie() -> None:
@@ -110,9 +106,7 @@ def test_runtime_runs_as_non_root_bridge_user() -> None:
 def _installed_packages(text: str) -> str:
     """Return only the lowercased text of the apt-get install lines."""
 
-    return " ".join(
-        line.lower() for line in text.splitlines() if "apt-get install" in line
-    )
+    return " ".join(line.lower() for line in text.splitlines() if "apt-get install" in line)
 
 
 def test_systemd_is_not_installed_in_the_image() -> None:

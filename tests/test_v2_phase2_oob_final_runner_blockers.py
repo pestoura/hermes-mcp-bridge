@@ -61,9 +61,7 @@ from hermes_mcp_bridge.v2.shadow_witness import (  # noqa: E402
 
 
 def _load_script(name: str) -> Any:
-    spec = importlib.util.spec_from_file_location(
-        f"_script_{name}", SCRIPTS / f"{name}.py"
-    )
+    spec = importlib.util.spec_from_file_location(f"_script_{name}", SCRIPTS / f"{name}.py")
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
@@ -147,9 +145,7 @@ def _shadow_db(path: Path, *, sessions: int, usage: int) -> None:
         for index in range(sessions):
             connection.execute("INSERT INTO sessions VALUES (?)", (f"s{index}",))
         for index in range(usage):
-            connection.execute(
-                "INSERT INTO session_model_usage VALUES (?, 'm')", (f"s{index}",)
-            )
+            connection.execute("INSERT INTO session_model_usage VALUES (?, 'm')", (f"s{index}",))
         connection.commit()
     finally:
         connection.close()
@@ -229,8 +225,7 @@ def test_guard_active_on_pending_obligation(tmp_path: Path) -> None:
     connection = sqlite3.connect(db)
     try:
         connection.execute(
-            "INSERT INTO delivery_obligations (obligation_id, state) "
-            "VALUES ('o1', 'pending')"
+            "INSERT INTO delivery_obligations (obligation_id, state) VALUES ('o1', 'pending')"
         )
         connection.commit()
     finally:
@@ -483,8 +478,8 @@ def test_launcher_emits_witness_before_cleanup_without_disabling_it() -> None:
 
 def test_launcher_handoff_is_inert_without_the_env_variable() -> None:
     text = LAUNCHER.read_text(encoding="utf-8")
-    assert 'SHADOW_WITNESS_ENABLED=0' in text
-    assert '[[ "$SHADOW_WITNESS_ENABLED" == \'1\' ]] || return 0' in text
+    assert "SHADOW_WITNESS_ENABLED=0" in text
+    assert "[[ \"$SHADOW_WITNESS_ENABLED\" == '1' ]] || return 0" in text
 
 
 def test_launcher_is_valid_bash() -> None:
@@ -492,9 +487,7 @@ def test_launcher_is_valid_bash() -> None:
 
 
 def test_runner_has_no_caller_supplied_positive_control() -> None:
-    source = (SCRIPTS / "v2_phase2_final_out_of_band_acceptance.py").read_text(
-        encoding="utf-8"
-    )
+    source = (SCRIPTS / "v2_phase2_final_out_of_band_acceptance.py").read_text(encoding="utf-8")
     assert "--shadow-row-count-after" not in source
     assert "shadow_row_count_after" not in source
 
@@ -570,9 +563,7 @@ def test_sandbox_rejects_same_path_both_writable_and_read_only(tmp_path: Path) -
 
 def test_sandbox_keeps_auth_source_mounted_read_only(tmp_path: Path) -> None:
     creds = str(tmp_path / "hermes-home")
-    plan = _plan(
-        tmp_path, writable_paths=(str(tmp_path / "work"),), read_only_paths=(creds,)
-    )
+    plan = _plan(tmp_path, writable_paths=(str(tmp_path / "work"),), read_only_paths=(creds,))
     assert creds in read_only_paths(plan)
     assert creds not in writable_paths(plan)
 
@@ -620,15 +611,11 @@ def test_runner_plan_emits_minimal_writable_grants(tmp_path: Path, capsys) -> No
     assert properties["ProtectHome"] == "read-only"
     assert properties["ProtectSystem"] == "strict"
     grants = [value for key, value in report["properties"] if key == "ReadWritePaths"]
-    assert sorted(grants) == sorted(
-        [str(tmp_path / "work"), str(tmp_path / "results")]
-    )
+    assert sorted(grants) == sorted([str(tmp_path / "work"), str(tmp_path / "results")])
     read_only = [value for key, value in report["properties"] if key == "ReadOnlyPaths"]
     assert read_only == [str(hermes_home)]
     assert report["environment_count"] == 0
-    assert report["background_writer_precondition"] == (
-        "FINAL_BACKGROUND_WRITER_UNCONTROLLED"
-    )
+    assert report["background_writer_precondition"] == ("FINAL_BACKGROUND_WRITER_UNCONTROLLED")
 
 
 # ---------------------------------------------------------------------------
@@ -656,9 +643,7 @@ def _execute_argv(tmp_path: Path, launcher: Path, *extra: str) -> list[str]:
     ]
 
 
-def test_execute_aborts_when_background_writer_uncontrolled(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_execute_aborts_when_background_writer_uncontrolled(tmp_path: Path, monkeypatch) -> None:
     _make_hermes_020_state_db(tmp_path / "state.db")
     launcher = tmp_path / "launcher.sh"
     launcher.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
@@ -675,9 +660,7 @@ def test_execute_blocks_when_guard_is_unmeasurable(tmp_path: Path, monkeypatch) 
     launcher.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     launcher.chmod(0o700)
     monkeypatch.setenv(FINAL_RUNNER.EXECUTE_ENV, FINAL_RUNNER.EXECUTE_ENV_VALUE)
-    code = FINAL_RUNNER.main(
-        _execute_argv(tmp_path, launcher, "--background-writer-controlled")
-    )
+    code = FINAL_RUNNER.main(_execute_argv(tmp_path, launcher, "--background-writer-controlled"))
     assert code == 2
     payload = json.loads((tmp_path / "result.json").read_text(encoding="utf-8"))
     assert payload["reason"] == "FINAL_CONTROL_GUARD_UNAVAILABLE"
@@ -689,31 +672,23 @@ def test_execute_blocks_without_a_valid_witness(tmp_path: Path, monkeypatch) -> 
     launcher.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     launcher.chmod(0o700)
     monkeypatch.setenv(FINAL_RUNNER.EXECUTE_ENV, FINAL_RUNNER.EXECUTE_ENV_VALUE)
-    code = FINAL_RUNNER.main(
-        _execute_argv(tmp_path, launcher, "--background-writer-controlled")
-    )
+    code = FINAL_RUNNER.main(_execute_argv(tmp_path, launcher, "--background-writer-controlled"))
     assert code == 2
     payload = json.loads((tmp_path / "result.json").read_text(encoding="utf-8"))
     assert payload["reason"] == "FINAL_SHADOW_WITNESS_INVALID"
 
 
-def test_execute_passes_handoff_path_to_the_inner_launcher(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_execute_passes_handoff_path_to_the_inner_launcher(tmp_path: Path, monkeypatch) -> None:
     _make_hermes_020_state_db(tmp_path / "state.db")
     seen = tmp_path / "seen-env.txt"
     launcher = tmp_path / "launcher.sh"
     launcher.write_text(
-        "#!/bin/sh\n"
-        f'printf "%s" "${WITNESS_ENV}" > {seen}\n'
-        "exit 0\n",
+        f'#!/bin/sh\nprintf "%s" "${WITNESS_ENV}" > {seen}\nexit 0\n',
         encoding="utf-8",
     )
     launcher.chmod(0o700)
     monkeypatch.setenv(FINAL_RUNNER.EXECUTE_ENV, FINAL_RUNNER.EXECUTE_ENV_VALUE)
-    FINAL_RUNNER.main(
-        _execute_argv(tmp_path, launcher, "--background-writer-controlled")
-    )
+    FINAL_RUNNER.main(_execute_argv(tmp_path, launcher, "--background-writer-controlled"))
     assert seen.read_text(encoding="utf-8") == str(tmp_path / "witness.json")
 
 
@@ -729,8 +704,6 @@ def test_zero_absolute_delta_is_not_relaxed() -> None:
         "session_model_usage",
     )
     document = {
-        "state_integrity": {
-            "row_deltas": {"sessions": 1, "messages": 0, "session_model_usage": 0}
-        }
+        "state_integrity": {"row_deltas": {"sessions": 1, "messages": 0, "session_model_usage": 0}}
     }
     assert "state_row_delta_nonzero:sessions" in validate_final_evidence(document)

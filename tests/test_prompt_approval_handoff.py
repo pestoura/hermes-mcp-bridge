@@ -113,9 +113,7 @@ def test_approval_storage_never_contains_raw_prompt(registries):
     approvals, _ = registries
     raw_prompt = "sensitive-local-instruction-that-must-not-be-persisted"
 
-    outcome = prompt_approvals.resolve_required_prompt_approval(
-        **_request(prompt=raw_prompt)
-    )
+    outcome = prompt_approvals.resolve_required_prompt_approval(**_request(prompt=raw_prompt))
     record = approvals.records[outcome.approval_id]
     serialized = repr(
         {
@@ -205,8 +203,7 @@ def test_changed_request_cannot_reuse_prior_approval(registries):
     assert changed_scope.approval_id != first.approval_id
     assert changed_trust.approval_id != first.approval_id
     assert all(
-        outcome.allowed is False
-        for outcome in (changed_prompt, changed_scope, changed_trust)
+        outcome.allowed is False for outcome in (changed_prompt, changed_scope, changed_trust)
     )
 
 
@@ -215,9 +212,7 @@ def test_action_binding_prevents_submit_from_reusing_prompt_approval(registries)
     first = prompt_approvals.resolve_required_prompt_approval(**_request())
     approvals.respond(first.approval_id, ApprovalStatus.APPROVED)
 
-    submit = prompt_approvals.resolve_required_prompt_approval(
-        **_request(action="hermes_submit")
-    )
+    submit = prompt_approvals.resolve_required_prompt_approval(**_request(action="hermes_submit"))
 
     assert submit.approval_id != first.approval_id
     assert submit.allowed is False

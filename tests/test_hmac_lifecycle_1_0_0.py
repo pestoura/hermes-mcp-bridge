@@ -178,8 +178,7 @@ def test_invalid_previous_interval_is_rejected(
 def test_previous_interval_cannot_exceed_seven_day_hard_limit() -> None:
     env = _strict_rotation_env(
         valid_from=NOW,
-        valid_until=NOW
-        + timedelta(seconds=signing.MAX_PREVIOUS_GRACE_SECONDS + 1),
+        valid_until=NOW + timedelta(seconds=signing.MAX_PREVIOUS_GRACE_SECONDS + 1),
     )
 
     posture = signing.signing_posture(env, now=NOW)

@@ -204,9 +204,7 @@ async def test_out_of_order_sse_events_do_not_regress_state() -> None:
         elif name == "run.started":
             tracker.observe(RUN_ID, "running", source="sse")
 
-    await _client(transport).wait_for_run(
-        RUN_ID, max_wait_seconds=2.0, progress_callback=progress
-    )
+    await _client(transport).wait_for_run(RUN_ID, max_wait_seconds=2.0, progress_callback=progress)
     assert tracker.status(RUN_ID) == "completed"
 
 
@@ -287,9 +285,7 @@ async def test_cancellation_does_not_mark_success_and_releases_resources() -> No
         await asyncio.sleep(5)
         return httpx.Response(200, json={"run_id": RUN_ID, "status": "completed"})
 
-    client = HermesClient(
-        _settings(), transport_factory=lambda: httpx.MockTransport(slow_handler)
-    )
+    client = HermesClient(_settings(), transport_factory=lambda: httpx.MockTransport(slow_handler))
     task = asyncio.create_task(client.wait_for_run(RUN_ID, max_wait_seconds=5.0))
     await asyncio.sleep(0.05)
     task.cancel()
@@ -317,9 +313,7 @@ async def test_cancellation_during_submit_can_request_upstream_stop() -> None:
         await asyncio.sleep(5)
         return httpx.Response(200, json={"run_id": RUN_ID, "status": "running"})
 
-    client = HermesClient(
-        _settings(), transport_factory=lambda: httpx.MockTransport(handler)
-    )
+    client = HermesClient(_settings(), transport_factory=lambda: httpx.MockTransport(handler))
     task = asyncio.create_task(
         client.submit_prompt(prompt="hello", wait_seconds=5.0, stop_on_cancel=True)
     )

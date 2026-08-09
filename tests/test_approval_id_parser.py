@@ -37,9 +37,7 @@ class _FakeMcpResult:
         ({"result": {"approval_id": "wrap-001"}}, "wrap-001"),
     ],
 )
-def test_extract_approval_id_accepted_shapes(
-    payload: dict[str, object], expected: str
-) -> None:
+def test_extract_approval_id_accepted_shapes(payload: dict[str, object], expected: str) -> None:
     assert extract_approval_id(payload) == expected
 
 
@@ -48,18 +46,14 @@ def test_extract_approval_id_accepted_shapes(
 
 def test_extract_approval_id_structured_content() -> None:
     assert (
-        extract_approval_id_from_mcp_result(
-            {"structuredContent": {"approval_id": "sc-01"}}
-        )
+        extract_approval_id_from_mcp_result({"structuredContent": {"approval_id": "sc-01"}})
         == "sc-01"
     )
 
 
 def test_extract_approval_id_structured_content_lower() -> None:
     assert (
-        extract_approval_id_from_mcp_result(
-            {"structured_content": {"approval_id": "sc-02"}}
-        )
+        extract_approval_id_from_mcp_result({"structured_content": {"approval_id": "sc-02"}})
         == "sc-02"
     )
 
@@ -68,15 +62,12 @@ def test_extract_approval_id_structured_content_lower() -> None:
 
 
 def test_extract_approval_id_text_content() -> None:
-    assert extract_approval_id_from_mcp_result(
-        {
-            "content": [
-                _FakeContentItem(
-                    text=json.dumps({"approval_id": "text-01"})
-                )
-            ]
-        }
-    ) == "text-01"
+    assert (
+        extract_approval_id_from_mcp_result(
+            {"content": [_FakeContentItem(text=json.dumps({"approval_id": "text-01"}))]}
+        )
+        == "text-01"
+    )
 
 
 # --- rejections ---
@@ -155,9 +146,7 @@ def test_extract_approval_id_rejects_double_wrapper() -> None:
 
 def test_extract_approval_id_rejects_wrapper_then_structured_content() -> None:
     with pytest.raises(ApprovalIdParseError):
-        extract_approval_id(
-            {"result": {"structuredContent": {"approval_id": "x"}}}
-        )
+        extract_approval_id({"result": {"structuredContent": {"approval_id": "x"}}})
 
 
 # --- structured string fields ---
@@ -186,11 +175,7 @@ def test_extract_structured_string_field_rejects_non_dict_wrapper() -> None:
 def test_fake_mcp_result_round_trip_exact_id() -> None:
     approval_id = "approval-abc123._:-XYZ"
     create_result = _FakeMcpResult(
-        content=[
-            _FakeContentItem(
-                text=json.dumps({"approval_id": approval_id})
-            )
-        ]
+        content=[_FakeContentItem(text=json.dumps({"approval_id": approval_id}))]
     )
     status_result = _FakeMcpResult(
         structuredContent={

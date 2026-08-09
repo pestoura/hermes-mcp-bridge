@@ -48,9 +48,11 @@ def test_lock_tool_events_are_bounded_and_identifiers_do_not_escape(monkeypatch)
     assert counter.value(outcome="acquired") == 1.0
     assert counter.value(outcome="conflict") == 1.0
     assert counter.value(outcome="released") == 1.0
-    duration = get_registry().histogram(
-        "bridge_lock_duration_seconds", "unused"
-    ).snapshot(outcome="released")
+    duration = (
+        get_registry()
+        .histogram("bridge_lock_duration_seconds", "unused")
+        .snapshot(outcome="released")
+    )
     assert duration["count"] == 1
     assert duration["sum"] >= 3.0
 
@@ -77,8 +79,7 @@ def test_real_lock_expiry_transition_is_counted_once(tmp_path) -> None:
     with sqlite3.connect(str(tmp_path / "state.sqlite3")) as cx:
         expires_at = (datetime.now(UTC) - timedelta(seconds=2)).isoformat()
         cx.execute(
-            "UPDATE resource_locks SET expires_at = ? "
-            "WHERE lock_key = ? AND owner = ?",
+            "UPDATE resource_locks SET expires_at = ? WHERE lock_key = ? AND owner = ?",
             (expires_at, "expiring-resource", "owner-a"),
         )
 
@@ -120,9 +121,9 @@ def test_checkpoint_and_continuation_events_reuse_global_outcomes() -> None:
     )
 
     registry = get_registry()
-    assert registry.counter(
-        "bridge_checkpoint_events_total", "unused"
-    ).value(outcome="success") == 1.0
+    assert (
+        registry.counter("bridge_checkpoint_events_total", "unused").value(outcome="success") == 1.0
+    )
     continuation = registry.counter("bridge_continuation_events_total", "unused")
     assert continuation.value(outcome="success") == 1.0
     assert continuation.value(outcome="skipped") == 1.0
@@ -147,12 +148,13 @@ def test_saga_events_reuse_global_outcomes_and_stay_bounded(monkeypatch) -> None
     registry = get_registry()
     events = registry.counter("bridge_saga_events_total", "unused")
     assert events.value(outcome="success") == 2.0
-    assert registry.counter(
-        "bridge_saga_compensations_total", "unused"
-    ).value(outcome="success") == 1.0
-    duration = registry.histogram(
-        "bridge_saga_duration_seconds", "unused"
-    ).snapshot(outcome="success")
+    assert (
+        registry.counter("bridge_saga_compensations_total", "unused").value(outcome="success")
+        == 1.0
+    )
+    duration = registry.histogram("bridge_saga_duration_seconds", "unused").snapshot(
+        outcome="success"
+    )
     assert duration == {"count": 1, "sum": 2.5}
 
     text = render_prometheus()
@@ -177,9 +179,7 @@ def test_quota_status_is_explicitly_not_enforced() -> None:
         "mutation_concurrency": False,
         "tokens": False,
     }
-    assert get_registry().gauge(
-        "bridge_quota_enforcement_active", "unused"
-    ).value() == 0.0
+    assert get_registry().gauge("bridge_quota_enforcement_active", "unused").value() == 0.0
 
 
 def test_state_governance_cardinality_remains_bounded() -> None:

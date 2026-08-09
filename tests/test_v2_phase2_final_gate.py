@@ -57,9 +57,7 @@ from hermes_mcp_bridge.v2.tool_provenance import (  # noqa: E402
 
 
 def _load_script(name: str) -> Any:
-    spec = importlib.util.spec_from_file_location(
-        f"_script_{name}", SCRIPTS / f"{name}.py"
-    )
+    spec = importlib.util.spec_from_file_location(f"_script_{name}", SCRIPTS / f"{name}.py")
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
@@ -348,8 +346,7 @@ def test_provenance_missing_result_fails_closed(tmp_path: Path) -> None:
     connection = sqlite3.connect(db)
     try:
         connection.execute(
-            "INSERT INTO messages (session_id, role, tool_calls) VALUES "
-            "('s1', 'assistant', ?)",
+            "INSERT INTO messages (session_id, role, tool_calls) VALUES ('s1', 'assistant', ?)",
             (
                 json.dumps(
                     [
@@ -456,8 +453,13 @@ def _wrap_untrusted(source: str, body: str) -> str:
 
 
 def _insert_raw_tool_result(
-    path: Path, *, session_id: str, tool_name: str, arguments: dict[str, Any],
-    raw_result: str, call_id: str = "call-1",
+    path: Path,
+    *,
+    session_id: str,
+    tool_name: str,
+    arguments: dict[str, Any],
+    raw_result: str,
+    call_id: str = "call-1",
 ) -> None:
     connection = sqlite3.connect(path)
     try:
@@ -572,9 +574,7 @@ def test_provenance_unwraps_string_encoded_result_key(tmp_path: Path) -> None:
         session_id="s1",
         tool_name="github_get_pr",
         arguments={"number": 54},
-        raw_result=_wrap_untrusted(
-            "github_get_pr", json.dumps({"result": json.dumps(inner)})
-        ),
+        raw_result=_wrap_untrusted("github_get_pr", json.dumps({"result": json.dumps(inner)})),
     )
     record = collect_tool_provenance(
         shadow_state_db=str(db),
@@ -630,9 +630,7 @@ def test_result_size_bucket_is_coarse() -> None:
 
 
 def _snapshot(path: Path, salt: bytes):
-    return capture_state_snapshot(
-        str(path), metadata=read_state_metadata(str(path)), salt=salt
-    )
+    return capture_state_snapshot(str(path), metadata=read_state_metadata(str(path)), salt=salt)
 
 
 def test_state_measurement_detects_single_insert(tmp_path: Path) -> None:
@@ -642,9 +640,7 @@ def test_state_measurement_detects_single_insert(tmp_path: Path) -> None:
     before = _snapshot(db, salt)
     connection = sqlite3.connect(db)
     try:
-        connection.execute(
-            "INSERT INTO sessions (id, started_at) VALUES ('extra', 9.0)"
-        )
+        connection.execute("INSERT INTO sessions (id, started_at) VALUES ('extra', 9.0)")
         connection.commit()
     finally:
         connection.close()
@@ -700,9 +696,7 @@ def test_control_activity_guard_detects_running_delegation(tmp_path: Path) -> No
     _add_control_schema(db)
     connection = sqlite3.connect(db)
     try:
-        connection.execute(
-            "INSERT INTO async_delegations VALUES ('d1', 'running', 'pending')"
-        )
+        connection.execute("INSERT INTO async_delegations VALUES ('d1', 'running', 'pending')")
         connection.commit()
     finally:
         connection.close()
@@ -944,60 +938,90 @@ def test_final_gate_accepts_complete_evidence() -> None:
 @pytest.mark.parametrize(
     ("mutate", "expected"),
     [
-        (lambda d: d["inner_gate"].update(direct_read_status="DIRECT_READ_BLOCKED"),
-         "inner_gate_not_accepted"),
+        (
+            lambda d: d["inner_gate"].update(direct_read_status="DIRECT_READ_BLOCKED"),
+            "inner_gate_not_accepted",
+        ),
         (lambda d: d["aggregate"].update(sample_count=14), "sample_count_invalid"),
-        (lambda d: d["aggregate"].update(semantic_matches=14),
-         "semantic_matches_invalid"),
-        (lambda d: d["aggregate"].update(provenance_pass=14),
-         "provenance_pass_invalid"),
-        (lambda d: d["aggregate"].update(provenance_fail=1),
-         "provenance_fail_present"),
-        (lambda d: d["aggregate"].update(token_measurement_mode="estimated"),
-         "token_measurement_mode_invalid"),
-        (lambda d: d["aggregate"].update(direct_total_tokens=5),
-         "direct_total_tokens_not_zero"),
-        (lambda d: d["aggregate"].update(agentic_total_tokens=0),
-         "agentic_total_tokens_not_positive"),
-        (lambda d: d["aggregate"].update(token_reduction_percent=79.9),
-         "token_reduction_below_threshold"),
-        (lambda d: d["aggregate"].update(direct_provider_api_calls=14),
-         "direct_provider_api_calls_invalid"),
+        (lambda d: d["aggregate"].update(semantic_matches=14), "semantic_matches_invalid"),
+        (lambda d: d["aggregate"].update(provenance_pass=14), "provenance_pass_invalid"),
+        (lambda d: d["aggregate"].update(provenance_fail=1), "provenance_fail_present"),
+        (
+            lambda d: d["aggregate"].update(token_measurement_mode="estimated"),
+            "token_measurement_mode_invalid",
+        ),
+        (lambda d: d["aggregate"].update(direct_total_tokens=5), "direct_total_tokens_not_zero"),
+        (
+            lambda d: d["aggregate"].update(agentic_total_tokens=0),
+            "agentic_total_tokens_not_positive",
+        ),
+        (
+            lambda d: d["aggregate"].update(token_reduction_percent=79.9),
+            "token_reduction_below_threshold",
+        ),
+        (
+            lambda d: d["aggregate"].update(direct_provider_api_calls=14),
+            "direct_provider_api_calls_invalid",
+        ),
         (lambda d: d["aggregate"].update(mutations_observed=1), "mutations_observed"),
-        (lambda d: d["state_integrity"].update(shadow_state_activity_observed=False),
-         "shadow_state_activity_not_observed"),
-        (lambda d: d["state_integrity"].update(shadow_row_count_delta=0),
-         "shadow_row_count_delta_not_positive"),
-        (lambda d: d["state_integrity"].update(exclusions_applied=True),
-         "state_integrity_exclusions_applied"),
-        (lambda d: d["state_integrity"].update(control_activity_detected=True),
-         "state_integrity_control_activity_detected"),
+        (
+            lambda d: d["state_integrity"].update(shadow_state_activity_observed=False),
+            "shadow_state_activity_not_observed",
+        ),
+        (
+            lambda d: d["state_integrity"].update(shadow_row_count_delta=0),
+            "shadow_row_count_delta_not_positive",
+        ),
+        (
+            lambda d: d["state_integrity"].update(exclusions_applied=True),
+            "state_integrity_exclusions_applied",
+        ),
+        (
+            lambda d: d["state_integrity"].update(control_activity_detected=True),
+            "state_integrity_control_activity_detected",
+        ),
         (lambda d: d["state_integrity"].update(size_changed=True), "state_size_changed"),
-        (lambda d: d["state_integrity"].update(mtime_changed=True),
-         "state_mtime_changed"),
-        (lambda d: d["state_integrity"].update(user_version_changed=True),
-         "state_user_version_changed"),
-        (lambda d: d["state_integrity"].update(sqlite_schema_version_changed=True),
-         "state_schema_version_changed"),
+        (lambda d: d["state_integrity"].update(mtime_changed=True), "state_mtime_changed"),
+        (
+            lambda d: d["state_integrity"].update(user_version_changed=True),
+            "state_user_version_changed",
+        ),
+        (
+            lambda d: d["state_integrity"].update(sqlite_schema_version_changed=True),
+            "state_schema_version_changed",
+        ),
         (lambda d: d["state_integrity"].update(paths_stored=True), "state_paths_stored"),
-        (lambda d: d["state_integrity"].update(row_contents_stored=True),
-         "state_row_contents_stored"),
-        (lambda d: d["state_integrity"].update(measured_out_of_band=False),
-         "state_integrity_not_out_of_band"),
-        (lambda d: d["state_integrity"]["row_deltas"].update(messages=1),
-         "state_row_delta_nonzero:messages"),
-        (lambda d: d["state_integrity"]["row_deltas"].update(sessions=1),
-         "state_row_delta_nonzero:sessions"),
-        (lambda d: d["state_integrity"]["row_deltas"].update(session_model_usage=2),
-         "state_row_delta_nonzero:session_model_usage"),
-        (lambda d: d["state_integrity"].update(
-            fingerprint_after=hashlib.sha256(b"other").hexdigest()
-        ), "state_fingerprint_mismatch"),
-        (lambda d: d["state_integrity"].update(fingerprint_before=""),
-         "state_fingerprint_invalid"),
-        (lambda d: d["state_integrity"].update(
-            measured_before_at="2026-08-09T10:30:00+00:00"
-        ), "state_window_does_not_enclose_samples"),
+        (
+            lambda d: d["state_integrity"].update(row_contents_stored=True),
+            "state_row_contents_stored",
+        ),
+        (
+            lambda d: d["state_integrity"].update(measured_out_of_band=False),
+            "state_integrity_not_out_of_band",
+        ),
+        (
+            lambda d: d["state_integrity"]["row_deltas"].update(messages=1),
+            "state_row_delta_nonzero:messages",
+        ),
+        (
+            lambda d: d["state_integrity"]["row_deltas"].update(sessions=1),
+            "state_row_delta_nonzero:sessions",
+        ),
+        (
+            lambda d: d["state_integrity"]["row_deltas"].update(session_model_usage=2),
+            "state_row_delta_nonzero:session_model_usage",
+        ),
+        (
+            lambda d: d["state_integrity"].update(
+                fingerprint_after=hashlib.sha256(b"other").hexdigest()
+            ),
+            "state_fingerprint_mismatch",
+        ),
+        (lambda d: d["state_integrity"].update(fingerprint_before=""), "state_fingerprint_invalid"),
+        (
+            lambda d: d["state_integrity"].update(measured_before_at="2026-08-09T10:30:00+00:00"),
+            "state_window_does_not_enclose_samples",
+        ),
         (lambda d: d.update(source_commit="1" * 40), "source_commit_inconsistent"),
         (lambda d: d["privacy"].update(paths_stored=True), "privacy_contract_not_met"),
     ],
@@ -1108,9 +1132,7 @@ def test_builder_computes_token_reduction() -> None:
 
 
 def test_v1_contract_still_declares_27_tools() -> None:
-    contract = json.loads(
-        (ROOT / "contracts" / "1.0.0.json").read_text(encoding="utf-8")
-    )
+    contract = json.loads((ROOT / "contracts" / "1.0.0.json").read_text(encoding="utf-8"))
     tools = contract.get("tools")
     assert isinstance(tools, list)
     assert len(tools) == 27
@@ -1118,9 +1140,12 @@ def test_v1_contract_still_declares_27_tools() -> None:
 
 def test_final_runner_compiles_and_defaults_to_plan() -> None:
     completed = subprocess.run(
-        [sys.executable, "-m", "py_compile", str(
-            SCRIPTS / "v2_phase2_final_out_of_band_acceptance.py"
-        )],
+        [
+            sys.executable,
+            "-m",
+            "py_compile",
+            str(SCRIPTS / "v2_phase2_final_out_of_band_acceptance.py"),
+        ],
         capture_output=True,
         check=False,
     )
