@@ -141,7 +141,10 @@ def test_mock_is_finite_read_only_and_does_not_log_headers_or_bodies() -> None:
 
 def test_ci_runs_acceptance_after_build_and_before_trivy() -> None:
     payload = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    steps = payload["jobs"]["test"]["steps"]
+    acceptance_job = payload["jobs"]["acceptance"]
+    assert acceptance_job["needs"] == "test"
+
+    steps = acceptance_job["steps"]
     names = [step.get("name") for step in steps]
 
     build_index = names.index("Build runtime image")
@@ -150,7 +153,7 @@ def test_ci_runs_acceptance_after_build_and_before_trivy() -> None:
     assert build_index < acceptance_index < trivy_index
 
     acceptance = steps[acceptance_index]
-    assert acceptance["if"] == "matrix.python-version == '3.12'"
+    assert "if" not in acceptance
     assert "isolated_acceptance_1_0_0.py" in acceptance["run"]
     assert "--image hermes-mcp-bridge:ci" in acceptance["run"]
 
@@ -159,11 +162,11 @@ def test_ci_retains_sbom_as_blocking_release_evidence() -> None:
     payload = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     assert payload["permissions"]["contents"] == "write"
 
-    steps = payload["jobs"]["test"]["steps"]
+    steps = payload["jobs"]["acceptance"]["steps"]
     retention = next(
         step for step in steps if step.get("name") == "Retain SBOM as release evidence"
     )
-    assert retention["if"] == "matrix.python-version == '3.12'"
+    assert "if" not in retention
     assert retention.get("continue-on-error") is not True
     assert retention["env"]["EVIDENCE_TAG"] == (
         "sbom-evidence-${{ github.sha }}"

@@ -157,12 +157,15 @@ def test_gate_requires_all_phase1_traceability_requirements(tmp_path: Path) -> N
 
 def test_ci_retains_phase1_gate_as_blocking_draft_release() -> None:
     payload = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    steps = payload["jobs"]["test"]["steps"]
+    acceptance_job = payload["jobs"]["acceptance"]
+    assert acceptance_job["needs"] == "test"
+
+    steps = acceptance_job["steps"]
     retention = next(
         step for step in steps if step.get("name") == "Retain Phase 1 registry acceptance evidence"
     )
 
-    assert retention["if"] == "matrix.python-version == '3.12'"
+    assert "if" not in retention
     assert retention.get("continue-on-error") is not True
     assert retention["env"]["PHASE1_EVIDENCE_TAG"] == (
         "phase1-registry-evidence-${{ github.sha }}"
