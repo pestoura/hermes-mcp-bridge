@@ -53,6 +53,49 @@ jobs:
       - name: Test
         run: python -m pytest -q
 
+  secret-scan:
+    name: secret scan (tree + history)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 50
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Fail-closed: a non-zero exit, scanned=false, or any finding blocks the
+      # merge. The scanner never prints matched text, only a salted digest.
+      - name: Run Phase 9 secret scan
+        run: |
+          python scripts/v2_phase9_secret_scan.py \
+            --history-commits 25 \
+            --json-out secret-scan.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(Path("secret-scan.json").read_text(encoding="utf-8"))
+          if payload.get("scanned") is not True:
+              raise SystemExit("secret scan did not run; scanned=false is a failure")
+          if payload.get("finding_count", 1) != 0:
+              raise SystemExit(f"secret scan reported {payload['finding_count']} finding(s)")
+          scope = payload.get("scope") or {}
+          if not scope.get("tree", {}).get("files"):
+              raise SystemExit("secret scan covered no tree files")
+          if scope.get("history", {}).get("commits", 0) <= 0:
+              raise SystemExit("secret scan covered no history window")
+          print(
+              "secret scan clean: "
+              f"{scope['tree']['files']} files, "
+              f"{scope['history']['commits']} commits"
+          )
+          PY
+
   acceptance:
     name: image / isolated acceptance / trivy / sbom
     needs: test
