@@ -1,0 +1,17 @@
+{
+  "failures": [],
+  "gate": "BATCH_ACCEPTED",
+  "limits": {
+    "BATCH_MAX_INFLIGHT_GLOBAL": 8,
+    "BATCH_MAX_ITEMS": 10,
+    "BATCH_MAX_PARALLELISM": 4,
+    "BATCH_MAX_PARALLELISM_MUTATION": 1,
+    "BATCH_MAX_TIMEOUT_S": 300
+  },
+  "max_observed_inflight": 2,
+  "module_binding_sha256": {
+    "v2/batch_contract.py": "ef4ad10ae11a355b3b882fc7a3f462b33de26514fd9aeb06db9b0a41f24ef1a8",
+    "v2/batch_scheduler.py": "fc90e698cfe7f2346883576f491c59b34eccb52263441d24baaee5729ad7304e"
+  },
+  "source_commit": "0f1814793169d8641e8a4223779a9c5d31a3d2ca"
+}

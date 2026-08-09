@@ -28,6 +28,7 @@ EXPECTED_DOCS = {
     "non-goals.md",
     "acceptance-scenarios.md",
     "dependency-map.md",
+    "promotion.md",
 }
 
 # Phase 3 lane and Controller-owned documents this lane must never modify.
@@ -127,13 +128,19 @@ def test_dependency_map_blocks_on_the_phase3_gate() -> None:
     assert "traceability-matrix.md" in text
 
 
-def test_no_batch_runtime_surface_exists_yet() -> None:
-    """Phase 4 must remain design-only until the Phase 3 gate is declared."""
+def test_batch_runtime_lives_only_in_the_phase4_modules() -> None:
+    """The runtime exists now, but it must stay confined and never touch V1."""
     pattern = re.compile(r"\bBatchRequest\b|\bBatchStep\b|\bBatchResult\b")
+    allowed = {
+        "src/hermes_mcp_bridge/v2/__init__.py",
+        "src/hermes_mcp_bridge/v2/batch_contract.py",
+        "src/hermes_mcp_bridge/v2/batch_scheduler.py",
+    }
     offenders = [
         path.relative_to(REPO_ROOT).as_posix()
         for path in SRC.rglob("*.py")
         if pattern.search(path.read_text(encoding="utf-8"))
+        and path.relative_to(REPO_ROOT).as_posix() not in allowed
     ]
     assert offenders == []
 
