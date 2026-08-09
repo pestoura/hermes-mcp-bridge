@@ -1,6 +1,6 @@
 # BATCH Acceptance Scenarios (`BATCH_ACCEPTED`)
 
-> **V2 · PHASE 4 · DESIGN ONLY · NOT_IMPLEMENTED · DO_NOT_MERGE UNTIL DIRECT_MUTATION_ACCEPTED**
+> **V2 · PHASE 4 · DESIGN · unblocked by `DIRECT_MUTATION_ACCEPTED` (a86b26d) · runtime gated behind `BATCH_FEATURE_ENABLED` until `BATCH_ACCEPTED`**
 
 All scenarios run **offline** with an injected fake step executor and injected
 clock. No provider calls. `BATCH_ACCEPTED` requires every scenario to pass with

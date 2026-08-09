@@ -49,10 +49,12 @@ def test_lane_exists_with_the_expected_documents() -> None:
 
 
 @pytest.mark.parametrize("name", sorted(EXPECTED_DOCS))
-def test_every_document_is_marked_not_implemented(name: str) -> None:
+def test_every_document_is_gated_until_batch_accepted(name: str) -> None:
+    """Phase 3 is accepted, so the lane is unblocked but still flag-gated."""
     text = (LANE / name).read_text(encoding="utf-8")
-    assert "NOT_IMPLEMENTED" in text
-    assert "DO_NOT_MERGE UNTIL DIRECT_MUTATION_ACCEPTED" in text
+    assert "DIRECT_MUTATION_ACCEPTED" in text
+    assert "BATCH_FEATURE_ENABLED" in text
+    assert "BATCH_ACCEPTED" in text
 
 
 def test_contract_defines_the_typed_surface() -> None:
