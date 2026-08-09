@@ -42,9 +42,9 @@ def test_ci_matrix_fail_fast_false():
 
 def test_ci_setup_python_uses_matrix_variable():
     text = _read_ci()
-    assert (
-        "python-version: ${{ matrix.python-version }}" in text
-    ), "setup-python does not use ${{ matrix.python-version }}"
+    assert "python-version: ${{ matrix.python-version }}" in text, (
+        "setup-python does not use ${{ matrix.python-version }}"
+    )
 
 
 def test_heavy_acceptance_waits_for_entire_test_matrix():

@@ -302,9 +302,7 @@ def collect_evidence(source_commit: str) -> dict[str, Any]:
     excluded = {item.tool_id: item.reason_code.value for item in projection.excluded}
 
     changed_capabilities = [
-        cap.with_state(CapabilityState.DEGRADED)
-        if cap.capability_id == "github.api"
-        else cap
+        cap.with_state(CapabilityState.DEGRADED) if cap.capability_id == "github.api" else cap
         for cap in registry.capabilities.ordered()
     ]
     changed_registry = ToolRegistry(
@@ -330,8 +328,7 @@ def collect_evidence(source_commit: str) -> dict[str, Any]:
         == {state.value for state in CapabilityState},
         "unknown_tool_denied": unknown["decision"] == "DENY"
         and unknown["reason_code"] == "UNKNOWN_TOOL",
-        "missing_policy_denied": policy["github.get_issue"]["reason_code"]
-        == "MISSING_POLICY_RULE",
+        "missing_policy_denied": policy["github.get_issue"]["reason_code"] == "MISSING_POLICY_RULE",
         "missing_credential_denied": policy["github.get_checks"]["reason_code"]
         == "CREDENTIAL_CAPABILITY_UNKNOWN",
         "degraded_capability_denied": policy["system.status"]["reason_code"]

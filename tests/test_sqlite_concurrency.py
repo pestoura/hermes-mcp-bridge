@@ -71,9 +71,7 @@ def test_wal_allows_reads_during_a_write_transaction(db_path: str) -> None:
     writer = sqlite3.connect(db_path)
     writer.isolation_level = None
     writer.execute("BEGIN IMMEDIATE")
-    writer.execute(
-        "INSERT INTO run_mappings VALUES ('wal-1','fp','exec','sess','queued','t','t')"
-    )
+    writer.execute("INSERT INTO run_mappings VALUES ('wal-1','fp','exec','sess','queued','t','t')")
     reader = sqlite3.connect(db_path)
     try:
         rows = reader.execute("SELECT COUNT(*) FROM run_mappings").fetchone()[0]
@@ -116,9 +114,12 @@ def test_concurrent_record_same_key_yields_single_row(db_path: str) -> None:
 
     assert errors == []
     connection = sqlite3.connect(db_path)
-    assert connection.execute(
-        "SELECT COUNT(*) FROM run_mappings WHERE client_request_id='same-key'"
-    ).fetchone()[0] == 1
+    assert (
+        connection.execute(
+            "SELECT COUNT(*) FROM run_mappings WHERE client_request_id='same-key'"
+        ).fetchone()[0]
+        == 1
+    )
     connection.close()
 
 
@@ -250,8 +251,13 @@ def test_approval_is_consumed_exactly_once_under_contention(db_path: str) -> Non
 def test_approval_respond_is_single_winner(db_path: str) -> None:
     registry = ApprovalRegistry(db_path)
     registry.create(
-        ApprovalRecord(approval_id="appr-race", action="write", resource="r",
-                       resource_fingerprint="fp", created_at=_NOW)
+        ApprovalRecord(
+            approval_id="appr-race",
+            action="write",
+            resource="r",
+            resource_fingerprint="fp",
+            created_at=_NOW,
+        )
     )
     barrier = threading.Barrier(THREADS)
     accepted: list[str] = []
@@ -284,9 +290,7 @@ def test_duplicate_approval_ids_cannot_be_created_concurrently(db_path: str) -> 
         nonlocal created
         barrier.wait()
         try:
-            registry.create(
-                ApprovalRecord(approval_id="dup", action="write", created_at=_NOW)
-            )
+            registry.create(ApprovalRecord(approval_id="dup", action="write", created_at=_NOW))
         except (sqlite3.IntegrityError, sqlite3.OperationalError):
             return
         with lock:
@@ -327,9 +331,7 @@ def test_write_exclusive_lock_has_single_owner_under_contention(db_path: str) ->
         list(pool.map(worker, range(THREADS)))
 
     assert len(winners) == 1
-    active = [
-        row for row in registry.list_status("resource-a") if row["status"] == "active"
-    ]
+    active = [row for row in registry.list_status("resource-a") if row["status"] == "active"]
     assert len(active) == 1
     assert active[0]["owner"] == winners[0]
 
@@ -350,9 +352,7 @@ def test_shared_read_locks_are_all_granted(db_path: str) -> None:
     with futures.ThreadPoolExecutor(max_workers=THREADS) as pool:
         list(pool.map(worker, range(THREADS)))
 
-    active = [
-        row for row in registry.list_status("resource-shared") if row["status"] == "active"
-    ]
+    active = [row for row in registry.list_status("resource-shared") if row["status"] == "active"]
     assert len(active) == THREADS
 
 
@@ -380,9 +380,7 @@ def test_acquire_release_cycles_do_not_deadlock(db_path: str) -> None:
         for future in futures.as_completed(results, timeout=60):
             future.result()
 
-    active = [
-        row for row in registry.list_status("resource-cycle") if row["status"] == "active"
-    ]
+    active = [row for row in registry.list_status("resource-cycle") if row["status"] == "active"]
     assert len(active) <= 1
 
 
@@ -441,9 +439,7 @@ print(json.dumps({{"written": written}}))
 """
 
 
-def test_multi_process_writes_do_not_corrupt_the_database(
-    tmp_path: Path, db_path: str
-) -> None:
+def test_multi_process_writes_do_not_corrupt_the_database(tmp_path: Path, db_path: str) -> None:
     src = str(Path(__file__).resolve().parents[1] / "src")
     script = tmp_path / "child.py"
     script.write_text(_CHILD.format(src=src), encoding="utf-8")
@@ -497,9 +493,7 @@ def test_run_with_retry_is_bounded_and_raises_when_exhausted() -> None:
     faults = FaultySqlite(failures=100)
     clock = ManualClock()
     policy = RetryPolicy(
-        backoff=BackoffPolicy(
-            base_seconds=0.01, max_seconds=0.1, max_attempts=4, jitter_ratio=0.0
-        )
+        backoff=BackoffPolicy(base_seconds=0.01, max_seconds=0.1, max_attempts=4, jitter_ratio=0.0)
     )
     with pytest.raises(RetryExhaustedError):
         run_with_retry(faults.raise_if_failing, policy=policy, clock=clock)
@@ -534,9 +528,7 @@ def test_interrupted_write_leaves_database_consistent(db_path: str) -> None:
     connection = disk_full_connection(db_path, fail_after=0)
     connection.execute("BEGIN IMMEDIATE")
     with pytest.raises(sqlite3.OperationalError):
-        connection.execute(
-            "INSERT INTO run_mappings VALUES ('x','fp','e','s','queued','t','t')"
-        )
+        connection.execute("INSERT INTO run_mappings VALUES ('x','fp','e','s','queued','t','t')")
     connection.close()
 
     verify = sqlite3.connect(db_path)

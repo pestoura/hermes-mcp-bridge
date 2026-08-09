@@ -97,10 +97,9 @@ def test_no_raw_docker_compose_without_project(script: Path) -> None:
             # Documentation output rather than an invocation, but it must still
             # show the pinned project so operators never copy an unpinned
             # command out of the logs.
-            assert (
-                '-p "$COMPOSE_PROJECT"' in stripped
-                or "-p $COMPOSE_PROJECT" in stripped
-            ), f"{script}:{lineno} mensagem com docker compose sem projeto: {stripped}"
+            assert '-p "$COMPOSE_PROJECT"' in stripped or "-p $COMPOSE_PROJECT" in stripped, (
+                f"{script}:{lineno} mensagem com docker compose sem projeto: {stripped}"
+            )
             continue
         assert '-p "$COMPOSE_PROJECT"' in stripped, (
             f"{script}:{lineno} docker compose sem projeto fixo: {stripped}"
@@ -140,7 +139,7 @@ def test_deploy_validates_sha_and_image() -> None:
     text = _read(DEPLOY_DIR / "deploy.sh")
     assert "REQUIRED_SHA" in text
     assert 'preflight.sh" || fail "preflight NO-GO"' in text
-    assert "python3 - \"$STATE_DB\"" in text
+    assert 'python3 - "$STATE_DB"' in text
     lib = _read(DEPLOY_DIR / "lib.sh")
     assert "assert_image_revision()" in lib
     assert "assert_image_id()" in lib
@@ -193,11 +192,11 @@ def test_variable_expansions_are_quoted(script: Path) -> None:
                 continue  # inside a single-quoted string (e.g. jq filters)
             if match.group(1) in {"1", "2"}:
                 continue
-            if re.search(r'(^|\s)(local|export|declare)\s', before):
+            if re.search(r"(^|\s)(local|export|declare)\s", before):
                 continue
             if "=" in before.split()[-1] if before.split() else False:
                 continue
-            if re.match(r'^[A-Za-z_][A-Za-z_0-9]*=', stripped):
+            if re.match(r"^[A-Za-z_][A-Za-z_0-9]*=", stripped):
                 continue
             if match.group(1) in {
                 "i",
@@ -258,7 +257,7 @@ def test_dry_run_deploy_makes_no_mutating_call(tmp_path: Path) -> None:
         'if [ "$1" = "inspect" ]; then echo "healthy|0"; exit 0; fi\n'
         'if [ "$1" = "compose" ]; then\n'
         '  for arg in "$@"; do [ "$arg" = "config" ] && exit 0; done\n'
-        '  exit 0\n'
+        "  exit 0\n"
         "fi\n"
         "exit 0\n",
         encoding="utf-8",
@@ -342,19 +341,13 @@ def test_execute_mode_requires_matching_sha(tmp_path: Path) -> None:
     env = _clean_env()
     env["EXECUTE_DEPLOYMENT"] = "YES"
     env["EXPECTED_SHA"] = "wrongsha"
-    out = subprocess.run(
-        ["bash", str(probe)], capture_output=True, text=True, env=env, check=False
-    )
+    out = subprocess.run(["bash", str(probe)], capture_output=True, text=True, env=env, check=False)
     assert out.stdout.strip() == "DRYRUN"
 
     env["EXPECTED_SHA"] = "goodsha"
-    out = subprocess.run(
-        ["bash", str(probe)], capture_output=True, text=True, env=env, check=False
-    )
+    out = subprocess.run(["bash", str(probe)], capture_output=True, text=True, env=env, check=False)
     assert out.stdout.strip() == "EXECUTE"
 
     env["EXECUTE_DEPLOYMENT"] = "no"
-    out = subprocess.run(
-        ["bash", str(probe)], capture_output=True, text=True, env=env, check=False
-    )
+    out = subprocess.run(["bash", str(probe)], capture_output=True, text=True, env=env, check=False)
     assert out.stdout.strip() == "DRYRUN"

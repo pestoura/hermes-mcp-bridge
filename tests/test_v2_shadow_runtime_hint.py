@@ -94,9 +94,7 @@ def test_valid_hint_preserves_venv_symlink_invocation_path(
     venv_python.symlink_to(Path(sys.executable).resolve())
     expected = Path(os.path.abspath(venv_python))
 
-    monkeypatch.setattr(
-        runtime, "_supports_required_hermes_modules", lambda candidate, env: True
-    )
+    monkeypatch.setattr(runtime, "_supports_required_hermes_modules", lambda candidate, env: True)
 
     resolved = runtime.validate_hermes_python_hint(
         venv_python,
@@ -120,9 +118,7 @@ def test_valid_hint_preserves_venv_symlink_invocation_path(
 def test_hint_fails_closed_for_bad_paths(
     tmp_path: Path, factory, code: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(
-        runtime, "_supports_required_hermes_modules", lambda candidate, env: True
-    )
+    monkeypatch.setattr(runtime, "_supports_required_hermes_modules", lambda candidate, env: True)
     with pytest.raises(runtime.HermesRuntimeError) as excinfo:
         runtime.validate_hermes_python_hint(
             factory(tmp_path),
@@ -137,9 +133,7 @@ def test_hint_fails_closed_for_bad_paths(
 def test_hint_rejects_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     target = tmp_path / "adir"
     target.mkdir()
-    monkeypatch.setattr(
-        runtime, "_supports_required_hermes_modules", lambda candidate, env: True
-    )
+    monkeypatch.setattr(runtime, "_supports_required_hermes_modules", lambda candidate, env: True)
     with pytest.raises(runtime.HermesRuntimeError) as excinfo:
         runtime.validate_hermes_python_hint(
             target, probe_home=tmp_path, probe_hermes_home=tmp_path, path_env=""
@@ -148,15 +142,11 @@ def test_hint_rejects_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert _FORBIDDEN_PATH_TOKEN not in str(excinfo.value)
 
 
-def test_hint_rejects_non_executable_file(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_hint_rejects_non_executable_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     target = tmp_path / "python"
     target.write_text("#!/bin/sh\n", encoding="utf-8")
     target.chmod(0o600)
-    monkeypatch.setattr(
-        runtime, "_supports_required_hermes_modules", lambda candidate, env: True
-    )
+    monkeypatch.setattr(runtime, "_supports_required_hermes_modules", lambda candidate, env: True)
     with pytest.raises(runtime.HermesRuntimeError) as excinfo:
         runtime.validate_hermes_python_hint(
             target, probe_home=tmp_path, probe_hermes_home=tmp_path, path_env=""
@@ -168,9 +158,7 @@ def test_hint_rejects_import_failing_interpreter(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     target = _make_executable(tmp_path / "python")
-    monkeypatch.setattr(
-        runtime, "_supports_required_hermes_modules", lambda candidate, env: False
-    )
+    monkeypatch.setattr(runtime, "_supports_required_hermes_modules", lambda candidate, env: False)
     with pytest.raises(runtime.HermesRuntimeError) as excinfo:
         runtime.validate_hermes_python_hint(
             target, probe_home=tmp_path, probe_hermes_home=tmp_path, path_env=""
@@ -361,7 +349,7 @@ def test_shadow_isolation_payload_gains_no_new_keys() -> None:
     assert "hermes_runtime" not in shadow_isolation._ALLOWED_KEYS
     assert len(shadow_isolation._ALLOWED_KEYS) == 24
     probe_text = PROBE.read_text(encoding="utf-8")
-    assert "\"hermes_python\":" not in probe_text
+    assert '"hermes_python":' not in probe_text
 
 
 def test_hint_absent_preserves_legacy_prepare_behaviour() -> None:

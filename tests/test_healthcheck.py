@@ -46,9 +46,7 @@ def test_success_path(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFix
     module = _load_module()
     monkeypatch.setattr(module, "get_settings", lambda: settings)
     monkeypatch.setattr(module, "_tcp_mcp", lambda *args, **kwargs: None)
-    monkeypatch.setattr(
-        module, "_http_health", lambda *args, **kwargs: {"status": "ok"}
-    )
+    monkeypatch.setattr(module, "_http_health", lambda *args, **kwargs: {"status": "ok"})
     monkeypatch.setattr(module, "_registry_status", lambda *args, **kwargs: {"status": "up"})
     with pytest.raises(SystemExit) as exc_info:
         module.main()
@@ -59,9 +57,7 @@ def test_success_path(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFix
 def test_tcp_failure_message(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
 ) -> None:
-    settings = _make_settings(
-        bridge_state_db_path="/tmp/hermes-mcp-bridge-state-test-tcp.sqlite3"
-    )
+    settings = _make_settings(bridge_state_db_path="/tmp/hermes-mcp-bridge-state-test-tcp.sqlite3")
     module = _load_module()
     monkeypatch.setattr(module, "get_settings", lambda: settings)
 
@@ -78,9 +74,7 @@ def test_tcp_failure_message(
 def test_http_failure_message(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
 ) -> None:
-    settings = _make_settings(
-        bridge_state_db_path="/tmp/hermes-mcp-bridge-state-test-http.sqlite3"
-    )
+    settings = _make_settings(bridge_state_db_path="/tmp/hermes-mcp-bridge-state-test-http.sqlite3")
     module = _load_module()
     monkeypatch.setattr(module, "get_settings", lambda: settings)
     monkeypatch.setattr(module, "_tcp_mcp", lambda *args, **kwargs: None)
@@ -104,9 +98,7 @@ def test_registry_failure_message(
     module = _load_module()
     monkeypatch.setattr(module, "get_settings", lambda: settings)
     monkeypatch.setattr(module, "_tcp_mcp", lambda *args, **kwargs: None)
-    monkeypatch.setattr(
-        module, "_http_health", lambda *args, **kwargs: {"status": "ok"}
-    )
+    monkeypatch.setattr(module, "_http_health", lambda *args, **kwargs: {"status": "ok"})
     monkeypatch.setattr(
         module,
         "_registry_status",
@@ -157,12 +149,8 @@ def test_sanitized_output_contains_no_secrets(
     module = _load_module()
     monkeypatch.setattr(module, "get_settings", lambda: settings)
     monkeypatch.setattr(module, "_tcp_mcp", lambda *args, **kwargs: None)
-    monkeypatch.setattr(
-        module, "_http_health", lambda *args, **kwargs: {"status": "ok"}
-    )
-    monkeypatch.setattr(
-        module, "_registry_status", lambda *args, **kwargs: {"status": "down"}
-    )
+    monkeypatch.setattr(module, "_http_health", lambda *args, **kwargs: {"status": "ok"})
+    monkeypatch.setattr(module, "_registry_status", lambda *args, **kwargs: {"status": "down"})
     with pytest.raises(SystemExit):
         module.main()
     out = capsys.readouterr().out

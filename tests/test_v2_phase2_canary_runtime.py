@@ -342,9 +342,9 @@ def test_substituted_inode_is_revalidated_on_every_read(tmp_path: Path) -> None:
 
 
 def test_secret_provider_has_no_separate_lstat_open_pair() -> None:
-    source = (
-        ROOT / "src" / "hermes_mcp_bridge" / "v2" / "github_secret_provider.py"
-    ).read_text(encoding="utf-8")
+    source = (ROOT / "src" / "hermes_mcp_bridge" / "v2" / "github_secret_provider.py").read_text(
+        encoding="utf-8"
+    )
     assert "os.lstat(" not in source
     assert "os.stat(" not in source
     # the only open is the fd-based one, and it requests O_NOFOLLOW
@@ -858,9 +858,9 @@ def test_attestation_never_calls_the_nonexistent_permissions_endpoint(
 
 
 def test_attestation_source_module_has_no_permissions_endpoint_reference() -> None:
-    source = (
-        ROOT / "src" / "hermes_mcp_bridge" / "v2" / "github_attestation.py"
-    ).read_text(encoding="utf-8")
+    source = (ROOT / "src" / "hermes_mcp_bridge" / "v2" / "github_attestation.py").read_text(
+        encoding="utf-8"
+    )
     assert "/installation/token/permissions" not in source
     assert '"installation_api"' not in source
 
@@ -885,9 +885,9 @@ def test_attestation_ignores_repo_permissions_block(tmp_path: Path) -> None:
 
 
 def test_repository_write_access_rejection_is_gone() -> None:
-    source = (
-        ROOT / "src" / "hermes_mcp_bridge" / "v2" / "github_attestation.py"
-    ).read_text(encoding="utf-8")
+    source = (ROOT / "src" / "hermes_mcp_bridge" / "v2" / "github_attestation.py").read_text(
+        encoding="utf-8"
+    )
     assert "REPOSITORY_WRITE_ACCESS_PRESENT" not in source
 
 
@@ -1093,8 +1093,10 @@ def test_declaration_confirmation_missing_is_rejected(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("declaration_kwargs", "code"),
     [
-        ({"provider_type": "github_app", "source": "github_app_settings_ui"},
-         "ATTESTATION_PROVIDER_TYPE_MISMATCH"),
+        (
+            {"provider_type": "github_app", "source": "github_app_settings_ui"},
+            "ATTESTATION_PROVIDER_TYPE_MISMATCH",
+        ),
         ({"repositories": ["pestoura/other"]}, "ATTESTATION_REPOSITORY_SCOPE_MISMATCH"),
         ({"permissions": {"checks": "read"}}, "ATTESTATION_PERMISSIONS_NOT_EXACT"),
         (
@@ -1131,9 +1133,9 @@ def test_attestation_never_fabricates_required_permissions(tmp_path: Path) -> No
     )
     # The declaration object is the only source of the emitted map.
     assert attestation.permissions == REQUIRED_PERMISSIONS
-    source = (
-        ROOT / "src" / "hermes_mcp_bridge" / "v2" / "github_attestation.py"
-    ).read_text(encoding="utf-8")
+    source = (ROOT / "src" / "hermes_mcp_bridge" / "v2" / "github_attestation.py").read_text(
+        encoding="utf-8"
+    )
     assert "permissions = dict(REQUIRED_PERMISSIONS)" not in source
 
 
@@ -1332,9 +1334,9 @@ def test_missing_nested_field_is_not_normalized_away() -> None:
     collector = _load_collector()
     full = _checks(_run("build"))
     missing = {"total_count": 7}
-    assert collector.normalized_digest(
-        "github.get_checks", full
-    ) != collector.normalized_digest("github.get_checks", missing)
+    assert collector.normalized_digest("github.get_checks", full) != collector.normalized_digest(
+        "github.get_checks", missing
+    )
 
 
 def test_shadow_prompt_requests_the_full_shape_and_nested_structure() -> None:

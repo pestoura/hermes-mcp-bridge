@@ -140,17 +140,17 @@ def test_rollback_compose_requires_explicit_image_and_preserves_legacy_env() -> 
 def test_preflight_requires_evidence_and_transitional_rollback_credential() -> None:
     text = _read("preflight.sh")
     for token in (
-        'EXPECTED_SHA_0_9_0 obrigatorio',
-        'ROLLBACK_IMAGE obrigatorio',
-        'ROLLBACK_IMAGE_ID obrigatorio',
-        'HERMES_API_KEY',
-        'HERMES_BRIDGE_HMAC_KEY_ID',
-        'assert_image_revision',
-        'assert_image_version',
-        'assert_image_id',
-        'assert_secret_file',
-        'validate_secret_lengths',
-        'validate_policy_file',
+        "EXPECTED_SHA_0_9_0 obrigatorio",
+        "ROLLBACK_IMAGE obrigatorio",
+        "ROLLBACK_IMAGE_ID obrigatorio",
+        "HERMES_API_KEY",
+        "HERMES_BRIDGE_HMAC_KEY_ID",
+        "assert_image_revision",
+        "assert_image_version",
+        "assert_image_id",
+        "assert_secret_file",
+        "validate_secret_lengths",
+        "validate_policy_file",
     ):
         assert token in text
     for feature in (
@@ -166,10 +166,10 @@ def test_validate_requires_full_0_9_security_posture() -> None:
     text = _read("validate.sh")
     for expression in (
         '.components.security_posture.status == "ready"',
-        '.components.security_posture.policy.valid == true',
+        ".components.security_posture.policy.valid == true",
         '.components.security_posture.policy.source == "file"',
-        '.components.security_posture.hmac.required == true',
-        '.components.security_posture.hmac.configured == true',
+        ".components.security_posture.hmac.required == true",
+        ".components.security_posture.hmac.configured == true",
         '.components.security_posture.hmac.source_type == "file"',
         ".components.config.api_key_configured == true",
     ):
@@ -246,7 +246,7 @@ def test_env_nonempty_rejects_empty_and_quoted_empty_values(tmp_path: Path) -> N
         'env_has_nonempty "$1" HERMES_API_KEY\n',
         encoding="utf-8",
     )
-    for raw in ("", "   ", '\"\"', "''"):
+    for raw in ("", "   ", '""', "''"):
         env_file.write_text(f"HERMES_API_KEY={raw}\n", encoding="utf-8")
         result = subprocess.run(
             ["bash", str(probe), str(env_file)],
@@ -279,21 +279,21 @@ def _prepare_preflight_fixture(tmp_path: Path) -> tuple[dict[str, str], Path]:
         '    *org.opencontainers.image.revision*) echo "goodsha" ;;\n'
         '    *org.opencontainers.image.version*) echo "0.9.0" ;;\n'
         '    *"{{.Id}}"*) echo "sha256:rollback" ;;\n'
-        '  esac\n'
-        '  exit 0\n'
-        'fi\n'
+        "  esac\n"
+        "  exit 0\n"
+        "fi\n"
         'if [ "$1" = "inspect" ]; then\n'
         '  case "$*" in\n'
         '    *"{{.Image}}"*) echo "sha256:rollback" ;;\n'
         '    *RestartCount*) echo "healthy|0" ;;\n'
         '    *) echo "healthy" ;;\n'
-        '  esac\n'
-        '  exit 0\n'
-        'fi\n'
+        "  esac\n"
+        "  exit 0\n"
+        "fi\n"
         'if [ "$1" = "compose" ]; then\n'
         '  for arg in "$@"; do [ "$arg" = "config" ] && exit 0; done\n'
-        '  exit 0\n'
-        'fi\n'
+        "  exit 0\n"
+        "fi\n"
         "exit 0\n",
         encoding="utf-8",
     )

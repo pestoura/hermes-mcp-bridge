@@ -25,9 +25,7 @@ from typing import Any, Final
 
 FINAL_EVIDENCE_SCHEMA: Final[str] = "hermes-v2-phase2-final-acceptance/1"
 FINAL_MANIFEST_SCHEMA: Final[str] = "hermes-v2-phase2-final-manifest/1"
-STATE_INTEGRITY_DOC_SCHEMA: Final[str] = (
-    "hermes-v2-phase2-final-state-integrity/1"
-)
+STATE_INTEGRITY_DOC_SCHEMA: Final[str] = "hermes-v2-phase2-final-state-integrity/1"
 
 STATUS_ACCEPTED: Final[str] = "ACCEPTED"
 STATUS_BLOCKED: Final[str] = "BLOCKED"
@@ -254,11 +252,7 @@ def _validate_state_integrity(payload: dict[str, Any], failures: list[str]) -> s
     if state.get("shadow_state_activity_observed") is not True:
         failures.append("shadow_state_activity_not_observed")
     shadow_delta: Any = state.get("shadow_row_count_delta")
-    if (
-        not isinstance(shadow_delta, int)
-        or isinstance(shadow_delta, bool)
-        or shadow_delta <= 0
-    ):
+    if not isinstance(shadow_delta, int) or isinstance(shadow_delta, bool) or shadow_delta <= 0:
         failures.append("shadow_row_count_delta_not_positive")
 
     if state.get("paths_stored") is not False:
@@ -281,9 +275,7 @@ def _validate_window(payload: dict[str, Any], failures: list[str]) -> None:
     post = _parse_instant(state.get("measured_after_at"))
     inner = payload.get("inner_gate")
     started = _parse_instant(inner.get("started_at")) if isinstance(inner, dict) else None
-    finished = (
-        _parse_instant(inner.get("finished_at")) if isinstance(inner, dict) else None
-    )
+    finished = _parse_instant(inner.get("finished_at")) if isinstance(inner, dict) else None
     if pre is None or post is None:
         failures.append("state_measurement_window_missing")
         return

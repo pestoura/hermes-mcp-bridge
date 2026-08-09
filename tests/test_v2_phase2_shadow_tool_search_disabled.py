@@ -74,16 +74,12 @@ def stub_resolver(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(PREPARE, "_constrain_platform_to_shadow_mcp", lambda target: 0)
 
 
-def test_shadow_config_disables_tool_search_bridge(
-    tmp_path: Path, stub_resolver: None
-) -> None:
+def test_shadow_config_disables_tool_search_bridge(tmp_path: Path, stub_resolver: None) -> None:
     args = _prepare_args(tmp_path)
     result = PREPARE.prepare(args)
     assert result["status"] == "SHADOW_HOME_PREPARED"
 
-    config = yaml.safe_load(
-        (Path(args.shadow_home) / "config.yaml").read_text(encoding="utf-8")
-    )
+    config = yaml.safe_load((Path(args.shadow_home) / "config.yaml").read_text(encoding="utf-8"))
     assert config["tools"]["tool_search"]["enabled"] == "off"
 
 
@@ -93,9 +89,7 @@ def test_shadow_config_keeps_named_mcp_tool_include_list(
     """Disabling the bridge must not widen or narrow the named tool surface."""
     args = _prepare_args(tmp_path)
     PREPARE.prepare(args)
-    config = yaml.safe_load(
-        (Path(args.shadow_home) / "config.yaml").read_text(encoding="utf-8")
-    )
+    config = yaml.safe_load((Path(args.shadow_home) / "config.yaml").read_text(encoding="utf-8"))
     server = config["mcp_servers"][PREPARE.SHADOW_MCP_SERVER]
     assert server["tools"]["include"] == list(PREPARE.SHADOW_MCP_TOOL_NAMES)
     assert server["tools"]["resources"] is False

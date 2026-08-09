@@ -52,9 +52,7 @@ async def test_create_run_single_post_and_returns_immediately() -> None:
             return httpx.Response(202, json={"run_id": "run-1", "status": "started"})
         raise AssertionError(f"Unexpected request: {request.method} {request.url}")
 
-    client = HermesClient(
-        settings(), transport_factory=lambda: httpx.MockTransport(handler)
-    )
+    client = HermesClient(settings(), transport_factory=lambda: httpx.MockTransport(handler))
     result = await client.create_run(prompt="Standalone task")
 
     assert result.execution_id == "run-1"
@@ -87,16 +85,13 @@ async def test_submit_prompt_wait_zero_returns_immediately() -> None:
             )
         raise AssertionError(f"Unexpected request: {request.method} {request.url}")
 
-    client = HermesClient(
-        settings(), transport_factory=lambda: httpx.MockTransport(handler)
-    )
+    client = HermesClient(settings(), transport_factory=lambda: httpx.MockTransport(handler))
     result = await client.submit_prompt(prompt="Task", wait_seconds=0)
 
     assert result.execution_id == "run-1"
     assert result.status.value == "started"
     assert not any(
-        request.method == "GET" and request.url.path == "/v1/runs/run-1"
-        for request in requests
+        request.method == "GET" and request.url.path == "/v1/runs/run-1" for request in requests
     )
 
 
@@ -113,9 +108,7 @@ async def test_progress_callback_exception_is_swallowed(caplog: pytest.LogCaptur
             return httpx.Response(202, json={"run_id": "run-1", "status": "started"})
         raise AssertionError(f"Unexpected request: {request.method} {request.url}")
 
-    client = HermesClient(
-        settings(), transport_factory=lambda: httpx.MockTransport(handler)
-    )
+    client = HermesClient(settings(), transport_factory=lambda: httpx.MockTransport(handler))
 
     async def failing_progress(event: dict[str, object]) -> None:
         raise RuntimeError(sensitive_message)

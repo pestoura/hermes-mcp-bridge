@@ -116,8 +116,7 @@ STATE_DB_POLL_INTERVAL = 0.5
 #: compared on both sides. Deriving it here also makes drift impossible: a change
 #: to the executor defaults changes the comparison automatically.
 COMPARISON_FIELDS: dict[str, tuple[str, ...]] = {
-    tool_id: tuple(fields)
-    for tool_id, fields in GITHUB_DIRECT_DEFAULT_RESULT_FIELDS.items()
+    tool_id: tuple(fields) for tool_id, fields in GITHUB_DIRECT_DEFAULT_RESULT_FIELDS.items()
 }
 
 #: Collections whose ORDER is semantically part of the provider response and
@@ -381,10 +380,7 @@ def _canonical_sort_key(value: Any) -> str:
 def _canonical_collection(value: Any, *, order_significant: bool) -> Any:
     """Apply the canonical ordering rule recursively to a canonicalized value."""
     if isinstance(value, list):
-        items = [
-            _canonical_collection(item, order_significant=order_significant)
-            for item in value
-        ]
+        items = [_canonical_collection(item, order_significant=order_significant) for item in value]
         if order_significant:
             return items
         return sorted(items, key=_canonical_sort_key)
@@ -797,9 +793,7 @@ async def collect(args: argparse.Namespace) -> dict[str, Any]:
 
     # Derived once: structural property of the executor in use, not a literal.
     direct_mutation = direct_mutation_observed(executor)
-    shadow_mutation, shadow_mutation_basis = shadow_mutation_observed(
-        args.shadow_mutation_basis
-    )
+    shadow_mutation, shadow_mutation_basis = shadow_mutation_observed(args.shadow_mutation_basis)
 
     streamable = streamable_http_client(args.url)
     read_stream, write_stream, _ = await streamable.__aenter__()
@@ -838,9 +832,7 @@ async def collect(args: argparse.Namespace) -> dict[str, Any]:
                         f"DIRECT_NOT_TAKEN_{_foreign_token(decision.fallback_reason.value)}"
                     )
                 if not decision.succeeded or decision.result is None:
-                    raise CollectorError(
-                        f"DIRECT_FAILED_{_foreign_token(decision.error_code)}"
-                    )
+                    raise CollectorError(f"DIRECT_FAILED_{_foreign_token(decision.error_code)}")
                 direct_calls = transport.calls - before_calls
                 direct_redirects = transport.redirects - before_redirects
                 if direct_calls != 1:

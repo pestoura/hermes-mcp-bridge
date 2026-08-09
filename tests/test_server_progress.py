@@ -25,12 +25,11 @@ def test_progress_messages_hide_reasoning_and_message_deltas(
 ) -> None:
     server = server_module(monkeypatch)
 
-    assert server._progress_message(
-        {"event": "reasoning.available", "text": "private reasoning"}
-    ) is None
-    assert server._progress_message(
-        {"event": "message.delta", "delta": "partial answer"}
-    ) is None
+    assert (
+        server._progress_message({"event": "reasoning.available", "text": "private reasoning"})
+        is None
+    )
+    assert server._progress_message({"event": "message.delta", "delta": "partial answer"}) is None
 
 
 def test_progress_messages_cover_long_run_lifecycle(

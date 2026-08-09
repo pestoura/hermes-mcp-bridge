@@ -31,9 +31,7 @@ from mcp.client.streamable_http import streamable_http_client
 EVIDENCE_SCHEMA = "hermes-v2-phase0-benchmark/1"
 SCENARIO_SCHEMA = "1"
 ALLOWED_CATEGORIES = frozenset({"read", "mutation", "agentic"})
-TERMINAL_FAILURES = frozenset(
-    {"failed", "error", "cancelled", "canceled", "stopped", "rejected"}
-)
+TERMINAL_FAILURES = frozenset({"failed", "error", "cancelled", "canceled", "stopped", "rejected"})
 _METRIC_BASES = (
     "bridge_execution_terminal_total",
     "bridge_execution_tool_calls_sum",
@@ -330,9 +328,7 @@ def _percentile(values: list[float], fraction: float) -> float:
 def _summary(samples: list[dict[str, Any]]) -> dict[str, Any]:
     durations = [float(sample["duration_seconds"]) for sample in samples]
     successes = sum(1 for sample in samples if sample["success"])
-    token_rows = [
-        sample["tokens"] for sample in samples if sample.get("tokens") is not None
-    ]
+    token_rows = [sample["tokens"] for sample in samples if sample.get("tokens") is not None]
     return {
         "runs": len(samples),
         "successes": successes,

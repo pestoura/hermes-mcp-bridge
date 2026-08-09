@@ -188,7 +188,20 @@ Add one-request/many-node execution, bounded parallel worker pool, per-provider/
 
 Add explicit dependencies, typed bindings, topological scheduler, deterministic transformation nodes, canonical plan digest, checkpoint/resume, execution leases/heartbeat/recovery, dead-letter/manual-intervention state and replay simulation.
 
-**Gate:** `DAG_ACCEPTED`.
+**Design lane:** `docs/v2/phase5/` holds the plan definition, validation
+ordering, digest rules, scheduling, checkpoint/resume, failure semantics,
+compensation, per-node governance and acceptance criteria, with a frozen fixture
+corpus in `tests/fixtures/v2_phase5/`.
+
+**Gate:** `DAG_ACCEPTED` — **declared** with `failures: []`, a live determinism
+probe (identical digest and topological order for reordered equivalent plans)
+and a live durability probe (write-ahead record readable from inside the
+provider call, terminal state surviving reload). Evidence:
+`docs/v2/evidence/phase5-dag-acceptance.json`; criteria mapping:
+`docs/v2/phase5/acceptance-criteria.md`. The runtime ships behind
+`DAG_FEATURE_ENABLED = False` and is not wired to MCP. Decisions closed here:
+ADR-0024 (OD-003), ADR-0025 (OD-018 for plans), ADR-0026 (OD-024) and ADR-0027
+(OD-021).
 
 ## PHASE 6 — RUNBOOK Registry
 

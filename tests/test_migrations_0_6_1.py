@@ -75,10 +75,7 @@ def test_checkpoint_schema_contains_plan_id(tmp_path: Path) -> None:
     apply_migrations(db_path)
     conn = sqlite3.connect(db_path, check_same_thread=False)
     try:
-        cols = {
-            row[1]
-            for row in conn.execute("PRAGMA table_info(checkpoints)").fetchall()
-        }
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(checkpoints)").fetchall()}
         assert "plan_id" in cols
     finally:
         conn.close()
@@ -89,10 +86,7 @@ def test_continuations_schema_is_canonical(tmp_path: Path) -> None:
     apply_migrations(db_path)
     conn = sqlite3.connect(db_path, check_same_thread=False)
     try:
-        cols = {
-            row[1]
-            for row in conn.execute("PRAGMA table_info(continuations)").fetchall()
-        }
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(continuations)").fetchall()}
         for col in {"continuation_id", "execution_id", "checkpoint_id", "mode"}:
             assert col in cols
     finally:

@@ -29,9 +29,7 @@ from hermes_mcp_bridge.protocol import (
 )
 
 SNAPSHOT_PATH = Path("contracts/1.0.0.json")
-EXPECTED_1_0_0_DIGEST = (
-    "543213dedc2928466e5ec8ed9e2d4f9a464c7204cef737584a2a7e774c378e2d"
-)
+EXPECTED_1_0_0_DIGEST = "543213dedc2928466e5ec8ed9e2d4f9a464c7204cef737584a2a7e774c378e2d"
 
 
 def _server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> types.ModuleType:
@@ -109,9 +107,7 @@ def test_unknown_contract_version_raises() -> None:
 
 
 def test_diff_detects_missing_and_extra_tools() -> None:
-    observed = (set(required_tools("1.0.0")) - {"hermes_readiness"}) | {
-        "hermes_bogus"
-    }
+    observed = (set(required_tools("1.0.0")) - {"hermes_readiness"}) | {"hermes_bogus"}
     diff = diff_tools(observed, version="1.0.0")
     assert diff["missing"] == ["hermes_readiness"]
     assert diff["extra"] == ["hermes_bogus"]
@@ -145,9 +141,7 @@ def test_no_blind_26_constant_in_sources() -> None:
         for path in root.rglob("*"):
             if path.suffix not in {".py", ".sh"} or path.name == "contracts.py":
                 continue
-            for lineno, line in enumerate(
-                path.read_text(encoding="utf-8").splitlines(), start=1
-            ):
+            for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
                 if "EXPECT_TOOL_COUNT=26" in line.replace(" ", ""):
                     offenders.append(f"{path}:{lineno}")
     assert not offenders, f"hard-coded 26-tool assumption: {offenders}"
@@ -164,9 +158,7 @@ def test_server_registers_exactly_the_contract_tools(
     assert result["count"] == 27
 
 
-def test_manifest_matches_contract(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_manifest_matches_contract(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     server = _server(monkeypatch, tmp_path)
     manifest = asyncio.run(server._build_capability_manifest())
     assert validate_manifest_tools(manifest) == []

@@ -43,9 +43,7 @@ def _minted(*, permissions=None, repositories=None):
         "expires_at": (datetime.now(UTC) + timedelta(hours=1)).isoformat(),
         "permissions": dict(REQUIRED_PERMISSIONS if permissions is None else permissions),
         "repository_selection": "selected",
-        "repositories": repositories
-        if repositories is not None
-        else [{"full_name": REPOSITORY}],
+        "repositories": repositories if repositories is not None else [{"full_name": REPOSITORY}],
     }
 
 

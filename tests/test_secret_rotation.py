@@ -191,12 +191,19 @@ def test_apply_rollback_on_second_path_failure(tmp_path, monkeypatch):
     env2.write_text("API_SERVER_KEY=old\n")
     # force two changed paths
     monkeypatch.setattr(
-        sr, "discover_api_server_key", lambda working_directory=None: type(
-            "R", (), {"sources": [
-                {"source": "working_dir_env", "path": str(env1), "present": True},
-                {"source": "working_dir_env2", "path": str(env2), "present": True},
-            ], "status": "consistent"}
-        )()
+        sr,
+        "discover_api_server_key",
+        lambda working_directory=None: type(
+            "R",
+            (),
+            {
+                "sources": [
+                    {"source": "working_dir_env", "path": str(env1), "present": True},
+                    {"source": "working_dir_env2", "path": str(env2), "present": True},
+                ],
+                "status": "consistent",
+            },
+        )(),
     )
     monkeypatch.setattr(sr, "_active_api_runs", lambda: 0)
     monkeypatch.setattr(sr, "_gateway_unit_name", lambda: "hermes-gateway.service")
@@ -234,11 +241,13 @@ def test_rollback_rotation_uses_manifest(tmp_path):
     target.write_text("API_SERVER_KEY=rotated\n")
     backup = tmp_path / "a.env.pre-rotation-1"
     backup.write_text("API_SERVER_KEY=original\n")
-    res = rollback_rotation({
-        "changed_paths": [str(target)],
-        "backup_paths": [str(backup)],
-        "operation_id": "1",
-    })
+    res = rollback_rotation(
+        {
+            "changed_paths": [str(target)],
+            "backup_paths": [str(backup)],
+            "operation_id": "1",
+        }
+    )
     assert res["status"] == "rolled_back"
     assert target.read_text() == "API_SERVER_KEY=original\n"
 
@@ -251,11 +260,13 @@ def test_rollback_rejects_symlink(tmp_path):
     link = tmp_path / "link.env"
     os.symlink(target, str(link))
     with pytest.raises(ValueError):
-        rollback_rotation({
-            "changed_paths": [str(link)],
-            "backup_paths": [str(backup)],
-            "operation_id": "1",
-        })
+        rollback_rotation(
+            {
+                "changed_paths": [str(link)],
+                "backup_paths": [str(backup)],
+                "operation_id": "1",
+            }
+        )
 
 
 def test_schedule_external_restart_separates_units(tmp_path, monkeypatch):

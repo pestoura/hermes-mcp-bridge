@@ -113,9 +113,7 @@ def test_recovery_reaps_expired_locks_only(db_path: str) -> None:
     past = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
     connection = sqlite3.connect(db_path)
     connection.isolation_level = None
-    connection.execute(
-        "UPDATE resource_locks SET expires_at = ? WHERE lock_key = 'stale'", (past,)
-    )
+    connection.execute("UPDATE resource_locks SET expires_at = ? WHERE lock_key = 'stale'", (past,))
     connection.close()
 
     report = recover_state(db_path)
@@ -203,9 +201,7 @@ registry.update_status(client_request_id="child-run", last_status="running")
 """
 
 
-def test_state_written_by_a_killed_process_is_recoverable(
-    tmp_path: Path, db_path: str
-) -> None:
+def test_state_written_by_a_killed_process_is_recoverable(tmp_path: Path, db_path: str) -> None:
     src = str(Path(__file__).resolve().parents[1] / "src")
     script = tmp_path / "child_recovery.py"
     script.write_text(_CHILD.format(src=src), encoding="utf-8")

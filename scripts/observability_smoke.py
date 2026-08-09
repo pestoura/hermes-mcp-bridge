@@ -101,9 +101,7 @@ def check_alloy_profile() -> list[str]:
     """
 
     if not ALLOY_PROFILE.is_file():
-        raise CheckFailure(
-            f"missing deploy asset: {ALLOY_PROFILE.relative_to(REPO_ROOT)}"
-        )
+        raise CheckFailure(f"missing deploy asset: {ALLOY_PROFILE.relative_to(REPO_ROOT)}")
     _assert_no_inline_secret(ALLOY_PROFILE)
     text = ALLOY_PROFILE.read_text(encoding="utf-8")
     lowered = text.lower()
@@ -183,9 +181,7 @@ def check_scrape_snippet() -> list[str]:
     if auth.get("credentials"):
         raise CheckFailure("scrape job must not inline authorization.credentials")
     targets = [
-        target
-        for config in job.get("static_configs", [])
-        for target in config.get("targets", [])
+        target for config in job.get("static_configs", []) for target in config.get("targets", [])
     ]
     if "172.17.0.1:9464" not in targets:
         raise CheckFailure("scrape job does not target the docker gateway 172.17.0.1:9464")
@@ -333,9 +329,7 @@ def probe(url: str, token_file: str | None) -> list[str]:
         if line and not line.startswith("#")
     }
     bridge_series = sorted(
-        series_name
-        for series_name in series
-        if series_name.startswith("bridge_")
+        series_name for series_name in series if series_name.startswith("bridge_")
     )
     if not bridge_series:
         raise CheckFailure("exporter responded but exposed no bridge_* series")

@@ -82,9 +82,7 @@ def _sample(tool_id: str, repetition: int) -> dict[str, Any]:
 
 def valid_evidence() -> dict[str, Any]:
     samples = [
-        _sample(tool_id, repetition)
-        for tool_id in EXPECTED_TOOLS
-        for repetition in range(1, 4)
+        _sample(tool_id, repetition) for tool_id in EXPECTED_TOOLS for repetition in range(1, 4)
     ]
     return {
         "schema": "hermes-v2-phase2-direct-read-acceptance/1",
@@ -260,9 +258,7 @@ def test_cli_emits_direct_read_accepted(tmp_path: Path) -> None:
             "discovery_invalid:actual_jarvas_host",
         ),
         (
-            lambda p: p["samples"][0]["direct"].update(
-                {"hermes_upstream_calls": 1}
-            ),
+            lambda p: p["samples"][0]["direct"].update({"hermes_upstream_calls": 1}),
             "sample[0]:direct_hermes_upstream_not_zero",
         ),
         (
@@ -272,39 +268,27 @@ def test_cli_emits_direct_read_accepted(tmp_path: Path) -> None:
             "sample[0]:direct_llm_tokens_not_zero",
         ),
         (
-            lambda p: p["samples"][0]["direct"].update(
-                {"provider_api_calls": 2}
-            ),
+            lambda p: p["samples"][0]["direct"].update({"provider_api_calls": 2}),
             "sample[0]:direct_api_calls_not_one",
         ),
         (
-            lambda p: p["samples"][0]["v1_shadow"].update(
-                {"token_usage_estimated": True}
-            ),
+            lambda p: p["samples"][0]["v1_shadow"].update({"token_usage_estimated": True}),
             "sample[0]:shadow_token_usage_estimated",
         ),
         (
-            lambda p: p["samples"][0]["comparison"].update(
-                {"semantic_match": False}
-            ),
+            lambda p: p["samples"][0]["comparison"].update({"semantic_match": False}),
             "sample[0]:semantic_mismatch",
         ),
         (
-            lambda p: p["samples"][0]["comparison"].update(
-                {"v1_normalized_sha256": "b" * 64}
-            ),
+            lambda p: p["samples"][0]["comparison"].update({"v1_normalized_sha256": "b" * 64}),
             "sample[0]:normalized_digest_mismatch",
         ),
         (
-            lambda p: p["samples"][0].update(
-                {"repository": "pestoura/not-authorized"}
-            ),
+            lambda p: p["samples"][0].update({"repository": "pestoura/not-authorized"}),
             "sample[0]:repository_out_of_scope",
         ),
         (
-            lambda p: p["samples"][0]["direct"].update(
-                {"mutation_observed": True}
-            ),
+            lambda p: p["samples"][0]["direct"].update({"mutation_observed": True}),
             "sample[0]:direct_mutation_observed",
         ),
         (
@@ -346,9 +330,7 @@ def _drop(payload: dict[str, Any], *path: str) -> None:
             "attestation_notes_missing",
         ),
         (
-            lambda p: p["attestation_notes"].update(
-                {"attestation_path_recorded": True}
-            ),
+            lambda p: p["attestation_notes"].update({"attestation_path_recorded": True}),
             "attestation_path_recorded",
         ),
         (
@@ -362,9 +344,7 @@ def _drop(payload: dict[str, Any], *path: str) -> None:
             "attestation_declaration_schema_invalid",
         ),
         (
-            lambda p: p["attestation_notes"]["declaration"].update(
-                {"confirmation": False}
-            ),
+            lambda p: p["attestation_notes"]["declaration"].update({"confirmation": False}),
             "attestation_declaration_not_confirmed",
         ),
         (
@@ -402,9 +382,7 @@ def _drop(payload: dict[str, Any], *path: str) -> None:
             "attestation_externally_confirmed_invalid",
         ),
         (
-            lambda p: p["attestation_notes"].update(
-                {"machine_verified": ["authentication"]}
-            ),
+            lambda p: p["attestation_notes"].update({"machine_verified": ["authentication"]}),
             "attestation_machine_verified_incomplete",
         ),
         (
@@ -419,9 +397,7 @@ def _drop(payload: dict[str, Any], *path: str) -> None:
             "attestation_probes_missing",
         ),
         (
-            lambda p: p["attestation_notes"]["probes"].update(
-                {"auth_probe_status": 403}
-            ),
+            lambda p: p["attestation_notes"]["probes"].update({"auth_probe_status": 403}),
             "attestation_auth_probe_invalid",
         ),
         (
@@ -431,33 +407,27 @@ def _drop(payload: dict[str, Any], *path: str) -> None:
             "attestation_oauth_scopes_header_present",
         ),
         (
-            lambda p: p["attestation_notes"]["probes"].update(
-                {"repository_probe_count": 2}
-            ),
+            lambda p: p["attestation_notes"]["probes"].update({"repository_probe_count": 2}),
             "attestation_repository_probe_count_invalid",
         ),
         (
-            lambda p: p["attestation_notes"]["probes"].update(
-                {"repository_read_probes": {}}
-            ),
+            lambda p: p["attestation_notes"]["probes"].update({"repository_read_probes": {}}),
             "attestation_repository_read_probes_incomplete",
         ),
         (
-            lambda p: p["attestation_notes"]["probes"]["repository_read_probes"][
-                REPOSITORY
-            ].update({"check_runs_status": 404}),
+            lambda p: p["attestation_notes"]["probes"]["repository_read_probes"][REPOSITORY].update(
+                {"check_runs_status": 404}
+            ),
             "attestation_read_probe_status_invalid:check_runs_status",
         ),
         (
-            lambda p: p["attestation_notes"]["probes"]["repository_read_probes"][
-                REPOSITORY
-            ].update({"issues_sample_count": -1}),
+            lambda p: p["attestation_notes"]["probes"]["repository_read_probes"][REPOSITORY].update(
+                {"issues_sample_count": -1}
+            ),
             "attestation_read_probe_count_invalid:issues_sample_count",
         ),
         (
-            lambda p: p["attestation_notes"]["probes"].update(
-                {"installation_repository_count": 4}
-            ),
+            lambda p: p["attestation_notes"]["probes"].update({"installation_repository_count": 4}),
             "attestation_installation_repository_count_invalid",
         ),
         # ---- canary --------------------------------------------------------
@@ -474,9 +444,7 @@ def _drop(payload: dict[str, Any], *path: str) -> None:
             "canary_tool_ids_invalid",
         ),
         (
-            lambda p: p["canary"].update(
-                {"canary_repositories": ["pestoura/other-repo"]}
-            ),
+            lambda p: p["canary"].update({"canary_repositories": ["pestoura/other-repo"]}),
             "canary_repositories_not_provider_scopes",
         ),
         (
@@ -495,15 +463,11 @@ def _drop(payload: dict[str, Any], *path: str) -> None:
             "direct_mutation_basis_invalid",
         ),
         (
-            lambda p: p["window_integrity_basis"].update(
-                {"shadow_mutation_basis": "none"}
-            ),
+            lambda p: p["window_integrity_basis"].update({"shadow_mutation_basis": "none"}),
             "shadow_mutation_basis_unproven",
         ),
         (
-            lambda p: p["window_integrity_basis"].update(
-                {"shadow_mutation_basis": "unknown"}
-            ),
+            lambda p: p["window_integrity_basis"].update({"shadow_mutation_basis": "unknown"}),
             "shadow_mutation_basis_unproven",
         ),
         (
@@ -517,15 +481,11 @@ def _drop(payload: dict[str, Any], *path: str) -> None:
             "sample[0]:window_integrity_invalid:direct_call_delta_exact",
         ),
         (
-            lambda p: p["samples"][0]["window_integrity"].update(
-                {"attribution_ambiguity": True}
-            ),
+            lambda p: p["samples"][0]["window_integrity"].update({"attribution_ambiguity": True}),
             "sample[0]:window_attribution_ambiguous",
         ),
         (
-            lambda p: p["samples"][0]["direct"].update(
-                {"mutation_basis": "operator_asserted"}
-            ),
+            lambda p: p["samples"][0]["direct"].update({"mutation_basis": "operator_asserted"}),
             "sample[0]:direct_mutation_basis_invalid",
         ),
         (
@@ -536,9 +496,7 @@ def _drop(payload: dict[str, Any], *path: str) -> None:
         ),
         # ---- token accounting source ----------------------------------------
         (
-            lambda p: p["samples"][0]["v1_shadow"].update(
-                {"token_usage_source": "hermes_result"}
-            ),
+            lambda p: p["samples"][0]["v1_shadow"].update({"token_usage_source": "hermes_result"}),
             "sample[0]:shadow_token_source_not_canonical",
         ),
     ],

@@ -132,9 +132,7 @@ def test_permissive_empty_policy_is_rejected() -> None:
 
 def test_policy_cannot_declare_action_both_ways() -> None:
     with pytest.raises(PolicyError):
-        validate_policy_document(
-            {"read_only_actions": ["x"], "mutating_actions": ["x"]}
-        )
+        validate_policy_document({"read_only_actions": ["x"], "mutating_actions": ["x"]})
 
 
 def test_versioned_production_policy_is_valid_and_secret_free() -> None:
@@ -208,9 +206,7 @@ def test_enforcement_denies_on_evaluation_error(monkeypatch) -> None:
 def test_enforcement_denies_on_unknown_decision(monkeypatch) -> None:
     from hermes_mcp_bridge import server
 
-    monkeypatch.setattr(
-        server, "_policy_decision_from_inputs", lambda *_a, **_k: ("WEIRD", "n/a")
-    )
+    monkeypatch.setattr(server, "_policy_decision_from_inputs", lambda *_a, **_k: ("WEIRD", "n/a"))
     blocked = server._enforce_policy("hermes_health")
     assert blocked is not None
     assert "denied" in str(blocked.get("error", "")).lower()
@@ -483,9 +479,7 @@ def test_canonical_bypass_is_closed() -> None:
 
 def test_manifest_signature_verifies_and_detects_tamper(monkeypatch) -> None:
     monkeypatch.setenv("HERMES_BRIDGE_HMAC_SECRET", STRONG_KEY)
-    manifest = build_result_manifest(
-        execution_id="exec-1", session_id="s-1", status="completed"
-    )
+    manifest = build_result_manifest(execution_id="exec-1", session_id="s-1", status="completed")
     assert manifest.signature_status == signing.SIGNATURE_ALGORITHM
     assert verify_result_manifest(manifest)
 

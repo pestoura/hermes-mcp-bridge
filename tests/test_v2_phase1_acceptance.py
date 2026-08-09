@@ -167,9 +167,7 @@ def test_ci_retains_phase1_gate_as_blocking_draft_release() -> None:
 
     assert "if" not in retention
     assert retention.get("continue-on-error") is not True
-    assert retention["env"]["PHASE1_EVIDENCE_TAG"] == (
-        "phase1-registry-evidence-${{ github.sha }}"
-    )
+    assert retention["env"]["PHASE1_EVIDENCE_TAG"] == ("phase1-registry-evidence-${{ github.sha }}")
     command = retention["run"]
     assert "gh release create" in command
     assert "gh release upload" in command

@@ -92,7 +92,7 @@ class _FakeSession:
                 '"schema_version":"0.6.1",'
                 f'"manifest_version":"{CURRENT_CONTRACT_VERSION}",'
                 '"manifest_hash":"abc"}'
-                '}'
+                "}"
             )
         elif name == "hermes_capabilities":
             payload = (

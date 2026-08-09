@@ -490,9 +490,7 @@ def test_unusable_approval_is_denied(ledger, state) -> None:
         ledger.begin(
             _intent(
                 policy_decision=PolicyDecision.APPROVAL_REQUIRED,
-                approval=ApprovalReference(
-                    approval_id="apr-1", state=state, bound_digest=DIGEST_A
-                ),
+                approval=ApprovalReference(approval_id="apr-1", state=state, bound_digest=DIGEST_A),
             )
         )
 
@@ -520,9 +518,7 @@ def test_capability_not_ready_is_denied(ledger, state) -> None:
     assert excinfo.value.reason is MutationReasonCode.WRITE_CAPABILITY_NOT_READY
 
 
-@pytest.mark.parametrize(
-    "status", [IdempotencyStatus.REPLAYED, IdempotencyStatus.IN_PROGRESS]
-)
+@pytest.mark.parametrize("status", [IdempotencyStatus.REPLAYED, IdempotencyStatus.IN_PROGRESS])
 def test_non_new_idempotency_status_issues_no_record(ledger, status, tmp_path: Path) -> None:
     with pytest.raises(AuditWriteError) as excinfo:
         ledger.begin(_intent(idempotency_status=status))
@@ -585,9 +581,7 @@ def test_evidence_digest_is_deterministic_and_binds_the_intent(ledger, tmp_path:
     assert len(evidence.evidence_digest) == 64
 
     _ledger_clock.extend(T0 + timedelta(seconds=i) for i in range(50))
-    twin = MutationAuditLedger(
-        FileAuditSink(tmp_path / "twin"), clock=lambda: _ledger_clock.pop(0)
-    )
+    twin = MutationAuditLedger(FileAuditSink(tmp_path / "twin"), clock=lambda: _ledger_clock.pop(0))
     twin_handle = twin.begin(_intent())
     twin_evidence = twin.finalize(twin_handle, _observation())
     # Audit ids differ, so digests must differ: the digest binds the attempt.
@@ -611,4 +605,3 @@ def test_module_exposes_no_http_or_shell_surface() -> None:
     source = inspect.getsource(mutation_audit)
     for forbidden in ("httpx", "subprocess", "requests.", "os.system", "shutil.rmtree"):
         assert forbidden not in source
-

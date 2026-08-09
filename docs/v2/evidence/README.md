@@ -2,7 +2,8 @@
 
 > **Phase 0:** `BASELINE_ACCEPTED` · **Phase 1:** `REGISTRY_ACCEPTED` ·
 > **Phase 2:** `DIRECT_READ_ACCEPTED` (inner) + outer `ACCEPTED` ·
-> **V1 semantics preserved**
+> **Phase 3:** `DIRECT_MUTATION_ACCEPTED` · **Phase 4:** `BATCH_ACCEPTED` ·
+> **Phase 5:** `DAG_ACCEPTED` · **V1 semantics preserved**
 
 This directory indexes retained, sanitized evidence for the gated V2 evolution.
 Acceptance is evidence-driven: code existence alone does not promote a phase.
@@ -236,16 +237,114 @@ Phase 2 requirements (docs/v2/requirements/traceability-matrix.md)
   -> outer overall_status                                  [ACCEPTED]
 ```
 
+## Phase 3 — GitHub mutations (`DIRECT_MUTATION_ACCEPTED`)
+
+| Item | Value |
+| --- | --- |
+| Accepted source commit | `8fc8363a3eb31db99c18afb39fcd78bde011e2b6` |
+| Gate | `DIRECT_MUTATION_ACCEPTED`, `failures=[]` |
+| Evidence | `phase3-direct-mutation-acceptance.json` |
+| Runner and criteria mapping | [`../phase3/promotion.md`](../phase3/promotion.md) |
+
+The evidence document binds each Phase 3 module by SHA-256 against the tree at
+the accepted commit, so a later edit to a bound module invalidates the record
+rather than silently inheriting the acceptance.
+
+## Phase 4 — BATCH engine (`BATCH_ACCEPTED`)
+
+| Item | Value |
+| --- | --- |
+| Accepted source commit | `0f1814793169d8641e8a4223779a9c5d31a3d2ca` |
+| Gate | `BATCH_ACCEPTED`, `failures=[]` |
+| Live `max_observed_inflight` | `2` (real parallel execution, not a claim) |
+| Bound modules | `v2/batch_contract.py`, `v2/batch_scheduler.py` |
+| Evidence | `phase4-batch-acceptance.json` |
+| Runner and semantics | [`../phase4/promotion.md`](../phase4/promotion.md) |
+
+The runtime ships behind `BATCH_FEATURE_ENABLED = False` and is not wired to
+MCP. The V1 contract was unchanged during the window: `1.0.0` / `0.6.1` / 27
+tools.
+
+### Traceability
+
+```text
+Phase 4 requirements
+  -> tests/test_v2_phase4_batch_scheduler.py             [S-01..S-27, RUN]
+  -> scripts/validate_v2_phase4_batch_gate.py            [INNER + OUTER]
+  -> phase4-batch-acceptance.json                        [RETAINED]
+  -> BATCH_ACCEPTED                                      [DECLARED]
+```
+
+## Phase 5 — DAG engine (`DAG_ACCEPTED`)
+
+| Item | Value |
+| --- | --- |
+| Gate | `DAG_ACCEPTED`, `failures=[]` |
+| Bound modules | `v2/dag_contract.py`, `v2/dag_transform.py`, `v2/dag_digest.py`, `v2/dag_validation.py`, `v2/dag_store.py`, `v2/dag_engine.py`, `v2/dag_loader.py` |
+| Acceptance suite | `tests/test_v2_phase5_dag_acceptance.py` (A5-01..A5-22, executed for real) |
+| Evidence | `phase5-dag-acceptance.json` |
+| Runner and criteria mapping | [`../phase5/acceptance-criteria.md`](../phase5/acceptance-criteria.md) |
+
+The runtime ships behind `DAG_FEATURE_ENABLED = False` and is **not** wired to
+MCP. The V1 contract is unchanged: `1.0.0` / `0.6.1` / 27 tools, with the gate
+asserting that no DAG tool leaked into the projection.
+
+### What the gate actually proves
+
+The `DAG_ACCEPTED` gate is executable and fail-closed; a skipped test or a
+missing criterion is a failure, not a pass. Beyond running the suite it performs
+two live probes:
+
+- **determinism** — two structurally identical plans that differ only in node
+  order, `plan_id` and editorial text produce the same `plan_digest` and the
+  same topological order;
+- **durability** — a mutating node's write-ahead idempotency record is readable
+  from the store *from inside the provider call*, and the terminal state
+  survives a reload.
+
+It further binds every Phase 5 module by SHA-256, AST-scans them for generic
+surface (no shell, subprocess, socket, HTTP, `eval`/`exec`/`compile`), asserts
+the closed TRANSFORM operation set has not drifted, and requires the
+`BATCH_ACCEPTED` marker with `failures=[]` so Phase 4 provably preceded Phase 5.
+
+### Decisions closed by this phase
+
+| Open decision | Closed by | Outcome |
+| --- | --- | --- |
+| OD-003 durable store | ADR-0024 | SQLite WAL, stdlib only, `BEGIN IMMEDIATE` + monotonic fence token, integrity-digested records |
+| OD-018 canonical serialization | ADR-0025 | Deterministic JSON reusing the accepted Phase 1 canonicalizer, prefixed with `digest_version` (plans; runbooks in Phase 6) |
+| OD-021 replay format | ADR-0027 | Shaped node results, providers disabled, zero approval consumption, `replay=true` durable |
+| OD-024 transform DSL | ADR-0026 | No DSL — a closed table of 12 pure typed bounded operations |
+
+### Privacy controls
+
+No plan document, checkpoint or evidence record retained for this phase contains
+credential material. The store rejects secret-like fields before writing, and
+A5-14 asserts the persisted body is free of `authorization`, `bearer`,
+`client_secret`, `private_key` and `password`.
+
+### Traceability
+
+```text
+Phase 5 requirements (docs/v2/requirements/traceability-matrix.md)
+  -> docs/v2/phase5/*.md                                 [DESIGN]
+  -> tests/fixtures/v2_phase5/plan_*.json                [FIXTURE CORPUS]
+  -> tests/test_v2_phase5_dag_acceptance.py              [A5-01..A5-22, RUN]
+  -> scripts/validate_v2_phase5_dag_gate.py              [INNER + OUTER]
+  -> phase5-dag-acceptance.json                          [RETAINED]
+  -> DAG_ACCEPTED                                        [DECLARED]
+```
+
 ## Privacy controls
 
-| Control | Phase 0 | Phase 1 | Phase 2 |
-| --- | --- | --- | --- |
-| Prompt text retained | No | Not applicable / No | No |
-| Output text retained | No | Not applicable / No | No |
-| Raw credential values retained | No | No | No |
-| Secret/environment paths retained | No | No | No |
-| Free-text editorial metadata in canonical evidence | N/A | No | No |
-| Session ids / tool call ids / row contents retained | N/A | N/A | No |
+| Control | Phase 0 | Phase 1 | Phase 2 | Phase 3 | Phase 4 | Phase 5 |
+| --- | --- | --- | --- | --- | --- | --- |
+| Prompt text retained | No | Not applicable / No | No | No | No | No |
+| Output text retained | No | Not applicable / No | No | No | No | No |
+| Raw credential values retained | No | No | No | No | No | No |
+| Secret/environment paths retained | No | No | No | No | No | No |
+| Free-text editorial metadata in canonical evidence | N/A | No | No | No | No | No (excluded from `plan_digest`) |
+| Session ids / tool call ids / row contents retained | N/A | N/A | No | No | No | No |
 
 ## Reproducing validators
 
@@ -278,3 +377,16 @@ python scripts/validate_v2_phase2_final_acceptance.py \
 ```
 
 It must print `overall_status: ACCEPTED` with `reasons: []` and exit `0`.
+
+Phase 4 and Phase 5 gates are re-runnable directly against the working tree and
+rewrite their own evidence document:
+
+```bash
+python scripts/validate_v2_phase4_batch_gate.py \
+  --json-out docs/v2/evidence/phase4-batch-acceptance.json
+
+python scripts/validate_v2_phase5_dag_gate.py \
+  --json-out docs/v2/evidence/phase5-dag-acceptance.json
+```
+
+Each must print `"failures": []` with its accepted gate name and exit `0`.

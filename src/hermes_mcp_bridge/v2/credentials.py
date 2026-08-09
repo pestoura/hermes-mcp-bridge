@@ -96,9 +96,7 @@ class StaticCredentialBroker:
 
     def status(self, credential_capability_id: str) -> CredentialCapabilityStatus | None:
         try:
-            key = normalize_identifier(
-                credential_capability_id, field="credential_capability_id"
-            )
+            key = normalize_identifier(credential_capability_id, field="credential_capability_id")
         except Exception:
             return None
         return self._statuses.get(key)

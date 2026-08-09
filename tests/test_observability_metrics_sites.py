@@ -107,9 +107,7 @@ def test_record_sqlite_operation_no_double_count_on_success() -> None:
 
 
 def test_record_sqlite_operation_lock_detection() -> None:
-    inst.record_sqlite_operation(
-        kind="locks", outcome="error", exc=Exception("database is locked")
-    )
+    inst.record_sqlite_operation(kind="locks", outcome="error", exc=Exception("database is locked"))
     m = get_metrics()
     assert m.sqlite_errors_total.value(kind="locks lock") >= 1
     assert m.sqlite_lock_contention_total.value() >= 1

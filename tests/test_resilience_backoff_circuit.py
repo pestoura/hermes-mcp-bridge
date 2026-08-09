@@ -22,14 +22,16 @@ from hermes_mcp_bridge.resilience.circuit import get_breaker, reset_breakers
 
 
 def test_backoff_schedule_is_deterministic_without_jitter() -> None:
-    policy = BackoffPolicy(base_seconds=0.5, multiplier=2.0, max_seconds=4.0, max_attempts=5,
-                           jitter_ratio=0.0)
+    policy = BackoffPolicy(
+        base_seconds=0.5, multiplier=2.0, max_seconds=4.0, max_attempts=5, jitter_ratio=0.0
+    )
     assert policy.schedule() == [0.5, 1.0, 2.0, 4.0, 4.0]
 
 
 def test_backoff_is_bounded_by_max_seconds_and_global_cap() -> None:
-    policy = BackoffPolicy(base_seconds=10.0, multiplier=10.0, max_seconds=60.0,
-                           max_attempts=6, jitter_ratio=0.0)
+    policy = BackoffPolicy(
+        base_seconds=10.0, multiplier=10.0, max_seconds=60.0, max_attempts=6, jitter_ratio=0.0
+    )
     for attempt in range(1, 7):
         assert policy.delay(attempt) <= 60.0
         assert policy.delay(attempt) <= MAX_SLEEP_SECONDS
@@ -138,8 +140,9 @@ def test_circuit_half_open_limits_concurrent_probes() -> None:
 
 
 def test_circuit_success_in_closed_state_resets_failures() -> None:
-    breaker = CircuitBreaker("runs", config=CircuitBreakerConfig(failure_threshold=3),
-                             clock=ManualClock())
+    breaker = CircuitBreaker(
+        "runs", config=CircuitBreakerConfig(failure_threshold=3), clock=ManualClock()
+    )
     breaker.record_failure()
     breaker.record_failure()
     breaker.record_success()
@@ -179,8 +182,11 @@ def test_circuit_emits_bounded_transition_and_rejection_metrics() -> None:
 
 def test_circuit_metric_labels_are_folded_to_bounded_values() -> None:
     get_registry().reset()
-    breaker = CircuitBreaker("some-unlisted-upstream", clock=ManualClock(),
-                             config=CircuitBreakerConfig(failure_threshold=1))
+    breaker = CircuitBreaker(
+        "some-unlisted-upstream",
+        clock=ManualClock(),
+        config=CircuitBreakerConfig(failure_threshold=1),
+    )
     breaker.record_failure()
     metrics = get_metrics()
     assert metrics.circuit_transitions_total.value(upstream="other", state="open") == 1.0

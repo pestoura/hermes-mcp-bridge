@@ -34,9 +34,7 @@ EXPECTED_SAMPLE_COUNT = len(EXPECTED_TOOLS) * REPETITIONS_PER_TOOL
 
 _SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
-_REPOSITORY_RE = re.compile(
-    r"^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$"
-)
+_REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$")
 
 EXPECTED_PERMISSIONS = {
     "checks": "read",
@@ -143,11 +141,7 @@ FORBIDDEN_KEYS = frozenset(
 
 
 def _is_positive_number(value: Any) -> bool:
-    return (
-        not isinstance(value, bool)
-        and isinstance(value, int | float)
-        and value > 0
-    )
+    return not isinstance(value, bool) and isinstance(value, int | float) and value > 0
 
 
 def _is_non_negative_int(value: Any) -> bool:
@@ -196,10 +190,7 @@ def _validate_runtime(payload: dict[str, Any], failures: list[str]) -> None:
             failures.append(f"runtime_invalid:{key}")
 
     direct_core_commit = runtime.get("direct_core_commit")
-    if (
-        not isinstance(direct_core_commit, str)
-        or _SHA40_RE.fullmatch(direct_core_commit) is None
-    ):
+    if not isinstance(direct_core_commit, str) or _SHA40_RE.fullmatch(direct_core_commit) is None:
         failures.append("runtime_invalid:direct_core_commit")
 
 
@@ -239,9 +230,7 @@ def _validate_provider(
         return set()
     if len(scopes) != len(set(scopes)):
         failures.append("provider_repository_scopes_duplicate")
-    invalid = sorted(
-        str(scope) for scope in scopes if not _repository_ok(scope)
-    )
+    invalid = sorted(str(scope) for scope in scopes if not _repository_ok(scope))
     if invalid:
         failures.append("provider_repository_scope_invalid")
     return {str(scope).lower() for scope in scopes if _repository_ok(scope)}
@@ -312,9 +301,7 @@ def _validate_attestation(
             failures.append("attestation_confirmed_at_missing")
         else:
             try:
-                parsed = datetime.fromisoformat(
-                    confirmed_at.strip().replace("Z", "+00:00")
-                )
+                parsed = datetime.fromisoformat(confirmed_at.strip().replace("Z", "+00:00"))
             except ValueError:
                 failures.append("attestation_confirmed_at_invalid")
             else:
@@ -385,9 +372,8 @@ def _validate_attestation(
         and probes.get("fine_grained_self_enumeration_available") is not False
     ):
         failures.append("attestation_fine_grained_self_enumeration_invalid")
-    if (
-        provider_type == "github_app"
-        and probes.get("installation_repository_count") != len(repository_scopes)
+    if provider_type == "github_app" and probes.get("installation_repository_count") != len(
+        repository_scopes
     ):
         failures.append("attestation_installation_repository_count_invalid")
 
@@ -405,14 +391,13 @@ def _validate_canary(
     if canary.get("direct_feature_enabled") is not True:
         failures.append("canary_direct_feature_not_enabled")
     tool_ids = canary.get("canary_tool_ids")
-    if not isinstance(tool_ids, list) or sorted(str(t) for t in tool_ids) != sorted(
-        EXPECTED_TOOLS
-    ):
+    if not isinstance(tool_ids, list) or sorted(str(t) for t in tool_ids) != sorted(EXPECTED_TOOLS):
         failures.append("canary_tool_ids_invalid")
     repositories = canary.get("canary_repositories")
-    if not isinstance(repositories, list) or {
-        str(item).lower() for item in repositories
-    } != repository_scopes:
+    if (
+        not isinstance(repositories, list)
+        or {str(item).lower() for item in repositories} != repository_scopes
+    ):
         failures.append("canary_repositories_not_provider_scopes")
     if canary.get("wildcard_scopes") is not False:
         failures.append("canary_wildcard_scopes")
@@ -530,10 +515,7 @@ def _validate_shadow_sample(
         failures.append(f"{prefix}:shadow_token_source_not_canonical")
     if shadow.get("mutation_observed") is not False:
         failures.append(f"{prefix}:shadow_mutation_observed")
-    if (
-        shadow_mutation_basis is None
-        or shadow.get("mutation_basis") != shadow_mutation_basis
-    ):
+    if shadow_mutation_basis is None or shadow.get("mutation_basis") != shadow_mutation_basis:
         failures.append(f"{prefix}:shadow_mutation_basis_invalid")
 
 
@@ -554,11 +536,7 @@ def _validate_comparison(
         failures.append(f"{prefix}:direct_digest_invalid")
     if not _sha256_ok(shadow_digest):
         failures.append(f"{prefix}:shadow_digest_invalid")
-    if (
-        _sha256_ok(direct_digest)
-        and _sha256_ok(shadow_digest)
-        and direct_digest != shadow_digest
-    ):
+    if _sha256_ok(direct_digest) and _sha256_ok(shadow_digest) and direct_digest != shadow_digest:
         failures.append(f"{prefix}:normalized_digest_mismatch")
 
 
@@ -636,8 +614,7 @@ def _validate_samples(
         if tool_counts[tool_id] != REPETITIONS_PER_TOOL:
             failures.append(f"tool_sample_count_invalid:{tool_id}")
         expected_pairs = {
-            (tool_id, repetition)
-            for repetition in range(1, REPETITIONS_PER_TOOL + 1)
+            (tool_id, repetition) for repetition in range(1, REPETITIONS_PER_TOOL + 1)
         }
         if not expected_pairs.issubset(repetition_pairs):
             failures.append(f"tool_repetitions_incomplete:{tool_id}")
@@ -708,10 +685,7 @@ def validate_evidence(payload: dict[str, Any]) -> list[str]:
         failures.append("invalid_collection_gate")
 
     source_commit = payload.get("source_commit")
-    if (
-        not isinstance(source_commit, str)
-        or _SHA40_RE.fullmatch(source_commit) is None
-    ):
+    if not isinstance(source_commit, str) or _SHA40_RE.fullmatch(source_commit) is None:
         failures.append("invalid_source_commit")
 
     _validate_runtime(payload, failures)

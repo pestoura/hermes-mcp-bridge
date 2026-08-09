@@ -8,7 +8,7 @@ These items are intentionally unresolved. They must not be inferred as implement
 |---|---|---|
 | OD-001 | Versioning model | `/v2` namespace vs versioned tools vs capability negotiation vs schema/protocol version; ADR-0017 |
 | OD-002 | Runbook DSL | YAML/JSON/domain model; typed bindings, reviewability, canonicalization, tooling |
-| OD-003 | Durable queue/store | SQLite extension, dedicated queue/store, other; recovery/concurrency/operability |
+| OD-003 | Durable queue/store | **CLOSED (Phase 5, ADR-0024)** — SQLite WAL, single local file, stdlib only; `BEGIN IMMEDIATE` + monotonic fence token for CAS, `(approval_id, nonce)` primary key for single-use approval, per-record integrity digest |
 | OD-004 | Artifact store | local content-addressed store, object storage, other; ACL, digest, retention, size |
 | OD-005 | Credential provider backend | restricted file/keyring/Vault/cloud secret manager; bootstrap and rotation |
 | OD-006 | Concurrency defaults | global/request/provider/resource/credential worker limits and adaptive policy |
@@ -23,11 +23,11 @@ These items are intentionally unresolved. They must not be inferred as implement
 | OD-015 | Home Assistant projection model | safe read-only MVP, mutation tiers, entity/service resource scopes |
 | OD-016 | GitHub credential model | GitHub App vs fine-grained tokens for MVP; installation/repository scopes |
 | OD-017 | Policy-as-code format/engine | existing JSON evolution vs dedicated machine-readable policy engine; testability |
-| OD-018 | Canonical plan/runbook serialization | deterministic JSON/CBOR/other; hashing compatibility/versioning |
+| OD-018 | Canonical plan/runbook serialization | **CLOSED for plans (Phase 5, ADR-0025)** — deterministic JSON (sorted keys, UTF-8, no floats) reusing the accepted Phase 1 canonicalizer, prefixed with `digest_version`. Runbook binding remains open until Phase 6 |
 | OD-019 | Runbook signing | when required, signer/key lifecycle, verification and promotion |
 | OD-020 | Agentic escalation thresholds | enabled reason codes, confidence criteria, token/context budgets |
-| OD-021 | Replay simulation format | recorded node outputs, schema/version drift handling, artifact references |
+| OD-021 | Replay simulation format | **CLOSED (Phase 5, ADR-0027)** — `{node_id: shaped_result}` replayed with providers disabled: zero external calls, zero approval consumption, zero idempotency writes, `replay=true` durable on the checkpoint and the report |
 | OD-022 | Production SLO targets | direct latency, batch queueing, error rate, recovery, agentic escalation rate |
 | OD-023 | Cost-aware planning | selection rules using latency/cost/rate-limit/LLM-required metadata |
-| OD-024 | Transformation node DSL | exact safe operations and type system without general code execution |
+| OD-024 | Transformation node DSL | **CLOSED (Phase 5, ADR-0026)** — no DSL: a closed, code-defined table of 12 pure, typed, total, size-bounded operations. No expression language, no template, no `eval` |
 | OD-025 | RITMO integration | only after fresh runtime/API discovery; no design assumption of current availability |

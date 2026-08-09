@@ -107,9 +107,10 @@ def validate_shadow_isolation(
         failures.append("shadow_isolation_fields_invalid")
     if payload.get("schema") != SHADOW_ISOLATION_SCHEMA:
         failures.append("shadow_isolation_schema_invalid")
-    if payload.get("source_commit") != source_commit or _SHA40_RE.fullmatch(
-        str(payload.get("source_commit", ""))
-    ) is None:
+    if (
+        payload.get("source_commit") != source_commit
+        or _SHA40_RE.fullmatch(str(payload.get("source_commit", ""))) is None
+    ):
         failures.append("shadow_isolation_source_commit_invalid")
 
     expected_scalars = {

@@ -124,7 +124,7 @@ def _probe_hermes_resolver(args: argparse.Namespace) -> dict:
 
     # The child reports only names/booleans from an allowlisted contract. It
     # never serializes config values, environment values, paths or credentials.
-    child = r'''
+    child = r"""
 import json
 import sys
 
@@ -156,7 +156,7 @@ exact = bool(
     == "off"
 )
 print(json.dumps({"resolved": resolved, "config_exact": exact}, sort_keys=True))
-'''
+"""
     env = {
         "HOME": str(shadow_home),
         "HERMES_HOME": str(shadow_home),

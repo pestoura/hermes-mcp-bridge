@@ -122,7 +122,7 @@ def test_histogram_renders_inf_buckets_cleanly() -> None:
     m.tool_duration_seconds.observe(float("inf"), tool="t")
     m.tool_duration_seconds.observe(0.5, tool="t")
     text = render_prometheus()
-    assert "le=\"+Inf\"" in text
+    assert 'le="+Inf"' in text
     assert "_bucket" in text
     m = get_metrics()
     m.tool_calls_total.inc(tool="hermes_prompt", outcome="success")

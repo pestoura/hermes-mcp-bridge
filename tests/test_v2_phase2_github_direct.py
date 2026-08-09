@@ -125,12 +125,8 @@ def _executor(
         registry=build_github_direct_read_registry(),
         rules=rules if rules is not None else github_direct_read_policy_rules(),
         credential_broker=broker if broker is not None else _broker(),
-        authorization_provider=(
-            provider if provider is not None else _auth_provider()
-        ),
-        scope=(
-            scope if scope is not None else GitHubRepositoryScope([REPOSITORY])
-        ),
+        authorization_provider=(provider if provider is not None else _auth_provider()),
+        scope=(scope if scope is not None else GitHubRepositoryScope([REPOSITORY])),
         transport=recording.transport(),
         max_result_bytes=max_result_bytes,
     )
@@ -494,9 +490,7 @@ async def test_search_is_repository_scoped_and_structured() -> None:
                 "state": "closed",
                 "comments": 0,
                 "user": {"login": "pestoura"},
-                "html_url": (
-                    "https://github.com/pestoura/hermes-mcp-bridge/issues/43"
-                ),
+                "html_url": ("https://github.com/pestoura/hermes-mcp-bridge/issues/43"),
                 "created_at": "2026-08-08T08:00:00Z",
                 "updated_at": "2026-08-08T09:00:00Z",
                 "body": "not returned by search",
@@ -514,9 +508,7 @@ async def test_search_is_repository_scoped_and_structured() -> None:
     )
     request = recording.requests[0]
     assert request.url.path == "/search/issues"
-    expected_query = (
-        "phase evidence repo:pestoura/hermes-mcp-bridge is:issue state:closed"
-    )
+    expected_query = "phase evidence repo:pestoura/hermes-mcp-bridge is:issue state:closed"
     assert request.url.params["q"] == expected_query
     assert request.url.params["per_page"] == "7"
     assert result.data["items"][0]["item_type"] == "issue"
@@ -611,9 +603,7 @@ async def test_invalid_json_and_non_object_json_fail_closed() -> None:
 
 @pytest.mark.asyncio
 async def test_result_budget_is_enforced_after_shaping() -> None:
-    recording = RecordingTransport(
-        [_response(_repo_payload(description="x" * 5000))]
-    )
+    recording = RecordingTransport([_response(_repo_payload(description="x" * 5000))])
     with pytest.raises(GitHubDirectError, match="RESULT_BUDGET_EXCEEDED"):
         await _executor(recording, max_result_bytes=1024).get_repo(
             "pestoura",

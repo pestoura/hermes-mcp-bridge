@@ -73,9 +73,7 @@ class StepGovernance(Protocol):
 
     def decide(self, request: BatchRequest, step: BatchStep) -> StepDecision: ...
 
-    def record(
-        self, request: BatchRequest, step: BatchStep, result: BatchStepResult
-    ) -> None: ...
+    def record(self, request: BatchRequest, step: BatchStep, result: BatchStepResult) -> None: ...
 
 
 class AllowAllGovernance:
@@ -84,9 +82,7 @@ class AllowAllGovernance:
     def decide(self, request: BatchRequest, step: BatchStep) -> StepDecision:
         return StepDecision(allowed=True, audit_ref=f"audit:{request.batch_id}:{step.step_id}")
 
-    def record(
-        self, request: BatchRequest, step: BatchStep, result: BatchStepResult
-    ) -> None:
+    def record(self, request: BatchRequest, step: BatchStep, result: BatchStepResult) -> None:
         return None
 
 
@@ -122,9 +118,7 @@ class GlobalCapacity:
 
     def reserve(self, amount: int) -> None:
         if self._used + amount > self.limit:
-            raise BatchCapacityError(
-                f"requested {amount}, used {self._used}, limit {self.limit}"
-            )
+            raise BatchCapacityError(f"requested {amount}, used {self._used}, limit {self.limit}")
         self._used += amount
 
     def release(self, amount: int) -> None:
@@ -187,9 +181,7 @@ class BatchScheduler:
 
         self._capacity.reserve(parallelism)
         try:
-            return await self._execute(
-                request, decisions, parallelism, started_at
-            )
+            return await self._execute(request, decisions, parallelism, started_at)
         finally:
             self._capacity.release(parallelism)
 
@@ -306,8 +298,7 @@ class BatchScheduler:
 
         if admission_closed.is_set() and not timed_out:
             cancelled = any(
-                results.get(step_id) is None
-                or results[step_id].status is StepStatus.NOT_STARTED
+                results.get(step_id) is None or results[step_id].status is StepStatus.NOT_STARTED
                 for step_id in request.step_ids
             )
 
@@ -356,9 +347,7 @@ class BatchScheduler:
         timed_out: bool,
         request: BatchRequest,
     ) -> BatchStatus:
-        if request.dry_run and all(
-            entry.status is StepStatus.NOT_STARTED for entry in results
-        ):
+        if request.dry_run and all(entry.status is StepStatus.NOT_STARTED for entry in results):
             return BatchStatus.SUCCESS
         return aggregate_status(results, cancelled=cancelled, timed_out=timed_out)
 

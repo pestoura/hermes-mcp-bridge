@@ -112,9 +112,7 @@ REASONS = frozenset(
 #: is NEVER relaxed; this precondition only prevents a false ACCEPTED or a
 #: spurious FINAL_STATE_DELTA_DETECTED caused by an uncontrolled writer.
 #: See docs/v2/phase2-final-outer-gate.md for what must be controlled.
-BACKGROUND_WRITER_CONTROLLED_FLAG: Final[str] = (
-    "--background-writer-controlled"
-)
+BACKGROUND_WRITER_CONTROLLED_FLAG: Final[str] = "--background-writer-controlled"
 
 
 def _emit(payload: dict[str, Any]) -> None:
@@ -171,9 +169,7 @@ def shadow_row_count(shadow_state_db: str) -> int | None:
     try:
         present = {
             str(row[0])
-            for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table'"
-            )
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
         }
         for table in REQUIRED_ZERO_DELTA_TABLES:
             if table not in present:
@@ -393,9 +389,7 @@ def build_state_integrity_document(
         "fingerprint_before": before_digest,
         "fingerprint_after": after_digest,
         "user_version_changed": bool(canonical["user_version_changed"]),
-        "sqlite_schema_version_changed": bool(
-            canonical["sqlite_schema_version_changed"]
-        ),
+        "sqlite_schema_version_changed": bool(canonical["sqlite_schema_version_changed"]),
         "size_changed": bool(canonical["size_changed"]),
         "mtime_changed": bool(canonical["mtime_changed"]),
         "row_deltas": row_deltas,

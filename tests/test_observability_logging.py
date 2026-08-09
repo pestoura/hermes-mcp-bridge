@@ -145,8 +145,9 @@ def test_timed_event_reports_duration_and_outcome(caplog: pytest.LogCaptureFixtu
     logger = logging.getLogger("hermes_mcp_bridge")
     logger.propagate = True
     try:
-        with caplog.at_level(logging.INFO, logger="hermes_mcp_bridge"), timed_event(
-            "bridge.op", tool="x"
+        with (
+            caplog.at_level(logging.INFO, logger="hermes_mcp_bridge"),
+            timed_event("bridge.op", tool="x"),
         ):
             pass
     finally:
