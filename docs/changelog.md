@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Observability — canonical product build telemetry
+
+- New `src/hermes_mcp_bridge/build_metadata.py`: one canonical, secret-free
+  source for the product build identity. `PRODUCT_RELEASE` (`2.0.1`) is the
+  in-tree release train; the revision is read from the build provenance already
+  threaded through the image (`OCI_IMAGE_REVISION` / `BRIDGE_BUILD_REVISION`)
+  and normalized to the short SHA. Malformed or absent values degrade to
+  `unknown`; they never reach the registry as free text.
+- New metric `bridge_build_info{release,revision,contract_version,schema_version} 1`.
+  Every label domain is bounded to the value this artifact resolves plus
+  `unknown`, so a future release updates the series automatically without ever
+  opening unbounded cardinality.
+- `bridge_info.version` is unchanged and still reports the **contract** version
+  `1.0.0`. The two identities are deliberately separate: contract identity is
+  frozen, build identity moves with the release train.
+- `Dockerfile` promotes the existing build ARGs to runtime ENV so the exporter
+  can report the revision it was actually built from.
+- No contract change: contract `1.0.0`, schema `0.6.1`, exactly 27 tools.
+
 ## 2.0.1 — V2 production activation (patch)
 
 `2.0.1` activates, in production, the V2 capabilities that `2.0.0` already

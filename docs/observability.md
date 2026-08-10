@@ -93,7 +93,8 @@ Sanitized example:
 | `bridge_sqlite_errors_total` | counter | `kind` | SQLite errors |
 | `bridge_sqlite_lock_contention_total` | counter | — | Lock/busy events |
 | `bridge_migrations_version` | gauge | — | Applied schema version |
-| `bridge_info` | gauge | `version` | Always `1`, carries build version |
+| `bridge_info` | gauge | `version` | Always `1`, carries the public **contract** version (`1.0.0`); frozen across patch releases |
+| `bridge_build_info` | gauge | `release`, `revision`, `contract_version`, `schema_version` | Always `1`, carries the **product build** identity. `release` comes from `PRODUCT_RELEASE` in `src/hermes_mcp_bridge/build_metadata.py` (overridable with `BRIDGE_PRODUCT_RELEASE`); `revision` is the short SHA from `OCI_IMAGE_REVISION`/`BRIDGE_BUILD_REVISION`. Both domains are bounded to the resolved value plus `unknown`. |
 | `bridge_observability_errors_total` | counter | `kind` | Internal telemetry failures |
 
 `endpoint_class` values: `runs`, `run_events`, `run_stop`, `sessions`,

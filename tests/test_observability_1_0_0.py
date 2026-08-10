@@ -11,6 +11,7 @@ import yaml
 from hermes_mcp_bridge.observability.metrics import (
     ALLOWED_LABELS,
     BOUNDED_LABEL_VALUES,
+    FALLBACK_LABEL_VALUES,
     FORBIDDEN_LABELS,
     get_metrics,
     get_registry,
@@ -33,9 +34,14 @@ def teardown_function() -> None:
 
 def test_every_allowed_label_has_a_finite_domain() -> None:
     assert set(BOUNDED_LABEL_VALUES) == set(ALLOWED_LABELS)
+    assert set(FALLBACK_LABEL_VALUES) == set(ALLOWED_LABELS)
     for label, values in BOUNDED_LABEL_VALUES.items():
         assert values, label
         assert "other" in values, label
+        # Normalization must always land inside the domain: each label declares
+        # its own in-domain fallback ("other" for descriptive labels, "unknown"
+        # for build-identity labels, where "other" would be meaningless).
+        assert FALLBACK_LABEL_VALUES[label] in values, label
         assert len(values) <= 40, label
 
 
