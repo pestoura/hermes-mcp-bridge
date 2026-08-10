@@ -109,6 +109,23 @@ def test_out_of_domain_build_label_cannot_open_a_new_series() -> None:
     assert 'release="unknown"' in text
 
 
+def test_build_label_fallback_is_unknown_and_in_domain() -> None:
+    from hermes_mcp_bridge.observability.metrics import (
+        BOUNDED_LABEL_VALUES as domains,
+    )
+    from hermes_mcp_bridge.observability.metrics import (
+        FALLBACK_LABEL_VALUES as fallbacks,
+    )
+
+    for label in ("release", "revision", "contract_version", "schema_version"):
+        assert fallbacks[label] == bm.UNKNOWN
+        assert fallbacks[label] in domains[label]
+    # Descriptive labels keep the historical "other" sentinel.
+    for label in ("tool", "outcome", "mode"):
+        assert fallbacks[label] == "other"
+        assert fallbacks[label] in domains[label]
+
+
 def test_bridge_info_still_reports_the_contract_version() -> None:
     set_bridge_info(CURRENT_CONTRACT_VERSION)
     set_build_info()

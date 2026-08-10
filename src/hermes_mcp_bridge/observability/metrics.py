@@ -206,6 +206,14 @@ _UNKNOWN_FALLBACK_LABELS: frozenset[str] = frozenset(
     {"release", "revision", "contract_version", "schema_version"}
 )
 
+#: Declared in-domain fallback for every allow-listed label. Normalization can
+#: never fail: an unrecognised value always folds to this label's sentinel,
+#: which is guaranteed to be a member of the label's bounded domain.
+FALLBACK_LABEL_VALUES: dict[str, str] = {
+    label: (_BUILD_UNKNOWN if label in _UNKNOWN_FALLBACK_LABELS else "other")
+    for label in ALLOWED_LABELS
+}
+
 DEFAULT_BUCKETS: tuple[float, ...] = (
     0.005,
     0.025,
@@ -233,7 +241,7 @@ def _normalize_label_value(key: str, raw_value: object) -> str:
     allowed_values = BOUNDED_LABEL_VALUES[key]
     if value in allowed_values:
         return value
-    return _BUILD_UNKNOWN if key in _UNKNOWN_FALLBACK_LABELS else "other"
+    return FALLBACK_LABEL_VALUES[key]
 
 
 def _validate_labels(labels: dict[str, str] | None) -> tuple[tuple[str, str], ...]:
