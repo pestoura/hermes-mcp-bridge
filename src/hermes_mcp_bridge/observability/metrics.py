@@ -73,13 +73,15 @@ _VERSION_VALUES = frozenset(TOOL_CONTRACTS) | {"other"}
 
 # Build identity domains are derived from the canonical build metadata of this
 # artifact, so a new release updates them automatically while the domain stays
-# closed at exactly two values (the resolved one plus ``unknown``). A label
-# value that does not match this build can therefore never open a new series.
+# closed at three values: the resolved one, ``unknown`` (metadata absent or
+# malformed) and the registry-wide ``other`` sentinel. A label value that does
+# not match this build can therefore never open a new series.
 _BUILD_METADATA = get_build_metadata()
-_RELEASE_VALUES = frozenset({_BUILD_METADATA.release, _BUILD_UNKNOWN})
-_REVISION_VALUES = frozenset({_BUILD_METADATA.revision, _BUILD_UNKNOWN})
-_CONTRACT_VERSION_VALUES = frozenset(TOOL_CONTRACTS) | {_BUILD_UNKNOWN}
-_SCHEMA_VERSION_VALUES = frozenset({_BUILD_METADATA.schema_version, _BUILD_UNKNOWN})
+_BUILD_SENTINELS = frozenset({_BUILD_UNKNOWN, "other"})
+_RELEASE_VALUES = frozenset({_BUILD_METADATA.release}) | _BUILD_SENTINELS
+_REVISION_VALUES = frozenset({_BUILD_METADATA.revision}) | _BUILD_SENTINELS
+_CONTRACT_VERSION_VALUES = frozenset(TOOL_CONTRACTS) | _BUILD_SENTINELS
+_SCHEMA_VERSION_VALUES = frozenset({_BUILD_METADATA.schema_version}) | _BUILD_SENTINELS
 
 #: Every label value is normalized into one of these finite domains. This is
 #: deliberately stricter than a global series cap: user-controlled strings can
