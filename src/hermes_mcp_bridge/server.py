@@ -54,6 +54,7 @@ from .observability import (
     record_approval,
     set_active_runs,
     set_bridge_info,
+    set_build_info,
     set_migrations_version,
     start_exporter_if_enabled,
 )
@@ -88,6 +89,7 @@ from .signing import signing_posture
 settings = get_settings()
 configure_logging()
 set_bridge_info(settings.bridge_version)
+set_build_info()
 _schema_version = apply_migrations(settings.bridge_state_db_path)
 set_migrations_version(_schema_version or 0)
 client = HermesClient(settings)

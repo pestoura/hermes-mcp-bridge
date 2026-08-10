@@ -70,6 +70,7 @@ from .metrics import (
     get_registry,
     render_prometheus,
     set_bridge_info,
+    set_build_info,
 )
 from .operational_intelligence import instrument_all_tools
 from .redaction import REDACTED, redact_text, sanitize
@@ -134,6 +135,7 @@ __all__ = [
     "sanitize_trace_context",
     "set_active_runs",
     "set_bridge_info",
+    "set_build_info",
     "set_field",
     "set_migrations_version",
     "start_exporter_if_enabled",

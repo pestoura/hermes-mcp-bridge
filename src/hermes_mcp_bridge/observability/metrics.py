@@ -15,6 +15,8 @@ import time
 from contextlib import suppress
 from typing import Any
 
+from ..build_metadata import UNKNOWN as _BUILD_UNKNOWN
+from ..build_metadata import get_build_metadata
 from ..contracts import CURRENT_CONTRACT_VERSION, TOOL_CONTRACTS, required_tools
 
 CONTENT_TYPE = "text/plain; version=0.0.4; charset=utf-8"
@@ -34,6 +36,10 @@ ALLOWED_LABELS: frozenset[str] = frozenset(
         "state",
         "source",
         "upstream",
+        "release",
+        "revision",
+        "contract_version",
+        "schema_version",
     }
 )
 
@@ -64,6 +70,16 @@ MAX_SERIES_PER_METRIC = 200
 
 _TOOL_VALUES = frozenset(required_tools(CURRENT_CONTRACT_VERSION)) | {"other"}
 _VERSION_VALUES = frozenset(TOOL_CONTRACTS) | {"other"}
+
+# Build identity domains are derived from the canonical build metadata of this
+# artifact, so a new release updates them automatically while the domain stays
+# closed at exactly two values (the resolved one plus ``unknown``). A label
+# value that does not match this build can therefore never open a new series.
+_BUILD_METADATA = get_build_metadata()
+_RELEASE_VALUES = frozenset({_BUILD_METADATA.release, _BUILD_UNKNOWN})
+_REVISION_VALUES = frozenset({_BUILD_METADATA.revision, _BUILD_UNKNOWN})
+_CONTRACT_VERSION_VALUES = frozenset(TOOL_CONTRACTS) | {_BUILD_UNKNOWN}
+_SCHEMA_VERSION_VALUES = frozenset({_BUILD_METADATA.schema_version, _BUILD_UNKNOWN})
 
 #: Every label value is normalized into one of these finite domains. This is
 #: deliberately stricter than a global series cap: user-controlled strings can
@@ -175,7 +191,18 @@ BOUNDED_LABEL_VALUES: dict[str, frozenset[str]] = {
     "upstream": frozenset(
         {"runs", "run_events", "run_stop", "sessions", "health", "other"}
     ),
+    "release": _RELEASE_VALUES,
+    "revision": _REVISION_VALUES,
+    "contract_version": _CONTRACT_VERSION_VALUES,
+    "schema_version": _SCHEMA_VERSION_VALUES,
 }
+
+#: Labels whose out-of-domain fallback is ``unknown`` instead of ``other``.
+#: Build identity is either exactly what this artifact reports or unknown;
+#: ``other`` would be a meaningless value for a version string.
+_UNKNOWN_FALLBACK_LABELS: frozenset[str] = frozenset(
+    {"release", "revision", "contract_version", "schema_version"}
+)
 
 DEFAULT_BUCKETS: tuple[float, ...] = (
     0.005,
@@ -202,7 +229,9 @@ def _normalize_label_value(key: str, raw_value: object) -> str:
     if key in {"reason", "kind", "state", "source", "upstream"}:
         value = value.replace("-", "_").replace(" ", "_")
     allowed_values = BOUNDED_LABEL_VALUES[key]
-    return value if value in allowed_values else "other"
+    if value in allowed_values:
+        return value
+    return _BUILD_UNKNOWN if key in _UNKNOWN_FALLBACK_LABELS else "other"
 
 
 def _validate_labels(labels: dict[str, str] | None) -> tuple[tuple[str, str], ...]:
@@ -519,6 +548,14 @@ class _Metrics:
         self.bridge_info = registry.gauge(
             "bridge_info", "Bridge build info (always 1); version carried as a label."
         )
+        self.build_info = registry.gauge(
+            "bridge_build_info",
+            (
+                "Product build identity (always 1): release train and source "
+                "revision of the running artifact, alongside the public "
+                "contract and schema versions it serves."
+            ),
+        )
         self.process_start_time_seconds = registry.gauge(
             "bridge_process_start_time_seconds",
             "Unix timestamp when the bridge process initialized its metrics registry.",
@@ -576,6 +613,19 @@ def get_metrics() -> _Metrics:
 def set_bridge_info(version: str) -> None:
     with suppress(CardinalityError):  # pragma: no cover - defensive
         metrics.bridge_info.set(1.0, version=str(version))
+
+
+def set_build_info(metadata: Any | None = None) -> None:
+    """Publish ``bridge_build_info`` from canonical build metadata.
+
+    ``metadata`` defaults to the process-wide resolved build identity. Every
+    label goes through the bounded-domain normalizer, so an unexpected value
+    degrades to ``unknown`` instead of creating a new series.
+    """
+
+    resolved = get_build_metadata() if metadata is None else metadata
+    with suppress(CardinalityError):  # pragma: no cover - defensive
+        metrics.build_info.set(1.0, **resolved.as_labels())
 
 
 def render_prometheus() -> str:

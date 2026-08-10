@@ -59,7 +59,10 @@ LABEL org.opencontainers.image.source="${OCI_IMAGE_SOURCE}" \
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    OCI_IMAGE_REVISION="${OCI_IMAGE_REVISION}" \
+    BRIDGE_SCHEMA_VERSION="${BRIDGE_SCHEMA_VERSION}" \
+    BRIDGE_CONTRACT_VERSION="${BRIDGE_CONTRACT_VERSION}"
 
 # Runtime dependencies only: TLS trust store for the upstream HTTPS/loopback
 # client. libsqlite3 ships with the base image and is required by the stdlib
