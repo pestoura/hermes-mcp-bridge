@@ -21,7 +21,6 @@ from hermes_mcp_bridge.v2.provider_audit import (
 )
 from hermes_mcp_bridge.v2.provider_contract import ProviderReason
 from hermes_mcp_bridge.v2.provider_credentials import (
-    AuthorizationHandle,
     CredentialError,
     CredentialRecord,
     ProviderCredentialBroker,

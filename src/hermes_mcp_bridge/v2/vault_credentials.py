@@ -14,6 +14,7 @@ capabilities such as ``github.read``.
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Callable
 from typing import Any, Protocol
 
@@ -149,10 +150,8 @@ class VaultCredentialProvider:
         revoke: Callable[[], None] | None = getattr(grant, "revoke", None)
         if not callable(apply) or not callable(revoke):
             if callable(revoke):
-                try:
+                with contextlib.suppress(Exception):
                     revoke()
-                except Exception:
-                    pass
             raise CredentialError(
                 ProviderReason.E_CRED_UNAVAILABLE, credential_capability_id
             ) from None

@@ -212,12 +212,16 @@ class ProviderCredentialBroker:
     ) -> CredentialRecord:
         self._require_domain(record.provider_id, record.credential_capability_id)
         if provider_id is not None and record.provider_id != provider_id:
-            raise CredentialError(ProviderReason.E_CRED_CROSS_DOMAIN, record.credential_capability_id)
+            raise CredentialError(
+                ProviderReason.E_CRED_CROSS_DOMAIN, record.credential_capability_id
+            )
         if (
             credential_capability_id is not None
             and record.credential_capability_id != credential_capability_id
         ):
-            raise CredentialError(ProviderReason.E_CRED_CROSS_DOMAIN, record.credential_capability_id)
+            raise CredentialError(
+                ProviderReason.E_CRED_CROSS_DOMAIN, record.credential_capability_id
+            )
         if record.broad_credential:
             raise CredentialError(
                 ProviderReason.E_CRED_CROSS_DOMAIN, record.credential_capability_id
