@@ -516,23 +516,28 @@ class ProviderGateway:
         self._credential_resolutions += 1
 
         # 10. provider execution within budget.
+        # The credential handle is single-use and must be revoked exactly once,
+        # whether apply fails, the adapter runs, or execution is interrupted.
+        # A single finally therefore covers BOTH handle.apply({}) and the
+        # adapter execution so a CredentialError from apply still cleans up.
         adapter = self._adapters[request.provider_id]
-        try:
-            headers = handle.apply({})
-        except CredentialError as exc:
-            return self._refuse(
-                request,
-                exc.reason,
-                declaration=declaration,
-                policy_decision=decision,
-                readiness=readiness,
-                started_ns=started,
-            )
-        outcome_class = OutcomeClass.SUCCESS
-        reason = ProviderReason.OK
-        payload: Mapping[str, Any] = {}
         byte_count = 0
         try:
+            try:
+                headers = handle.apply({})
+            except CredentialError as exc:
+                return self._refuse(
+                    request,
+                    exc.reason,
+                    declaration=declaration,
+                    policy_decision=decision,
+                    readiness=readiness,
+                    started_ns=started,
+                )
+            outcome_class = OutcomeClass.SUCCESS
+            reason = ProviderReason.OK
+            payload: Mapping[str, Any] = {}
+            byte_count = 0
             result = adapter(request, headers, declaration.deadline_ms)
             self._provider_calls += max(0, int(result.provider_calls))
             byte_count = int(result.byte_count)
