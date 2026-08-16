@@ -124,8 +124,9 @@ class _ExplodingProvider:
 
 
 class _ExplodingGrant:
-    def __init__(self, *, fail_apply: bool = False) -> None:
+    def __init__(self, *, fail_apply: bool = False, fail_revoke: bool = True) -> None:
         self.fail_apply = fail_apply
+        self.fail_revoke = fail_revoke
 
     def apply(self, headers: dict[str, str]) -> dict[str, str]:
         if self.fail_apply:
@@ -133,20 +134,31 @@ class _ExplodingGrant:
         return dict(headers)
 
     def revoke(self) -> None:
-        raise RuntimeError(SYNTHETIC_ERROR_MATERIAL)
+        if self.fail_revoke:
+            raise RuntimeError(SYNTHETIC_ERROR_MATERIAL)
 
 
 class _ExplodingVaultClient:
-    def __init__(self, *, issue_grant: bool = False, fail_apply: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        issue_grant: bool = False,
+        fail_apply: bool = False,
+        fail_revoke: bool = True,
+    ) -> None:
         self.issue_grant = issue_grant
         self.fail_apply = fail_apply
+        self.fail_revoke = fail_revoke
 
     def status(self, provider_id: str, credential_capability_id: str) -> bool:
         return True
 
     def request(self, provider_id: str, credential_capability_id: str):
         if self.issue_grant:
-            return _ExplodingGrant(fail_apply=self.fail_apply)
+            return _ExplodingGrant(
+                fail_apply=self.fail_apply,
+                fail_revoke=self.fail_revoke,
+            )
         raise RuntimeError(SYNTHETIC_ERROR_MATERIAL)
 
     def revoke(self, provider_id: str, credential_capability_id: str) -> None:
@@ -236,6 +248,30 @@ def test_gateway_records_terminal_sanitized_error_when_grant_cleanup_fails() -> 
     terminal = [record for record in sink.records if record["kind"] == AuditKind.TERMINAL.value]
     assert len(terminal) == 1
     assert terminal[0]["outcome"] == OutcomeClass.ERROR.value
+    assert terminal[0]["reason_code"] == ProviderReason.E_CRED_UNAVAILABLE.value
+    assert SYNTHETIC_ERROR_MATERIAL not in json.dumps(sink.records, sort_keys=True)
+
+
+def test_gateway_apply_refusal_with_successful_cleanup_is_accounted_and_audited_once() -> None:
+    provider = VaultCredentialProvider(
+        client=_ExplodingVaultClient(
+            issue_grant=True,
+            fail_apply=True,
+            fail_revoke=False,
+        )
+    )
+    gateway, sink, request = _gateway(provider)
+
+    outcome = gateway.invoke(request)
+
+    assert outcome.outcome is OutcomeClass.REFUSED
+    assert outcome.reason_code is ProviderReason.E_CRED_UNAVAILABLE
+    assert outcome.payload == {}
+    assert outcome.provider_calls == 0
+    assert outcome.credential_resolutions == 1
+    terminal = [record for record in sink.records if record["kind"] == AuditKind.TERMINAL.value]
+    assert len(terminal) == 1
+    assert terminal[0]["outcome"] == OutcomeClass.REFUSED.value
     assert terminal[0]["reason_code"] == ProviderReason.E_CRED_UNAVAILABLE.value
     assert SYNTHETIC_ERROR_MATERIAL not in json.dumps(sink.records, sort_keys=True)
 
