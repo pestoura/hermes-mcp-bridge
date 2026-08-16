@@ -230,7 +230,13 @@ class ProviderCredentialBroker:
         credential_capability_id: str,
     ) -> None:
         """Release a provider-issued record without exposing backend failures."""
-        _, error = _call_with_sanitized_error(record.revoke, credential_capability_id)
+        error: CredentialError | None = None
+        try:
+            record.revoke()
+        except Exception:
+            error = CredentialError(
+                ProviderReason.E_CRED_UNAVAILABLE, credential_capability_id
+            )
         if error is not None:
             raise error
 
