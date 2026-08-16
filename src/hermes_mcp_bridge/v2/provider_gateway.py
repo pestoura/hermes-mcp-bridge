@@ -522,6 +522,7 @@ class ProviderGateway:
         # adapter execution so a CredentialError from apply still cleans up.
         adapter = self._adapters[request.provider_id]
         byte_count = 0
+        cleanup_failed = False
         try:
             try:
                 headers = handle.apply({})
@@ -568,7 +569,17 @@ class ProviderGateway:
             reason = ProviderReason.E_PROVIDER_FAULT
             payload = {}
         finally:
-            handle.revoke()
+            try:
+                handle.revoke()
+            except Exception:
+                cleanup_failed = True
+
+        if cleanup_failed:
+            outcome_class = (
+                OutcomeClass.UNKNOWN if declaration.is_write else OutcomeClass.ERROR
+            )
+            reason = ProviderReason.E_CRED_UNAVAILABLE
+            payload = {}
 
         duration = (time.monotonic_ns() - started) // 1_000_000
         if outcome_class is OutcomeClass.UNKNOWN:
