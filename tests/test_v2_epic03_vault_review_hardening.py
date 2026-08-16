@@ -177,6 +177,7 @@ def test_broker_suppresses_secret_bearing_backend_exception_cause() -> None:
 
     assert excinfo.value.reason is ProviderReason.E_CRED_UNAVAILABLE
     assert excinfo.value.__cause__ is None
+    assert excinfo.value.__context__ is None
     assert SYNTHETIC_ERROR_MATERIAL not in str(excinfo.value)
 
 
@@ -188,6 +189,7 @@ def test_vault_provider_suppresses_secret_bearing_request_exception_cause() -> N
 
     assert excinfo.value.reason is ProviderReason.E_CRED_UNAVAILABLE
     assert excinfo.value.__cause__ is None
+    assert excinfo.value.__context__ is None
     assert SYNTHETIC_ERROR_MATERIAL not in str(excinfo.value)
 
 
@@ -199,6 +201,7 @@ def test_vault_provider_suppresses_secret_bearing_revoke_exception_cause() -> No
 
     assert excinfo.value.reason is ProviderReason.E_CRED_UNAVAILABLE
     assert excinfo.value.__cause__ is None
+    assert excinfo.value.__context__ is None
     assert SYNTHETIC_ERROR_MATERIAL not in str(excinfo.value)
 
 
@@ -211,6 +214,7 @@ def test_vault_provider_sanitizes_per_grant_cleanup_exception() -> None:
 
     assert excinfo.value.reason is ProviderReason.E_CRED_UNAVAILABLE
     assert excinfo.value.__cause__ is None
+    assert excinfo.value.__context__ is None
     assert SYNTHETIC_ERROR_MATERIAL not in str(excinfo.value)
 
 
