@@ -203,6 +203,19 @@ class ProviderCredentialBroker:
             )
         return record
 
+    def _cleanup_provider_record(
+        self,
+        record: CredentialRecord,
+        credential_capability_id: str,
+    ) -> None:
+        """Release a provider-issued record without exposing backend failures."""
+        try:
+            record.revoke()
+        except Exception:
+            raise CredentialError(
+                ProviderReason.E_CRED_UNAVAILABLE, credential_capability_id
+            ) from None
+
     def register(self, record: CredentialRecord) -> CredentialRecord:
         record = self._validate_record(record)
         self._records[(record.provider_id, record.credential_capability_id)] = record
@@ -278,21 +291,29 @@ class ProviderCredentialBroker:
                 raise CredentialError(ProviderReason.E_CRED_UNAVAILABLE, credential_capability_id)
             try:
                 record = provider.request(provider_id, credential_capability_id)
-            except CredentialError:
-                raise
-            except Exception as exc:
+            except CredentialError as exc:
+                raise CredentialError(exc.reason, credential_capability_id) from None
+            except Exception:
                 raise CredentialError(
                     ProviderReason.E_CRED_UNAVAILABLE, credential_capability_id
-                ) from exc
-            record = self._validate_record(
-                record,
-                provider_id=provider_id,
-                credential_capability_id=credential_capability_id,
-            )
+                ) from None
+            try:
+                record = self._validate_record(
+                    record,
+                    provider_id=provider_id,
+                    credential_capability_id=credential_capability_id,
+                )
+            except CredentialError:
+                self._cleanup_provider_record(record, credential_capability_id)
+                raise
         else:
             record = self._records.get(key)
 
-        if record is None or not record.ready:
+        if record is None:
+            raise CredentialError(ProviderReason.E_CRED_UNAVAILABLE, credential_capability_id)
+        if not record.ready:
+            if provider is not None:
+                self._cleanup_provider_record(record, credential_capability_id)
             raise CredentialError(ProviderReason.E_CRED_UNAVAILABLE, credential_capability_id)
         deadline = time.monotonic_ns() // 1_000_000 + max(1, int(ttl_ms))
         return AuthorizationHandle(
@@ -323,12 +344,12 @@ class ProviderCredentialBroker:
             return
         try:
             provider.revoke(provider_id, credential_capability_id)
-        except CredentialError:
-            raise
-        except Exception as exc:
+        except CredentialError as exc:
+            raise CredentialError(exc.reason, credential_capability_id) from None
+        except Exception:
             raise CredentialError(
                 ProviderReason.E_CRED_UNAVAILABLE, credential_capability_id
-            ) from exc
+            ) from None
 
     @property
     def revoked(self) -> tuple[tuple[str, str], ...]:
