@@ -47,6 +47,27 @@ class CredentialError(RuntimeError):
         super().__init__(f"{reason.value}:{subject}")
 
 
+def _call_with_sanitized_error(
+    operation: Callable[[], Any],
+    credential_capability_id: str,
+) -> tuple[Any | None, CredentialError | None]:
+    """Execute a backend call and detach any backend exception before raising.
+
+    The sanitized ``CredentialError`` is constructed while the backend exception
+    is active but returned as a value. Callers raise it only after this helper has
+    left the ``except`` block, so Python does not retain the backend exception in
+    ``__context__``.
+    """
+    try:
+        return operation(), None
+    except CredentialError as exc:
+        return None, CredentialError(exc.reason, credential_capability_id)
+    except Exception:
+        return None, CredentialError(
+            ProviderReason.E_CRED_UNAVAILABLE, credential_capability_id
+        )
+
+
 class AuthorizationHandle:
     """Single-use, deadline-bound authorization. Never serializable.
 
@@ -209,12 +230,9 @@ class ProviderCredentialBroker:
         credential_capability_id: str,
     ) -> None:
         """Release a provider-issued record without exposing backend failures."""
-        try:
-            record.revoke()
-        except Exception:
-            raise CredentialError(
-                ProviderReason.E_CRED_UNAVAILABLE, credential_capability_id
-            ) from None
+        _, error = _call_with_sanitized_error(record.revoke, credential_capability_id)
+        if error is not None:
+            raise error
 
     def register(self, record: CredentialRecord) -> CredentialRecord:
         record = self._validate_record(record)
@@ -289,14 +307,12 @@ class ProviderCredentialBroker:
         if provider is not None:
             if not self.status(provider_id, credential_capability_id):
                 raise CredentialError(ProviderReason.E_CRED_UNAVAILABLE, credential_capability_id)
-            try:
-                record = provider.request(provider_id, credential_capability_id)
-            except CredentialError as exc:
-                raise CredentialError(exc.reason, credential_capability_id) from None
-            except Exception:
-                raise CredentialError(
-                    ProviderReason.E_CRED_UNAVAILABLE, credential_capability_id
-                ) from None
+            record, error = _call_with_sanitized_error(
+                lambda: provider.request(provider_id, credential_capability_id),
+                credential_capability_id,
+            )
+            if error is not None:
+                raise error
             try:
                 record = self._validate_record(
                     record,
@@ -342,14 +358,12 @@ class ProviderCredentialBroker:
         provider = self._providers.get(key)
         if provider is None:
             return
-        try:
-            provider.revoke(provider_id, credential_capability_id)
-        except CredentialError as exc:
-            raise CredentialError(exc.reason, credential_capability_id) from None
-        except Exception:
-            raise CredentialError(
-                ProviderReason.E_CRED_UNAVAILABLE, credential_capability_id
-            ) from None
+        _, error = _call_with_sanitized_error(
+            lambda: provider.revoke(provider_id, credential_capability_id),
+            credential_capability_id,
+        )
+        if error is not None:
+            raise error
 
     @property
     def revoked(self) -> tuple[tuple[str, str], ...]:
