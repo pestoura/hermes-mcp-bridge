@@ -516,34 +516,34 @@ class ProviderGateway:
         self._credential_resolutions += 1
 
         # 10. provider execution within budget.
+        # The credential handle is single-use and must be revoked exactly once,
+        # whether apply fails, the adapter runs, or execution is interrupted.
+        # Terminal audit is deliberately deferred until after cleanup so a
+        # cleanup failure can override an apply refusal without double-auditing.
         adapter = self._adapters[request.provider_id]
-        try:
-            headers = handle.apply({})
-        except CredentialError as exc:
-            return self._refuse(
-                request,
-                exc.reason,
-                declaration=declaration,
-                policy_decision=decision,
-                readiness=readiness,
-                started_ns=started,
-            )
+        byte_count = 0
+        cleanup_failed = False
         outcome_class = OutcomeClass.SUCCESS
         reason = ProviderReason.OK
         payload: Mapping[str, Any] = {}
-        byte_count = 0
         try:
-            result = adapter(request, headers, declaration.deadline_ms)
-            self._provider_calls += max(0, int(result.provider_calls))
-            byte_count = int(result.byte_count)
-            # 11. result normalization and byte budget.
-            if byte_count > declaration.max_result_bytes:
-                raise ProviderDenied(ProviderReason.E_PROVIDER_RESULT_TOO_LARGE)
-            if not isinstance(result.payload, Mapping):
-                raise ProviderDenied(ProviderReason.E_PROVIDER_SHAPE)
-            if audit_safe(dict(result.payload)):
-                raise ProviderDenied(ProviderReason.E_PROVIDER_SHAPE)
-            payload = dict(result.payload)
+            try:
+                headers = handle.apply({})
+            except CredentialError as exc:
+                outcome_class = OutcomeClass.REFUSED
+                reason = exc.reason
+            else:
+                result = adapter(request, headers, declaration.deadline_ms)
+                self._provider_calls += max(0, int(result.provider_calls))
+                byte_count = int(result.byte_count)
+                # 11. result normalization and byte budget.
+                if byte_count > declaration.max_result_bytes:
+                    raise ProviderDenied(ProviderReason.E_PROVIDER_RESULT_TOO_LARGE)
+                if not isinstance(result.payload, Mapping):
+                    raise ProviderDenied(ProviderReason.E_PROVIDER_SHAPE)
+                if audit_safe(dict(result.payload)):
+                    raise ProviderDenied(ProviderReason.E_PROVIDER_SHAPE)
+                payload = dict(result.payload)
         except ProviderDenied as denied:
             outcome_class = (
                 OutcomeClass.UNKNOWN
@@ -563,7 +563,17 @@ class ProviderGateway:
             reason = ProviderReason.E_PROVIDER_FAULT
             payload = {}
         finally:
-            handle.revoke()
+            try:
+                handle.revoke()
+            except Exception:
+                cleanup_failed = True
+
+        if cleanup_failed:
+            outcome_class = (
+                OutcomeClass.UNKNOWN if declaration.is_write else OutcomeClass.ERROR
+            )
+            reason = ProviderReason.E_CRED_UNAVAILABLE
+            payload = {}
 
         duration = (time.monotonic_ns() - started) // 1_000_000
         if outcome_class is OutcomeClass.UNKNOWN:
