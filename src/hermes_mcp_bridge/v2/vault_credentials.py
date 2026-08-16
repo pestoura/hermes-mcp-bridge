@@ -1,8 +1,8 @@
 """EPIC-03 capability-oriented Vault credential provider.
 
-This module deliberately stops at the in-process capability boundary.  It does
+This module deliberately stops at the in-process capability boundary. It does
 not know a caller-supplied Vault path, perform AppRole bootstrap, unwrap a
-SecretID, hold a Vault token, or expose credential material.  A concrete live
+SecretID, hold a Vault token, or expose credential material. A concrete live
 Vault transport is injected behind :class:`VaultCapabilityClient` only after the
 live/HITL bootstrap gates are satisfied.
 
@@ -79,6 +79,40 @@ class VaultCredentialProvider:
         if not self._allowed_pair(provider_id, credential_capability_id):
             raise CredentialError(ProviderReason.E_CRED_CROSS_DOMAIN, credential_capability_id)
 
+    @staticmethod
+    def _sanitize_grant_apply(
+        apply: Callable[[dict[str, str]], dict[str, str]],
+        credential_capability_id: str,
+    ) -> Callable[[dict[str, str]], dict[str, str]]:
+        def _apply(headers: dict[str, str]) -> dict[str, str]:
+            try:
+                return apply(dict(headers))
+            except CredentialError as exc:
+                raise CredentialError(exc.reason, credential_capability_id) from None
+            except Exception:
+                raise CredentialError(
+                    ProviderReason.E_CRED_UNAVAILABLE, credential_capability_id
+                ) from None
+
+        return _apply
+
+    @staticmethod
+    def _sanitize_grant_revoke(
+        revoke: Callable[[], None],
+        credential_capability_id: str,
+    ) -> Callable[[], None]:
+        def _revoke() -> None:
+            try:
+                revoke()
+            except CredentialError as exc:
+                raise CredentialError(exc.reason, credential_capability_id) from None
+            except Exception:
+                raise CredentialError(
+                    ProviderReason.E_CRED_UNAVAILABLE, credential_capability_id
+                ) from None
+
+        return _revoke
+
     def status(self, provider_id: str, credential_capability_id: str) -> bool:
         """Return readiness only; backend errors degrade to unavailable, never allow."""
         if not self._allowed_pair(provider_id, credential_capability_id):
@@ -96,30 +130,33 @@ class VaultCredentialProvider:
 
         try:
             grant = self._client.request(provider_id, credential_capability_id)
-        except Exception as exc:
+        except CredentialError as exc:
+            raise CredentialError(exc.reason, credential_capability_id) from None
+        except Exception:
             raise CredentialError(
                 ProviderReason.E_CRED_UNAVAILABLE, credential_capability_id
-            ) from exc
+            ) from None
 
         apply: Callable[[dict[str, str]], dict[str, str]] | None = getattr(
             grant, "apply", None
         )
         revoke: Callable[[], None] | None = getattr(grant, "revoke", None)
         if not callable(apply) or not callable(revoke):
-            try:
-                if callable(revoke):
+            if callable(revoke):
+                try:
                     revoke()
-            finally:
-                raise CredentialError(
-                    ProviderReason.E_CRED_UNAVAILABLE, credential_capability_id
-                )
+                except Exception:
+                    pass
+            raise CredentialError(
+                ProviderReason.E_CRED_UNAVAILABLE, credential_capability_id
+            ) from None
 
         return CredentialRecord(
             provider_id=provider_id,
             credential_capability_id=credential_capability_id,
             ready=True,
-            apply=apply,
-            revoke=revoke,
+            apply=self._sanitize_grant_apply(apply, credential_capability_id),
+            revoke=self._sanitize_grant_revoke(revoke, credential_capability_id),
         )
 
     def revoke(self, provider_id: str, credential_capability_id: str) -> None:
@@ -127,12 +164,12 @@ class VaultCredentialProvider:
         self._require_allowed(provider_id, credential_capability_id)
         try:
             self._client.revoke(provider_id, credential_capability_id)
-        except CredentialError:
-            raise
-        except Exception as exc:
+        except CredentialError as exc:
+            raise CredentialError(exc.reason, credential_capability_id) from None
+        except Exception:
             raise CredentialError(
                 ProviderReason.E_CRED_UNAVAILABLE, credential_capability_id
-            ) from exc
+            ) from None
 
     def __repr__(self) -> str:
         return "<VaultCredentialProvider redacted>"
