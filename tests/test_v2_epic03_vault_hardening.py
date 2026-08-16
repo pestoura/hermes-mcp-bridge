@@ -155,8 +155,8 @@ def test_epic03_batch_uses_separate_grants_and_independent_cleanup() -> None:
     request = BatchRequest(
         batch_id="epic03-batch-1",
         steps=(
-            BatchStep(step_id="read-a", tool="github.get_repo"),
-            BatchStep(step_id="read-b", tool="github.get_repo"),
+            BatchStep(step_id="read-a", tool="github.get_repo", step_timeout_s=5),
+            BatchStep(step_id="read-b", tool="github.get_repo", step_timeout_s=5),
         ),
         failure_policy=BatchFailurePolicy.CONTINUE_ON_ERROR,
         max_parallelism=2,
