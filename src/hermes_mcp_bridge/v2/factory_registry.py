@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 FACTORY_NORTHBOUND_TOOL_IDS: tuple[str, ...] = (
+    "factory.acceptance",
     "factory.evidence",
-    "factory.prepare_mutation",
-    "factory.projects",
+    "factory.protected_mutation_intent",
     "factory.status",
 )
 
