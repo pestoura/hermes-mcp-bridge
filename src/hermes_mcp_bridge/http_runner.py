@@ -25,6 +25,7 @@ from .lifecycle import (
 )
 from .observability import (
     configure_logging,
+    instrument_all_tools,
     log_event,
     start_exporter_if_enabled,
 )
@@ -46,7 +47,15 @@ INFLOW = InFlightRegistry()
 async def _serve() -> None:
     # Importing FastMCP may configure its own root handler. Reapply the bridge
     # policy afterwards so every subsequent line is redacted structured JSON.
-    from .server import INSTRUMENTED_TOOL_COUNT, mcp, settings
+    from .factory_northbound import configure_factory_northbound
+    from .server import mcp, server_tool_names, settings
+
+    # Factory northbound is an additive external surface on the same FastMCP
+    # instance. It is absent by default and must be composed before the HTTP app
+    # is created. Re-running central instrumentation is idempotent for the
+    # already-covered baseline and wraps only newly registered Factory tools.
+    configure_factory_northbound(mcp, settings)
+    instrument_all_tools(mcp)
 
     _reset_logging()
     start_exporter_if_enabled()
@@ -54,7 +63,7 @@ async def _serve() -> None:
         "bridge.startup",
         outcome="success",
         bridge_version=settings.bridge_version,
-        instrumented_tools=INSTRUMENTED_TOOL_COUNT,
+        instrumented_tools=len(server_tool_names()),
     )
 
     app = mcp.streamable_http_app()
