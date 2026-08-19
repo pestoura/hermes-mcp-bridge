@@ -41,6 +41,11 @@ class Settings(BaseSettings):
     bridge_state_db_path: str = "/var/lib/hermes-mcp-bridge/state.sqlite3"
     bridge_version: str = "1.0.0"
 
+    # Factory northbound is an additive, owner-controlled surface. It stays
+    # absent by default so the stable 27-tool Bridge contract is unchanged.
+    hermes_factory_northbound_enabled: bool = False
+    hermes_factory_registry_path: str = ""
+
     # Resilience remains disabled by default. Enabling it is an explicit
     # operator decision and therefore does not change request behaviour during
     # an upgrade.
@@ -58,7 +63,7 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _resolve_file_backed_secrets(self) -> "Settings":
-        """Apply ``HERMES_API_KEY_FILE`` precedence and require a key."""
+        """Apply file-backed secrets and enforce explicit Factory activation config."""
 
         if os.environ.get("HERMES_API_KEY_FILE"):
             value = read_secret("HERMES_API_KEY")
@@ -66,6 +71,14 @@ class Settings(BaseSettings):
                 object.__setattr__(self, "hermes_api_key", SecretStr(value))
         if not self.hermes_api_key.get_secret_value():
             raise ValueError("HERMES_API_KEY (or HERMES_API_KEY_FILE) must be configured")
+        if (
+            self.hermes_factory_northbound_enabled
+            and not self.hermes_factory_registry_path.strip()
+        ):
+            raise ValueError(
+                "HERMES_FACTORY_REGISTRY_PATH must be configured when "
+                "HERMES_FACTORY_NORTHBOUND_ENABLED is true"
+            )
         return self
 
 
