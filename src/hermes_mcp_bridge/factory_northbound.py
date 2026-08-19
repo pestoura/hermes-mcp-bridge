@@ -128,6 +128,21 @@ FACTORY_MCP_TOOL_NAMES: tuple[str, ...] = (
 )
 
 
+def configure_factory_northbound(
+    mcp: Any,
+    settings: Any,
+    *,
+    port_factory: Callable[[str], FactoryControlPort] = FactoryLibraryControlPort,
+) -> tuple[str, ...]:
+    """Compose the optional Factory boundary from explicit Bridge settings."""
+    enabled = bool(getattr(settings, "hermes_factory_northbound_enabled", False))
+    if not enabled:
+        return ()
+    registry_path = str(getattr(settings, "hermes_factory_registry_path", ""))
+    port = port_factory(registry_path)
+    return register_factory_northbound_tools(mcp, enabled=True, port=port)
+
+
 def register_factory_northbound_tools(
     mcp: Any,
     *,
@@ -202,5 +217,6 @@ __all__ = [
     "FactoryControlPort",
     "FactoryLibraryControlPort",
     "FactoryNorthboundUnavailable",
+    "configure_factory_northbound",
     "register_factory_northbound_tools",
 ]
