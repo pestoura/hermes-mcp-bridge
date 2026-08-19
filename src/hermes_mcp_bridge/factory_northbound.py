@@ -10,6 +10,9 @@ The default is no registration, preserving the stable 27-tool Bridge baseline.
 from __future__ import annotations
 
 import asyncio
+import importlib
+from collections.abc import Callable
+from pathlib import Path
 from typing import Any, Protocol
 
 
@@ -36,6 +39,85 @@ class FactoryControlPort(Protocol):
         authority_evidence_id: str,
         human_decision_id: str,
     ) -> dict[str, Any]: ...
+
+
+class FactoryLibraryControlPort:
+    """Lazy binding from the Bridge to the installed ``hermes-factory`` package.
+
+    The external caller never supplies an origin. This adapter always constructs
+    ``NorthboundCaller(..., origin=EXTERNAL)`` and delegates to the Factory's own
+    authorization and evidence rules.
+    """
+
+    def __init__(
+        self,
+        registry_path: str,
+        *,
+        module_loader: Callable[[str], Any] = importlib.import_module,
+    ) -> None:
+        normalized_path = registry_path.strip()
+        if not normalized_path:
+            raise FactoryNorthboundUnavailable("Factory registry path is required")
+
+        try:
+            registry_module = module_loader("hermes_factory.traceability.registry")
+            control_module = module_loader("hermes_factory.control.northbound")
+            registry_type = registry_module.SemanticRegistry
+            control_type = control_module.NorthboundControl
+            self._caller_type = control_module.NorthboundCaller
+            self._external_origin = control_module.NorthboundOrigin.EXTERNAL
+            self._action_type = control_module.ProtectedMutationAction
+        except (ImportError, AttributeError) as exc:
+            raise FactoryNorthboundUnavailable(
+                "hermes-factory package does not expose the required northbound contract"
+            ) from exc
+
+        try:
+            self._control = control_type(registry_type(Path(normalized_path)))
+        except Exception as exc:
+            raise FactoryNorthboundUnavailable(
+                "Hermes Factory control port could not initialize its registry"
+            ) from exc
+
+    def _caller(self, principal: str) -> Any:
+        return self._caller_type(principal=principal, origin=self._external_origin)
+
+    def status(self, *, candidate_sha: str, principal: str) -> dict[str, Any]:
+        return self._control.status(
+            candidate_sha=candidate_sha,
+            caller=self._caller(principal),
+        )
+
+    def evidence(self, *, candidate_sha: str, principal: str) -> dict[str, Any]:
+        return self._control.evidence(
+            candidate_sha=candidate_sha,
+            caller=self._caller(principal),
+        )
+
+    def acceptance(self, *, candidate_sha: str, principal: str) -> dict[str, Any]:
+        return self._control.acceptance(
+            candidate_sha=candidate_sha,
+            caller=self._caller(principal),
+        )
+
+    def protected_mutation_intent(
+        self,
+        *,
+        candidate_sha: str,
+        principal: str,
+        action: str,
+        resource: str,
+        authority_evidence_id: str,
+        human_decision_id: str,
+    ) -> dict[str, Any]:
+        return self._control.protected_mutation_intent(
+            action=self._action_type(action),
+            resource=resource,
+            candidate_sha=candidate_sha,
+            caller=self._caller(principal),
+            authority_evidence_id=authority_evidence_id,
+            human_decision_id=human_decision_id,
+        )
 
 
 FACTORY_MCP_TOOL_NAMES: tuple[str, ...] = (
@@ -118,6 +200,7 @@ def register_factory_northbound_tools(
 __all__ = [
     "FACTORY_MCP_TOOL_NAMES",
     "FactoryControlPort",
+    "FactoryLibraryControlPort",
     "FactoryNorthboundUnavailable",
     "register_factory_northbound_tools",
 ]
