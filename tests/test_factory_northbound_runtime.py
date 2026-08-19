@@ -8,6 +8,7 @@ import pytest
 from hermes_mcp_bridge.factory_northbound import (
     FactoryLibraryControlPort,
     FactoryNorthboundUnavailable,
+    configure_factory_northbound,
     register_factory_northbound_tools,
 )
 
@@ -100,7 +101,6 @@ def _factory_module_loader(name: str) -> object:
 def test_factory_runtime_is_absent_by_default() -> None:
     mcp = FakeMCP()
     registered = register_factory_northbound_tools(mcp, enabled=False, port=None)
-
     assert registered == ()
     assert mcp.tools == {}
 
@@ -113,7 +113,6 @@ def test_explicit_enable_without_factory_port_fails_closed() -> None:
 def test_factory_runtime_registers_only_closed_external_surface() -> None:
     mcp = FakeMCP()
     registered = register_factory_northbound_tools(mcp, enabled=True, port=FakeFactoryPort())
-
     assert registered == (
         "factory_acceptance",
         "factory_evidence",
@@ -128,10 +127,8 @@ def test_factory_runtime_registers_only_closed_external_surface() -> None:
 def test_factory_runtime_delegates_read_and_never_executes_mutation() -> None:
     mcp = FakeMCP()
     register_factory_northbound_tools(mcp, enabled=True, port=FakeFactoryPort())
-
     status = asyncio.run(mcp.tools["factory_status"]("sha-1", "operator"))
     assert status["operation"] == "STATUS"
-
     intent = asyncio.run(
         mcp.tools["factory_protected_mutation_intent"](
             "sha-1",
@@ -151,13 +148,11 @@ def test_library_port_lazy_binds_external_origin_and_current_factory_contract() 
         "/var/lib/hermes-factory/factory.sqlite3",
         module_loader=_factory_module_loader,
     )
-
     status = port.status(candidate_sha="sha-1", principal="operator")
     caller = status["caller"]
     assert isinstance(caller, FakeCaller)
     assert caller.principal == "operator"
     assert caller.origin == "EXTERNAL"
-
     intent = port.protected_mutation_intent(
         candidate_sha="sha-1",
         principal="operator",
@@ -180,3 +175,33 @@ def test_library_port_fails_closed_when_factory_package_or_registry_path_is_miss
 
     with pytest.raises(FactoryNorthboundUnavailable, match="hermes-factory"):
         FactoryLibraryControlPort("/factory.db", module_loader=missing_factory)
+
+
+def test_factory_composition_preserves_default_surface_and_builds_port_only_when_enabled() -> None:
+    mcp = FakeMCP()
+    disabled = SimpleNamespace(
+        hermes_factory_northbound_enabled=False,
+        hermes_factory_registry_path="",
+    )
+    created_paths: list[str] = []
+
+    def port_factory(path: str) -> FakeFactoryPort:
+        created_paths.append(path)
+        return FakeFactoryPort()
+
+    assert configure_factory_northbound(mcp, disabled, port_factory=port_factory) == ()
+    assert created_paths == []
+    assert mcp.tools == {}
+
+    enabled = SimpleNamespace(
+        hermes_factory_northbound_enabled=True,
+        hermes_factory_registry_path="/factory/state.sqlite3",
+    )
+    registered = configure_factory_northbound(mcp, enabled, port_factory=port_factory)
+    assert registered == (
+        "factory_acceptance",
+        "factory_evidence",
+        "factory_protected_mutation_intent",
+        "factory_status",
+    )
+    assert created_paths == ["/factory/state.sqlite3"]
