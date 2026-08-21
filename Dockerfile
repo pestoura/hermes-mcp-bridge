@@ -63,8 +63,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 # Runtime dependencies only: TLS trust store for the upstream HTTPS/loopback
 # client. libsqlite3 ships with the base image and is required by the stdlib
-# sqlite3 module used by the state registry. No systemd, no build tooling.
+# sqlite3 module used by the state registry. Apply current Debian security
+# updates before installing runtime dependencies so inherited fixed CVEs are
+# not retained merely because the pinned base digest predates the repository
+# security update. The base image itself remains digest-pinned.
 RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends ca-certificates \
     && update-ca-certificates \
     && apt-get purge -y --auto-remove \
