@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 RUNNER = Path(__file__).parents[1] / "src" / "hermes_mcp_bridge" / "http_runner.py"
 
 
