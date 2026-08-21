@@ -1,0 +1,34 @@
+schemaVersion: jds.change/v1
+kind: ChangeRecord
+id: CHG-BRIDGE-001
+product: hermes-mcp-bridge
+classification: COMPATIBILITY
+state: VALIDATING
+disposition: FIX_NOW
+summary: Add the owner-controlled Hermes Factory northbound control surface to the existing Hermes MCP Bridge, disabled by default so the established 27-tool public runtime contract remains unchanged until explicit operator activation.
+source:
+  type: ENGINEERING_REVIEW
+  campaign: VAL-BRIDGE-FACTORY-NORTHBOUND
+  observation: OBS-FACTORY-NORTHBOUND-CI
+  reference: 'PR #111; integration/factory-northbound-v1; code candidate 5d96f02ca21b29446e0bf01b06087b353fb45c0b'
+affectedRelease: 2.0.0
+targetRelease: 2.1.0
+risk: MEDIUM
+versionEffect: MINOR
+branch: integration/factory-northbound-v1
+issue: null
+pr: 111
+validation:
+  targeted: NOT_RUN
+  regression: NOT_RUN
+  security: NOT_RUN
+  runtime: NOT_RUN
+promotion:
+  commit: null
+  artifactDigest: null
+  previousRelease: 2.0.0
+deferredTo: null
+timestamps:
+  discoveredAt: '2026-08-19T18:05:03Z'
+  updatedAt: '2026-08-19T22:05:00Z'
+  closedAt: null

@@ -1,0 +1,31 @@
+schemaVersion: jds.validation/v1
+kind: ValidationCampaign
+id: VAL-BRIDGE-FACTORY-NORTHBOUND
+product: hermes-mcp-bridge
+objective: Validate the optional Hermes Factory northbound control integration without changing the default 27-tool Bridge contract or granting runtime activation before exact-SHA repository and live evidence exist.
+state: BLOCKED
+candidate:
+  version: 2.1.0
+  commit: 5d96f02ca21b29446e0bf01b06087b353fb45c0b
+  artifactDigest: null
+environment: Hermes MCP Bridge CI and controlled Hermes/Jarvas runtime
+observations:
+  - id: OBS-FACTORY-NORTHBOUND-CI
+    required: true
+    result: BLOCKED
+    status: OPEN
+    summary: Repository validation is not yet executable because CI, secret-scan and JDS-002 jobs for PR #111 fail before the first workflow step and expose no runner logs.
+    changeRecord: CHG-BRIDGE-001
+    evidence: 'PR #111; CI run 32291887345 attempt 3; release-governance run 32291887279; jobs steps=null; logs unavailable BlobNotFound'
+  - id: OBS-FACTORY-NORTHBOUND-RUNTIME
+    required: true
+    result: BLOCKED
+    status: OPEN
+    summary: Factory northbound runtime activation and transport verification remain NOT_RUN; the integration is disabled by default and must not be treated as active until repository gates and controlled runtime checks pass.
+    changeRecord: CHG-BRIDGE-001
+    evidence: 'HERMES_FACTORY_NORTHBOUND_ENABLED=false by default; runtime activation NOT_RUN'
+promotionRecommendation: HOLD
+timestamps:
+  startedAt: '2026-08-19T18:05:03Z'
+  updatedAt: '2026-08-19T22:05:00Z'
+  closedAt: null
